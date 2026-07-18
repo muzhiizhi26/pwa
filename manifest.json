@@ -1,0 +1,37 @@
+{
+  "name": "莫兰迪 AI 陪伴",
+  "short_name": "莫兰迪 AI",
+  "description": "莫兰迪风格的 AI 情绪伴侣与聊天对话应用",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F5F0F0",
+  "theme_color": "#E6DCD0",
+  "icons": [
+    {
+      "src": "emotions/calm.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "emotions/gentle.webp",
+      "sizes": "512x512",
+      "type": "image/webp"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "进入群聊",
+      "short_name": "群聊",
+      "description": "快捷打开多AI群聊",
+      "url": "/#group"
+    },
+    {
+      "name": "查看日记",
+      "short_name": "日记",
+      "description": "快捷进入陪伴日记",
+      "url": "/#diary"
+    }
+  ]
+}

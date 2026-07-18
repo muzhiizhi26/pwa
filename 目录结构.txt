@@ -1,0 +1,53 @@
+index.html
+server.js
+sw.js
+package.json
+manifest.json
+metadata.json
+.env.example
+目录结构.txt
+
+css/
+  style.css
+
+api/
+  song.js
+
+emotions/
+  angry.webp
+  anxious.webp
+  calm.webp
+  excited.webp
+  gentle.webp
+  happy.webp
+  love.webp
+  sad.webp
+  thinking.webp
+
+js/
+  attention-manager.js
+  call.js
+  chat.js
+  code-analyzer.js
+  config.js
+  diary.js
+  ebook.js
+  emotion.js
+  evolution.js
+  group.js
+  imagegen.js
+  launcher.js
+  main.js
+  memory-bridge.js
+  memory-tiers.js
+  memory.js
+  music.js
+  narrative.js
+  proactive.js
+  project-context.js
+  relationship.js
+  rhythm-engine.js
+  settings.js
+  songcraft.js
+  utils.js
+  voice.js

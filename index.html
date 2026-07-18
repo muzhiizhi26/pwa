@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>莫兰迪 AI 陪伴</title>
+<meta name="theme-color" content="#E6DCD0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="AI聊天">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="emotions/calm.webp">
+<link rel="stylesheet" href="css/style.css?v=20260708">
+</head>
+<body>
+
+<!-- ===== 桌面启动器 ===== -->
+<div class="launcher" id="launcher"></div>
+
+<!-- ===== 主聊天 ===== -->
+<div class="chat-app">
+<header class="chat-header">
+    <div class="header-left">
+        <div class="brand-avatar" id="brandAvatar" onclick="showAiEmotionBurst()" title="点击查看 AI 情绪"><span>🤖</span></div>
+        <div class="header-title-area" id="headerTitleArea" style="cursor: pointer; display: flex; align-items: center; gap: 4px;" onclick="toggleAiSwitcher(event)">
+            <span class="header-ai-name" id="headerAiName">主AI</span>
+            <span class="header-ai-dropdown-arrow" style="font-size: 10px; color: var(--text-sub);">▾</span>
+        </div>
+        <button class="icon-btn" id="modelCardBtn" onclick="toggleModelPopover(event)" title="选择模型">🧠</button>
+        <button class="icon-btn" id="relationCardBtn" onclick="switchMainTab('relation')" title="我们">💖</button>
+    </div>
+    <div class="header-controls">
+        <button class="icon-btn" onclick="showLauncher()" title="桌面">🏠</button>
+        <button class="icon-btn" id="voiceToggleBtn" onclick="toggleVoiceMaster()" title="语音开关">🔇</button>
+        <button class="icon-btn" onclick="toggleSearch()" title="搜索">🔍</button>
+    </div>
+</header>
+<div class="model-popover" id="modelPopover"></div>
+<div class="ai-switcher-popover" id="aiSwitcherPopover"></div>
+<div class="search-bar" id="searchBar">
+    <input type="text" id="searchInput" placeholder="搜索聊天记录..." oninput="runSearch()">
+    <span class="search-nav" id="searchNav">0/0</span>
+    <button onclick="searchStep(-1)">↑</button><button onclick="searchStep(1)">↓</button><button onclick="toggleSearch()">✕</button>
+</div>
+<div class="search-results" id="searchResults"></div>
+<div class="select-bar" id="selectBar">
+    <span class="sb-info" id="selInfo">已选 0 条</span>
+    <button onclick="selectAllMsgs()">全选</button><button onclick="copySelected()">复制</button>
+    <button class="danger" onclick="deleteSelected()">删除</button><button onclick="exitSelectMode()">取消</button>
+</div>
+<main class="chat-messages" id="chatMessages"></main>
+<div class="quote-preview" id="quotePreview"><span class="quote-text" id="quoteText"></span><button class="quote-close" onclick="clearQuote()">✕</button></div>
+<div class="input-wrapper">
+    <button class="icon-btn" onclick="toggleActionMenu()">＋</button>
+    <button class="icon-btn mic-btn" id="micBtn" title="按住说话">🎤</button>
+    <div class="input-container"><textarea id="messageInput" placeholder="输入消息..." rows="1" oninput="autoResize(this)"></textarea></div>
+    <button class="icon-btn send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+</div>
+<div class="action-menu" id="actionMenu">
+    <button onclick="startCall()">📞 语音通话</button>
+    <button id="genImgMenuBtn" onclick="openImgGen()">🎨 生成图片</button>
+    <button id="songMenuBtn" onclick="openSongCraft()">🎼 创作歌曲</button>
+    <button onclick="openEbook()">📖 阅读电子书</button>
+    <button onclick="openGroupChat()">👥 群聊</button>
+    <button onclick="openDiary()">📔 日记</button>
+    <button onclick="openCodeAnalyzer()">📦 代码分析</button>
+    <button onclick="triggerFileInput('imageFileInput')">🖼️ 发送图片</button>
+    <button onclick="openTokenPanel()">📊 Token 估算</button>
+    <button onclick="openCompressDialog()">🗜️ 压缩对话</button>
+    <button onclick="triggerFileInput('memoryFileInput')">📂 导入记忆</button>
+    <button onclick="manualBackup()">💾 立即备份</button>
+</div>
+</div>
+<!-- ===== 主聊天到此闭合 ===== -->
+
+<!-- ===== 全局隐藏文件输入 ===== -->
+<input type="file" id="groupImageInput" accept="image/*" class="hidden" onchange="handleGroupImage(this)">
+<input type="file" id="imageFileInput" accept="image/*" class="hidden" onchange="handleImage(this)">
+<input type="file" id="memoryFileInput" accept=".txt,.json" class="hidden" onchange="handleMemory(this)">
+<input type="file" id="aiAvatarInput" accept="image/*" class="hidden" onchange="handleAvatar(this,'ai')">
+<input type="file" id="userAvatarInput" accept="image/*" class="hidden" onchange="handleAvatar(this,'user')">
+<input type="file" id="bgInput" accept="image/*" class="hidden" onchange="handleBg(this)">
+<input type="file" id="genInitInput" accept="image/*" class="hidden" onchange="handleGenInit(this)">
+<input type="file" id="launcherBgInput" accept="image/*" class="hidden" onchange="handleLauncherBg(this)">
+<input type="file" id="launcherIconInput" accept="image/*" class="hidden" onchange="handleLauncherIcon(this)">
+<input type="file" id="ebookFileInput" accept=".txt" class="hidden" onchange="handleEbookFile(this)">
+<input type="file" id="groupBgInput" accept="image/*" class="hidden" onchange="handleGroupBg(this)">
+<input type="file" id="groupAvatarInput" accept="image/*" class="hidden" onchange="handleGroupAvatar(this)">
+
+<!-- ===== 右键 / 长按菜单 ===== -->
+<div class="context-menu" id="contextMenu">
+    <button onclick="ctxCopy()">📋 复制</button><button onclick="ctxSpeak()">🔊 朗读</button>
+    <button onclick="ctxEdit()">✏️ 修改</button><button onclick="ctxRetry()">🔄 重新生成</button>
+    <button onclick="ctxQuote()">💬 引用</button><button onclick="ctxMultiSelect()">☑️ 多选</button>
+    <button class="danger" onclick="ctxDelete()">🗑️ 删除</button>
+</div>
+
+<!-- ===== 设置 ===== -->
+<div class="settings-overlay" id="settingsOverlay" onclick="closeSettingsOnOverlay(event)">
+    <div class="settings-container" onclick="event.stopPropagation()">
+        <aside class="settings-sidebar"><div class="sidebar-header">设置</div><div class="sidebar-list" id="providerList"></div><div class="sidebar-add" onclick="addProvider()">+ 添加服务商</div></aside>
+        <section class="settings-detail"><div class="detail-header"><h2 id="detailTitle">设置</h2></div><div class="detail-body" id="detailBody"></div>
+        <div class="detail-footer"><button class="footer-btn footer-btn-secondary" onclick="closeSettings()">关闭</button><button class="footer-btn footer-btn-primary" onclick="saveCurrentSection()">💾 保存</button></div></section>
+    </div>
+</div>
+
+<!-- ===== Token ===== -->
+<div class="memo-panel" id="tokenPanel" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="memo-container" style="max-width:380px;">
+        <div class="memo-header"><h3>📊 Token 使用量估算</h3><button class="icon-btn" style="width:30px;height:30px;font-size:14px;" onclick="document.getElementById('tokenPanel').classList.remove('show')">✕</button></div>
+        <div class="memo-body" id="tokenBody"></div>
+        <div class="memo-footer"><label class="switch-label" style="display:flex;align-items:center;gap:6px;">自动压缩 (本会话)<label class="switch"><input type="checkbox" id="autoCompressChk" onchange="setBool('auto_compress',this.checked)"><span class="switch-slider"></span></label></label><button class="footer-btn footer-btn-primary" onclick="openCompressDialog()">压缩对话</button></div>
+    </div>
+</div>
+
+<!-- ===== 压缩 ===== -->
+<div class="memo-panel" id="compressPanel" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="memo-container" style="max-width:340px;">
+        <div class="memo-header"><h3>🗜️ 压缩对话</h3><button class="icon-btn" style="width:30px;height:30px;font-size:14px;" onclick="document.getElementById('compressPanel').classList.remove('show')">✕</button></div>
+        <div class="memo-body"><p style="font-size:13px;line-height:1.7;color:var(--text-main);">这将总结当前对话并开始一个新会话，使用压缩后的上下文。继续？</p></div>
+        <div class="memo-footer" style="justify-content:flex-end;"><button class="footer-btn footer-btn-secondary" onclick="document.getElementById('compressPanel').classList.remove('show')">取消</button><button class="footer-btn footer-btn-primary" onclick="doCompress()">确认</button></div>
+    </div>
+</div>
+
+<!-- ===== 生图 ===== -->
+<div class="imggen-panel" id="imgGenPanel" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="imggen-box">
+        <h3>🎨 生成图片</h3>
+        <textarea id="imgGenPrompt" placeholder="描述要生成的图片（建议英文，效果更好）"></textarea>
+        <div class="imggen-initprev" id="imgInitPrev"><img id="imgInitThumb" src=""><span style="font-size:11px;color:var(--text-sub);">图生图原图（保持原图不压缩）</span><button class="del-x" onclick="clearGenInit()">✕</button></div>
+        <div class="imggen-actions">
+            <button class="footer-btn footer-btn-secondary" onclick="triggerFileInput('genInitInput')">🖼️ 上传原图</button>
+            <button class="footer-btn footer-btn-secondary" onclick="document.getElementById('imgGenPanel').classList.remove('show')">取消</button>
+            <button class="footer-btn footer-btn-primary" onclick="runImgGen()">生成</button>
+        </div>
+        <div class="form-hint" style="margin-top:8px;" id="imgGenModeHint"></div>
+    </div>
+</div>
+
+<!-- ===== 歌曲创作 ===== -->
+<div class="memo-panel" id="songPanel" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="memo-container" style="max-width:520px;">
+        <div class="memo-header"><h3>🎼 和 AI 一起创作歌曲</h3><button class="icon-btn" style="width:30px;height:30px;font-size:14px;" onclick="closeSongCraft()">✕</button></div>
+        <div class="memo-body">
+            <div class="form-group"><label class="form-label">主题 / 修改要求</label><input type="text" class="form-input" id="songTheme" placeholder="如：写一段关于夏天海边的歌词"></div>
+            <div class="action-buttons" style="border-top:none;margin-top:0;padding-top:0;"><button class="btn btn-info" onclick="aiWriteLyrics()">✍️ AI 写词 / 改词</button></div>
+            <div class="form-group" style="margin-top:10px;"><label class="form-label">歌词</label><textarea class="form-input" id="songLyrics" rows="8" placeholder="[verse]...\n[chorus]..."></textarea></div>
+            <div class="form-group"><label class="form-label">曲风</label><input type="text" class="form-input" id="songStyle" placeholder="流行 温暖 抒情"></div>
+        </div>
+        <div class="memo-footer" style="justify-content:flex-end;"><button class="footer-btn footer-btn-secondary" onclick="closeSongCraft()">关闭</button><button class="footer-btn footer-btn-primary" id="songGenBtn" onclick="generateSong()">🎼 生成旋律</button></div>
+    </div>
+</div>
+
+<!-- ===== 阅读（书架/阅读/笔记 三态）===== -->
+<div class="memo-panel" id="ebookPanel" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="memo-container" style="max-width:600px;height:86vh;">
+        <div class="memo-header">
+            <button class="icon-btn" onclick="ebookBack()" style="width:30px;height:30px;font-size:16px;">‹</button>
+            <h3 id="ebookTitle" style="flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📚 书架</h3>
+            <button class="icon-btn" onclick="closeEbook()" style="width:30px;height:30px;font-size:14px;">✕</button>
+        </div>
+        <div class="memo-body" id="ebookBody"></div>
+        <div class="memo-footer" id="ebookFoot" style="gap:6px;flex-wrap:wrap;"></div>
+    </div>
+</div>
+
+<div class="image-viewer" id="imageViewer" onclick="closeImageViewer()"><img id="viewerImg" src=""></div>
+<div class="call-overlay" id="callOverlay">
+    <div class="call-avatar" id="callAvatar">🤖</div><div class="call-status" id="callStatus">正在连接...</div><div class="call-timer" id="callTimer"></div><div class="call-sub" id="callSub"></div>
+    <div class="call-controls"><button class="call-btn call-mute" id="callMute" onclick="toggleCallMute()">🎤</button><button class="call-btn call-hangup" onclick="endCall()">📵</button></div>
+    <div class="call-start-gate" id="callGate"><div style="font-size:48px;">📞</div><div class="call-status">准备通话</div><p>点击开始通话，iOS 设备需此操作授权语音播放与麦克风。通话期间将尝试保持屏幕常亮以维持语音。</p><button class="gate-btn" onclick="confirmStartCall()">🎙️ 开始通话</button><button class="footer-btn footer-btn-secondary" onclick="endCall()">取消</button></div>
+</div>
+<div class="call-end-toast" id="callEndToast"><div class="call-end-box" id="callEndBox"></div></div>
+<div class="emotion-burst" id="emotionBurst"><img id="burstImg" src=""><span class="bl" id="burstLabel"></span></div>
+<div class="toast" id="toast"></div>
+
+<!-- ===== 群聊（全屏，独立于 chat-app）===== -->
+<div class="chat-fullpanel" id="groupPanel">
+    <div class="cf-header">
+        <button class="icon-btn" onclick="closeGroupChat()" style="width:38px;height:38px;font-size:18px;">‹</button>
+        <span class="cf-title">👥 群聊</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+            <button class="g-auto-btn" id="gAutoBtn" onclick="groupAutoChat()" title="让AI们自由接话聊天"><span>🤖</span> 让AI聊聊</button>
+            <button class="icon-btn" onclick="openGroupRelationGraph()" title="AI社会网络关系图" style="width:38px;height:38px;font-size:16px;">🕸️</button>
+            <button class="icon-btn" onclick="startGroupVoiceCall()" title="群聊语音通话" style="width:38px;height:38px;font-size:16px;">📞</button>
+            <button class="icon-btn" onclick="openSettings();settingsMode='group';renderProviderList();renderGroupSettings();" style="width:38px;height:38px;font-size:16px;" title="群设置">⚙️</button>
+        </div>
+    </div>
+    <div class="chat-messages" id="groupMessages"></div>
+    <div class="quote-preview" id="groupQuotePreview"><span class="quote-text" id="groupQuoteText"></span><button class="quote-close" onclick="gClearQuote()">✕</button></div>
+    <div class="input-wrapper">
+        <button class="icon-btn" onclick="triggerFileInput('groupImageInput')" title="发送图片">🖼️</button>
+        <button class="icon-btn mic-btn" id="groupMicBtn" title="按住说话">🎤</button>
+        <div class="input-container"><textarea id="groupInput" placeholder="对大家说…（@名字 可点名）" rows="1" oninput="autoResize(this)"></textarea></div>
+        <button class="icon-btn send-btn" onclick="sendGroupMessage()">➤</button>
+    </div>
+</div>
+
+<!-- ===== 日记（全屏，独立于 chat-app）===== -->
+<div class="chat-fullpanel" id="diaryPanel">
+    <div class="cf-header"><button class="icon-btn" onclick="closeDiary()" style="width:38px;height:38px;font-size:18px;">‹</button><span class="cf-title">📔 日记</span><span style="width:38px;"></span></div>
+    <div class="diary-tabs"></div>
+    <div class="diary-list" id="diaryList"></div>
+    <div class="input-wrapper" style="gap:8px;">
+        <button class="footer-btn footer-btn-secondary" style="flex:1;" onclick="writeUserDiary()">✍️ 写日记</button>
+        <button class="footer-btn footer-btn-primary" style="flex:1;" onclick="aiWriteDiary()">🤖 让 AI 写一篇</button>
+    </div>
+</div>
+
+<!-- ===== 代码压缩包分析（全屏，独立于 chat-app）===== -->
+<div class="chat-fullpanel" id="codeAnalyzerPanel">
+    <div class="cf-header">
+        <button class="icon-btn" onclick="closeCodeAnalyzer()" style="width:38px;height:38px;font-size:18px;">‹</button>
+        <span class="cf-title">📦 代码压缩包分析</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+            <select id="caProjectSelect" class="ca-select" onchange="onCaProjectChange(this.value)">
+                <option value="">-- 选择已解析项目 --</option>
+            </select>
+            <button class="icon-btn" onclick="document.getElementById('caZipFileInput').click()" title="上传新 ZIP 项目">📤</button>
+            <button class="icon-btn danger" onclick="deleteCurrentCaProject()" title="删除当前项目" style="color:#8B5A4B;">🗑️</button>
+        </div>
+    </div>
+    
+    <div class="ca-workspace">
+        <aside class="ca-sidebar" id="caSidebar">
+            <div class="ca-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>📁 项目目录结构</span>
+                <div style="display:flex; gap:6px; align-items:center;" id="caTreeActions">
+                    <button class="ca-action-text-btn" onclick="toggleAllCaPins(true)" style="font-size:11px; cursor:pointer; background:none; border:none; color:#8C6239; font-weight:bold; padding:2px 4px;">全选</button>
+                    <span style="color:#D6C4B2; font-size:11px;">|</span>
+                    <button class="ca-action-text-btn" onclick="toggleAllCaPins(false)" style="font-size:11px; cursor:pointer; background:none; border:none; color:#8C6239; font-weight:bold; padding:2px 4px;">清空</button>
+                </div>
+            </div>
+            <div class="ca-file-tree" id="caFileTree">
+                <div class="ca-empty-tree-tip">请在顶部点击 📤 上传一个 ZIP 压缩包项目，或选择已解析项目。</div>
+            </div>
+            
+            <div class="ca-section-title">📊 解析概览 & Token 估算</div>
+            <div class="ca-stats-panel">
+                <div class="ca-stat-item"><span>代码文件数:</span> <strong id="caStatFiles">0</strong></div>
+                <div class="ca-stat-item"><span>选中(Pin)文件:</span> <strong id="caStatPinned">0</strong></div>
+                <div class="ca-stat-item"><span>上下文 Token 估算:</span> <strong id="caStatTokens">0</strong></div>
+            </div>
+            <div class="ca-tip-box">
+                💡 <b>提示:</b> 展开目录树点击 📌 可以强制将该文件包含在 AI 上下文中。默认会根据问题自动检索最相关的文件。
+            </div>
+        </aside>
+        
+        <section class="ca-main">
+            <div class="ca-suggestion-chips" id="caSuggestionChips" style="display: none;">
+                <button onclick="sendCaPresetQuery('请分析这个项目架构')">🏗️ 分析架构</button>
+                <button onclick="sendCaPresetQuery('找出代码中潜在的 bug')">🐛 寻找潜在 Bug</button>
+                <button onclick="sendCaPresetQuery('给出该项目的代码优化建议')">⚡ 优化建议</button>
+                <button onclick="sendCaPresetQuery('分析该项目的依赖关系')">🔗 依赖分析</button>
+            </div>
+            
+            <div class="ca-chat-messages" id="caChatMessages">
+                <div class="ca-welcome-msg">
+                    <h3>👋 欢迎使用代码压缩包分析助手</h3>
+                    <p>上传 ZIP 代码压缩包后，我会在前端解析所有的源文件结构，并基于您的提问<b>动态、智能地检索相关代码段</b>进行精确分析。这样既能理解大型项目的架构，又不会超出 AI 的上下文限制。</p>
+                    <ul>
+                        <li><b>纯前端解压：</b> 您的代码绝不会上传到任何文件存储服务器，完全安全私密。</li>
+                        <li><b>智能上下文聚焦：</b> 结合“目录结构 RAG 索引”与“关联性检索”，自动抓取关键模块。</li>
+                        <li><b>手动钉选支持：</b> 展开左侧文件树，点击 📌 确保该文件常驻上下文。</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="ca-input-wrapper">
+                <div class="ca-input-container">
+                    <textarea id="caMessageInput" placeholder="输入关于当前代码项目的问题...（例如：解释 api.js 的登录流程）" rows="2" onkeydown="handleCaInputKeyDown(event)"></textarea>
+                </div>
+                <button class="ca-send-btn" id="caSendBtn" onclick="sendCaQuery()">分析 ➤</button>
+            </div>
+        </section>
+    </div>
+</div>
+
+<input type="file" id="caZipFileInput" accept=".zip" style="display: none;" onchange="handleCaZipUpload(this)">
+
+<script src="js/config.js?v=20260708"></script>
+<script src="js/utils.js?v=20260708"></script>
+<script src="js/memory.js?v=20260708"></script>
+<script src="js/memory-tiers.js?v=20260708"></script>
+<script src="js/attention-manager.js?v=20260714"></script>
+<script src="js/rhythm-engine.js?v=20260714"></script>
+<script src="js/narrative.js?v=20260714"></script>
+<script src="js/memory-bridge.js?v=20260714"></script>
+<script src="js/relationship.js?v=20260714"></script>
+<script src="js/evolution.js?v=20260714"></script>
+<script src="js/runtime/memory/memory-node.js?v=20260716"></script>
+<script src="js/runtime/memory/memory-graph.js?v=20260716"></script>
+<script src="js/runtime/runtime.js?v=20260716"></script>
+<script src="js/runtime/models/user-model.js?v=20260716"></script>
+<script src="js/runtime/models/relationship-model.js?v=20260716"></script>
+<script src="js/emotion.js?v=20260708"></script>
+<script src="js/voice.js?v=20260708"></script>
+<script src="js/call.js?v=20260708"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="js/proactive.js?v=20260708"></script>
+<script src="js/launcher.js?v=20260708"></script>
+<script src="js/settings.js?v=20260708"></script>
+<script src="js/orchestrator.js?v=20260718"></script>
+<script src="js/chat.js?v=20260708"></script>
+<script src="js/moments.js?v=20260717"></script>
+<script src="js/tabs.js?v=20260717"></script>
+<script src="js/main.js?v=20260708"></script>
+<input type="file" id="aiAvatarInput" accept="image/*" class="hidden" onchange="handleAvatar(this, 'ai')">
+</body>
+</html>

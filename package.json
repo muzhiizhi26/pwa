@@ -1,0 +1,17 @@
+{
+  "name": "morandi-ai-companion",
+  "version": "1.0.0",
+  "description": "莫兰迪风格的 AI 情绪伴侣与聊天对话应用",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "echo 'No build step required'",
+    "start": "node server.js",
+    "lint": "echo 'No lint step required'"
+  },
+  "dependencies": {
+    "@google/genai": "^2.11.0",
+    "express": "^4.19.2"
+  }
+}
