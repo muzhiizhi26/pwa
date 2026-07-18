@@ -1,20 +1,64 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# 莫兰迪 AI 陪伴 (PWA)
 
-# Run and deploy your AI Studio app
+一个纯前端的 AI 陪伴应用，拥有多层记忆、情绪感知、语音通话、音乐点歌、AI 作曲、生图、群聊等功能。采用莫兰迪色系，界面温和平静，适合个人长期使用。
 
-This contains everything you need to run your app locally.
+## 在线体验
+📱 **地址**：`pwa-ee5.pages.dev`（请替换为你的实际域名）
 
-View your app in AI Studio: https://ai.studio/apps/7aeb1a04-b823-434b-a72d-d03c5cbaccb7
+- 支持浏览器直接访问，也可在手机浏览器中「添加到主屏幕」获得原生 App 体验。
+- 语音通话、音乐点歌等功能需要 HTTPS 环境，部署到 Cloudflare Pages 或类似平台即可。
 
-## Run Locally
+## 主要功能
 
-**Prerequisites:**  Node.js
+### 🧠 三层记忆系统
+- **短期上下文**：保留最近若干轮对话，保持连贯。
+- **中期记忆**：自动提取近 7 天对话摘要，按话题分点注入。
+- **长期档案**：固定注入的永久记忆，包含用户基本信息、关系阶段、偏好等，支持手动编辑和 AI 自动更新。
+- **RAG 向量召回**：基于语义相似度的长期记忆检索，带情绪标签和遗忘曲线。
 
+### 🎭 情绪系统
+- 10 种情绪检测（愉快、兴奋、心动、温柔、平静、思考、低落、生气、焦虑、疲惫）。
+- AI 和用户双端情绪显示，AI 情绪变化时弹窗展示卡通表情。
+- 情绪影响 AI 回复语气。
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 📞 语音通话
+- 按住录音 + 整句识别，支持语音打断。
+- 基于 AudioWorklet 的实时 VAD 检测。
+- 通话计时、静音、挂断等功能。
+
+### 🎵 在线音乐（网易云）
+- 支持搜索歌名 / 歌手点歌，自动播放。
+- 多源回退：API 直链 → 音频代理 → 外链兜底。
+- 可接入自己的 Cloudflare Worker 代理，注入 VIP Cookie 获得无损音质。
+- AI 可推荐歌曲，回复中附带播放按钮。
+
+### 🎼 AI 歌曲创作
+- AI 辅助写词，MiniMax 音乐生成（需自行部署 Worker 代理）。
+- 异步任务轮询，支持长时间生成不超时。
+
+### 🎨 图片生成
+- 支持免费 Pollinations 生成，也可接入 Gemini / OpenAI 收费接口。
+- 图生图功能（上传原图保留风格）。
+
+### 📔 日记与电子书
+- AI 可主动写日记（需开启开关）。
+- 上传 TXT 电子书，AI 陪读并可讨论章节内容。
+
+### 👥 群聊
+- 管理多个 AI 角色，可指定不同服务商和模型。
+- 群内 @点名、AI 自动聊天等功能。
+
+### 🏠 桌面启动器
+- 自定义图标和背景，快速访问各功能模块。
+
+### ⚙️ 其他
+- 搜索聊天记录（支持高亮和锚点跳转）。
+- 备忘录、Token 估算、对话压缩。
+- 每日自动备份。
+- 全功能设置面板，可自由配置 API Key、模型、偏好等。
+
+## 技术架构
+- **纯前端**：HTML / CSS / JavaScript，无框架，无构建工具。
+- **模块化**：按功能拆分为独立 JS 文件，方便维护和扩展。
+- **存储**：localStorage + IndexedDB（向量记忆）。
+- **跨域与代理**：通过 Cloudflare Worker 或 Vercel Edge Function 解决 API 鉴权和跨域问题。
