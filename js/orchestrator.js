@@ -63,6 +63,9 @@ window.ContextManager = {
 window.AIOrchestrator = {
   _activeRequests: new Map(), // Keep track of ongoing requests to prevent duplicates
   _agentRoles: {}, // memberId -> { response_generation: boolean, description: string }
+  _queue: [], // Queue for pending requests: [{ messages, options, resolve, reject, fingerprint }]
+  _activeCount: 0, // Number of current running requests
+  _maxConcurrency: 2, // Maximum concurrent API requests to avoid overload/rate-limits
 
   // Set permissions for an agent
   setAgentRole(memberId, canGenerateResponse, description = '') {
@@ -76,8 +79,8 @@ window.AIOrchestrator = {
     return this._agentRoles[memberId] || { response_generation: true, description: 'Default AI Partner' };
   },
 
-  // Central LLM caller that handles deduplication and role restrictions
-  async requestCompletion(messages, { temperature, callerId = 'unknown', force = false, provider, model } = {}) {
+  // Central LLM caller that handles deduplication, role restrictions, queuing, and prioritization
+  async requestCompletion(messages, { temperature, callerId = 'unknown', force = false, provider, model, priority } = {}) {
     const role = this.getAgentRole(callerId);
     if (!role.response_generation && !force) {
       console.log(`[AIOrchestrator] Request rejected: Agent ${callerId} does not have response generation capability.`);
@@ -89,28 +92,77 @@ window.AIOrchestrator = {
                               (temperature != null ? `_t_${temperature}` : '') + 
                               (provider ? `_p_${provider.id}` : '') + 
                               (model ? `_m_${model}` : '');
+    
     if (this._activeRequests.has(promptFingerprint)) {
       console.log(`[AIOrchestrator] Duplicate request intercepted for ${callerId}. Returning active promise.`);
       return this._activeRequests.get(promptFingerprint);
     }
 
-    console.log(`[AIOrchestrator] Dispatching LLM Request for: ${callerId}`);
-    const promise = (async () => {
-      try {
-        if (typeof llmCompleteRaw === 'function') {
-          return await llmCompleteRaw(messages, { temperature, provider, model });
-        } else if (typeof llmComplete === 'function') {
-          return await llmComplete(messages, { temperature, provider, model });
-        } else {
-          throw new Error('Global llmComplete/llmCompleteRaw function not found.');
-        }
-      } finally {
-        this._activeRequests.delete(promptFingerprint);
+    // Determine priority if not explicitly specified
+    // 10: High/Interactive (Main chat AI, Group member replies)
+    // 5: Normal/Secondary (Proactive triggers, settings optimization)
+    // 1: Low/Background (Diary writer, Memory analysis, consolidation)
+    let finalPriority = priority;
+    if (finalPriority == null) {
+      if (callerId === 'main' || callerId === 'group' || callerId.startsWith('g') || callerId === 'user') {
+        finalPriority = 10;
+      } else if (callerId === 'unknown' || callerId.includes('analysis') || callerId.includes('proactive') || callerId.includes('moment')) {
+        finalPriority = 1;
+      } else {
+        finalPriority = 5;
       }
-    })();
+    }
+
+    console.log(`[AIOrchestrator] Enqueuing LLM request from caller: ${callerId} with Priority: ${finalPriority}`);
+
+    const promise = new Promise((resolve, reject) => {
+      this._queue.push({
+        messages,
+        options: { temperature, callerId, force, provider, model },
+        priority: finalPriority,
+        resolve,
+        reject,
+        fingerprint: promptFingerprint
+      });
+      // Sort queue by priority descending (highest priority first)
+      this._queue.sort((a, b) => b.priority - a.priority);
+      this._processQueue();
+    });
 
     this._activeRequests.set(promptFingerprint, promise);
     return promise;
+  },
+
+  async _processQueue() {
+    if (this._activeCount >= this._maxConcurrency || this._queue.length === 0) {
+      return;
+    }
+
+    const item = this._queue.shift();
+    this._activeCount++;
+
+    console.log(`[AIOrchestrator] Executing LLM request for ${item.options.callerId}. Active: ${this._activeCount}/${this._maxConcurrency}`);
+
+    (async () => {
+      try {
+        let result = '';
+        if (typeof llmCompleteRaw === 'function') {
+          result = await llmCompleteRaw(item.messages, item.options);
+        } else if (typeof llmComplete === 'function') {
+          result = await llmComplete(item.messages, item.options);
+        } else {
+          throw new Error('Global llmComplete/llmCompleteRaw function not found.');
+        }
+        item.resolve(result);
+      } catch (err) {
+        item.reject(err);
+      } finally {
+        this._activeCount--;
+        this._activeRequests.delete(item.fingerprint);
+        console.log(`[AIOrchestrator] LLM request finished. Active count decreased to: ${this._activeCount}`);
+        this._processQueue();
+      }
+    })();
   }
 };
 
@@ -127,12 +179,25 @@ window.MemoryOrchestration = {
     // Low value / extremely short input
     if (u.length < 5) return false;
 
-    // Common non-substantive words
-    const noiseWords = ['嗯', '哦', '啊', '哈', '对', '错', '行', '好的', '是的', '没有', '好吧', '原来如此', '没事', '差不多', '不知道', '随便', '1', '2', 'ok', 'no', 'yes'];
-    if (noiseWords.includes(u.toLowerCase())) return false;
+    // Common non-substantive noise words & Chinese chat fillers
+    const noiseWords = [
+      '嗯', '哦', '啊', '哈', '对', '错', '行', '好的', '是的', '没有', '好吧', '原来如此', '没事', '差不多', '不知道', '随便', '1', '2', 'ok', 'no', 'yes', 'okey',
+      '哈哈', '哈哈哈', '哈哈哈哈', '嘿嘿', '嘻嘻', '呵呵', '嗷嗷', '嘤嘤', '吃了吗', '在干嘛', '在吗', '早安', '晚安', '中午好', '下午好', '拜拜', '再见', '加油', '摸摸',
+      '吃饭了没', '写代码', '测试', 'hello', 'hi', 'hey', '你好'
+    ];
+    
+    const lowerU = u.toLowerCase();
+    if (noiseWords.some(noise => lowerU === noise || lowerU.includes(noise) && u.length < 8)) {
+      return false;
+    }
 
-    // Core keyword filters
-    const keywords = ['记住', '忘记', '生日', '名字', '叫我', '职业', '工作', '宠物', '喜欢', '讨厌', '爱', '恨', '打算', '计划', '下周', '明天', '今天', '旅行', '准备', '考试', '累', '难过', '伤心', '开心', '生病', '秘密', '我们', '家庭', '朋友', '以前', '最近', '目前', '发现', '其实我'];
+    // Filter repetitive laughter sequences (e.g., "哈哈哈哈", "呵呵呵呵", "嘿嘿嘿")
+    if (/^[哈|嘿|嘻|呵|哟|哇|喔|哼|呀|哇|噢|且|啦|吧|呢\s!！?？.~，,。]+$/g.test(u)) {
+      return false;
+    }
+
+    // Core keyword filters that denote substantive emotional, relational, or factual milestones
+    const keywords = ['记住', '忘记', '生日', '名字', '叫我', '职业', '工作', '宠物', '喜欢', '讨厌', '爱', '恨', '打算', '计划', '下周', '明天', '今天', '旅行', '准备', '考试', '累', '难过', '伤心', '开心', '生病', '秘密', '我们', '家庭', '朋友', '以前', '最近', '目前', '发现', '其实我', '理想', '梦想', '童年', '过去', '将来', '承诺'];
     
     // Substantially long user inputs (indicating a narrative/story) or very long AI replies likely contain core memory nodes
     if (u.length > 45 || r.length > 120) return true;

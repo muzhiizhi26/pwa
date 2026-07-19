@@ -1,7 +1,7 @@
 /* ===== 服务商核心 ===== */
 function loadProviders(){let s=localStorage.getItem('ai_providers');if(s){try{providers=JSON.parse(s);}catch(e){providers=[];}}if(!providers.length){providers=JSON.parse(JSON.stringify(DEFAULT_PROVIDERS));}providers=providers.filter(p=>p.id!=='gemini_proxy'&&p.id!=='openai'&&p.id!=='claude');const fi=providers.findIndex(p=>p.id==='free');if(fi>=0)providers[fi]=JSON.parse(JSON.stringify(FREE_PROVIDER));else providers.unshift(JSON.parse(JSON.stringify(FREE_PROVIDER)));saveProviders();}
 function saveProviders(){localStorage.setItem('ai_providers',JSON.stringify(providers));}
-function loadSettings(){currentProviderId=localStorage.getItem('current_provider')||'free';selectedModelName=localStorage.getItem('selected_model')||'';let p=getProvider(currentProviderId);if(!p){currentProviderId=providers[0]?.id||'free';p=getProvider(currentProviderId);selectedModelName='';}if(p?.models.length&&!selectedModelName)selectedModelName=p.models[0].name;}
+function loadSettings(){currentProviderId=localStorage.getItem('current_provider')||'free';selectedModelName=localStorage.getItem('selected_model')||'';let p=getProvider(currentProviderId);if(!p){currentProviderId=providers[0]?.id||'free';p=getProvider(currentProviderId);selectedModelName='';}if(p?.models.length){const hasModel=p.models.some(m=>m.name===selectedModelName);if(!hasModel||!selectedModelName){selectedModelName=p.models[0].name;saveSettings();}}}
 function saveSettings(){localStorage.setItem('current_provider',currentProviderId);localStorage.setItem('selected_model',selectedModelName);}
 function getProvider(id){return providers.find(p=>p.id===id);}
 function getCurrentProvider(){return getProvider(currentProviderId)||providers[0];}
@@ -500,19 +500,192 @@ function selectTts(m){localStorage.setItem('tts_model',m);}
 function editTtsModel(i,v){const l=getTtsModels();const old=l[i];l[i]=v.trim()||old;saveTtsModels(l);if(localStorage.getItem('tts_model')===old)localStorage.setItem('tts_model',l[i]);}
 function delTtsModel(i){const l=getTtsModels();const rm=l[i];l.splice(i,1);saveTtsModels(l);if(localStorage.getItem('tts_model')===rm)localStorage.setItem('tts_model',l[0]||'');renderVoiceSettings();}
 function addTtsModelRow(){const l=getTtsModels();l.push('新模型');saveTtsModels(l);renderVoiceSettings();}
-function renderImageSettings(){settingsMode='image';document.getElementById('detailTitle').innerHTML='🎨 生图设置';const mode=localStorage.getItem('img_gen_mode')||'free';const url=localStorage.getItem('img_url')||'https://api.vectorengine.cn';const key=localStorage.getItem('img_key')||'';const ratio=localStorage.getItem('img_ratio')||'1:1';const models=getImgModels();const selM=localStorage.getItem('img_model')||models[0]||'';const mrows=models.map((m,i)=>`<div class="list-row"><input type="radio" name="imgSel" class="sel-radio" ${m===selM?'checked':''} onclick="selectImgModel('${m.replace(/'/g,"\\'")}')"><input type="text" value="${m}" onchange="editImgModel(${i},this.value)"><button class="del-x" onclick="delImgModel(${i})">✕</button></div>`).join('');const reslist=getImgResList();const selRes=localStorage.getItem('img_res')||reslist[0]||'1024';const resrows=reslist.map((px,i)=>`<div class="list-row"><input type="radio" name="resSel" class="sel-radio" ${px===selRes?'checked':''} onclick="selectImgRes('${px}')"><span class="res-label">${resLabel(px)}</span><input type="text" value="${px}" onchange="editImgRes(${i},this.value)"><button class="del-x" onclick="delImgRes(${i})">✕</button></div>`).join('');const ratios=['1:1','4:3','3:4','16:9','9:16','3:2','2:3'];document.getElementById('detailBody').innerHTML=`
-    <div class="switch-row"><div class="switch-info"><div class="switch-label">🎨 启用生图功能</div><div class="switch-desc">默认关闭</div></div><label class="switch"><input type="checkbox" ${imgEnabled()?'checked':''} onchange="toggleImgEnabled(this.checked)"><span class="switch-slider"></span></label></div>
-    <div class="form-group" style="margin-top:8px;"><label class="form-label">生图接口类型</label><select class="form-input" id="imgGenMode" onchange="onImgModeChange()"><option value="free" ${mode==='free'?'selected':''}>免费 · Pollinations（固化，无需Key）</option><option value="gemini" ${mode==='gemini'?'selected':''}>收费 · Gemini 原生(:generateContent)</option><option value="openai" ${mode==='openai'?'selected':''}>收费 · OpenAI(/v1/images/generations)</option><option value="chat" ${mode==='chat'?'selected':''}>收费 · Chat 多模态(/v1/chat/completions)</option></select></div>
-    <div id="paidImgBox" style="${mode==='free'?'display:none':''}">
-        <div class="form-group"><label class="form-label">生图 API 地址（基础域名）</label><input type="text" class="form-input" id="imgUrl" value="${url}"><div class="form-hint">向量引擎填 https://api.vectorengine.cn ；Gemini模式自动拼 /v1beta/models/&lt;模型&gt;:generateContent</div></div>
-        <div class="form-group"><label class="form-label">生图 API Key</label><div class="input-with-btn"><input type="password" class="form-input" id="imgKey" value="${key}"><button onclick="togglePwd('imgKey')">👁️</button></div></div>
-        <div class="model-section-header"><span>收费生图模型列表（单选，可增删）</span><button class="btn btn-success" style="padding:4px 10px;border-radius:8px;" onclick="addImgModelRow()">+ 添加</button></div>
-        <div id="imgModelRows">${mrows}</div>
+function renderImageSettings(){
+  settingsMode='image';
+  document.getElementById('detailTitle').innerHTML='🎨 生图与角色固定设置';
+  const list=getImgInterfaces();
+  const activeId=localStorage.getItem('img_interface_id') || 'free';
+  const curr=getActiveImgInterface();
+  const ratio=localStorage.getItem('img_ratio')||'1:1';
+  const models=getImgModels();
+  const selM=localStorage.getItem('img_model')||models[0]||'';
+  const mrows=models.map((m,i)=>`<div class="list-row"><input type="radio" name="imgSel" class="sel-radio" ${m===selM?'checked':''} onclick="selectImgModel('${m.replace(/'/g,"\\'")}')"><input type="text" value="${m}" onchange="editImgModel(${i},this.value)"><button class="del-x" onclick="delImgModel(${i})">✕</button></div>`).join('');
+  const reslist=getImgResList();
+  const selRes=localStorage.getItem('img_res')||reslist[0]||'1024';
+  const resrows=reslist.map((px,i)=>`<div class="list-row"><input type="radio" name="resSel" class="sel-radio" ${px===selRes?'checked':''} onclick="selectImgRes('${px}')"><span class="res-label">${resLabel(px)}</span><input type="text" value="${px}" onchange="editImgRes(${i},this.value)"><button class="del-x" onclick="delImgRes(${i})">✕</button></div>`).join('');
+  const ratios=['1:1','4:3','3:4','16:9','9:16','3:2','2:3'];
+  
+  const members = typeof getGroupMembers === 'function' ? getGroupMembers() : [];
+  const profOptions = members.map(m => `<option value="${m.id}">${m.name} ${m.isMain ? '(主AI)' : ''}</option>`).join('');
+
+  document.getElementById('detailBody').innerHTML=`
+    <div class="form-group" style="margin-bottom:12px;">
+      <label class="form-label">🤖 生图权限与触发模式</label>
+      <select class="form-input" id="imgPermissionMode" onchange="changeImgPermissionMode(this.value)">
+        <option value="off" ${imgPermissionMode()==='off'?'selected':''}>🔇 关闭 (AI只聊天，不会生图)</option>
+        <option value="suggest" ${imgPermissionMode()==='suggest'?'selected':''}>📷 智能建议 (推荐：氛围到了AI建议生图，用户点击生图)</option>
+        <option value="auto" ${imgPermissionMode()==='auto'?'selected':''}>⚡ 主动自动 (AI陪伴感满分，检测到合适时自动生图)</option>
+      </select>
+    </div>
+
+    <div id="characterProfileSection" style="${imgPermissionMode()==='off'?'display:none':''}; border:1px solid var(--border); padding:12px; border-radius:12px; margin-top:12px; margin-bottom:16px; background-color:var(--bg-hover);">
+      <h4 style="margin:0 0 10px 0; font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; font-weight:600;">👤 角色身份固定系统 (Character Profile)</h4>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px;">选择要配置的 AI 角色</label>
+        <select class="form-input" id="characterProfileId" onchange="renderCharacterProfileDetails(this.value)">
+          ${profOptions}
+        </select>
+      </div>
+      <div id="characterProfileDetails"></div>
+    </div>
+
+    <div class="form-group" style="margin-top:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <label class="form-label" style="margin:0;">生图接口选择</label>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-success" style="padding:4px 10px; font-size:11px; border-radius:8px;" onclick="addImgInterfaceRow()">+ 添加接口</button>
+          <button class="btn btn-danger" style="padding:4px 10px; font-size:11px; border-radius:8px; background-color:#ef4444;" onclick="delImgInterfaceRow('${curr.id}')" ${curr.id==='free'?'disabled':''}>✕ 删除当前</button>
+        </div>
+      </div>
+      <select class="form-input" id="imgGenMode" onchange="onImgInterfaceChange()">
+        ${list.map(item => `<option value="${item.id}" ${item.id===activeId?'selected':''}>${item.name}</option>`).join('')}
+      </select>
+    </div>
+    <div id="imgInterfaceDetailBox" style="border:1px solid var(--border); padding:12px; border-radius:12px; margin-top:12px; margin-bottom:12px; background-color:var(--bg-hover);">
+        <div class="form-group" style="margin-bottom:10px;">
+          <label class="form-label">接口显示名称</label>
+          <input type="text" class="form-input" value="${curr.name}" onchange="editImgInterfaceName('${curr.id}', this.value)">
+        </div>
+        <div id="paidImgBox" style="${curr.type==='free'?'display:none':''}">
+            <div class="form-group" style="margin-bottom:10px;"><label class="form-label">生图 API 地址（基础域名）</label><input type="text" class="form-input" id="imgUrl" value="${curr.url||''}" onchange="editImgInterfaceUrl('${curr.id}', this.value)"><div class="form-hint">向量引擎填 https://api.vectorengine.cn ；Gemini模式自动拼 /v1beta/models/&lt;模型&gt;:generateContent</div></div>
+            <div class="form-group" style="margin-bottom:10px;"><label class="form-label">生图 API Key</label><div class="input-with-btn"><input type="password" class="form-input" id="imgKey" value="${curr.key||''}" onchange="editImgInterfaceKey('${curr.id}', this.value)"><button onclick="togglePwd('imgKey')">👁️</button></div></div>
+            <div class="model-section-header"><span>收费生图模型列表（单选，可增删）</span><button class="btn btn-success" style="padding:4px 10px;border-radius:8px;" onclick="addImgModelRow()">+ 添加</button></div>
+            <div id="imgModelRows">${mrows}</div>
+        </div>
     </div>
     <div class="model-section-header"><span>分辨率（单选，可增删）</span><button class="btn btn-success" style="padding:4px 10px;border-radius:8px;" onclick="addImgResRow()">+ 添加</button></div>
     <div id="imgResRows">${resrows}</div>
     <div class="form-group" style="margin-top:12px;"><label class="form-label">图片比例</label><select class="form-input" id="imgRatio">${ratios.map(r=>`<option ${ratio===r?'selected':''}>${r}</option>`).join('')}</select></div>
-    <div class="form-hint">分辨率为长边像素，结合比例自动计算长短边。</div>`;}
+    <div class="form-hint">分辨率为长边像素，结合比例自动计算长短边。</div>`;
+
+  if (imgPermissionMode() !== 'off') {
+    const initialId = document.getElementById('characterProfileId')?.value || 'main';
+    renderCharacterProfileDetails(initialId);
+  }
+}
+
+function changeImgPermissionMode(mode) {
+  localStorage.setItem('img_permission_mode', mode);
+  localStorage.setItem('img_enabled', mode !== 'off' ? 'true' : 'false');
+  const section = document.getElementById('characterProfileSection');
+  if (section) section.style.display = mode === 'off' ? 'none' : 'block';
+  if (mode !== 'off') {
+    const initialId = document.getElementById('characterProfileId')?.value || 'main';
+    renderCharacterProfileDetails(initialId);
+  }
+  showToast('✅ 生图权限模式已更新');
+}
+
+function renderCharacterProfileDetails(id) {
+  const prof = getCharacterIdentity(id);
+  const container = document.getElementById('characterProfileDetails');
+  if (!container) return;
+  
+  let refThumbnails = '';
+  if (Array.isArray(prof.ref_images) && prof.ref_images.length > 0) {
+    refThumbnails = prof.ref_images.map((img, idx) => `
+      <div style="position:relative; width:64px; height:64px; border-radius:8px; border:1.5px solid var(--border); overflow:hidden; background:var(--bg-hover);">
+        <img src="${img}" style="width:100%; height:100%; object-fit:cover;" />
+        <button onclick="removeProfileRefImage('${id}', ${idx})" style="position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:50%; background:rgba(0,0,0,0.6); color:#fff; border:none; font-size:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">✕</button>
+      </div>
+    `).join('');
+  } else {
+    refThumbnails = `<div style="font-size:11px; color:var(--text-sub); line-height:64px; padding-left:10px;">暂无参考图 (最多5张)</div>`;
+  }
+  
+  container.innerHTML = `
+    <div class="form-group" style="margin-top:10px; margin-bottom:10px;">
+      <label class="form-label" style="font-size:11px; color:var(--text-sub);">🧑 性别 (Gender)</label>
+      <input type="text" class="form-input" value="${prof.gender||'female'}" onchange="updateProfileField('${id}','gender',this.value)">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label" style="font-size:11px; color:var(--text-sub);">🎂 年龄感 (Age)</label>
+      <input type="text" class="form-input" value="${prof.age||'young adult'}" onchange="updateProfileField('${id}','age',this.value)">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label" style="font-size:11px; color:var(--text-sub);">🎨 绘画风格偏好 (Style)</label>
+      <input type="text" class="form-input" value="${prof.style||''}" placeholder="例如: digital painting, soft cinematic lighting" onchange="updateProfileField('${id}','style',this.value)">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label" style="font-size:11px; color:var(--text-sub);">👁️ 人脸五官锚点 (Face Anchor)</label>
+      <textarea class="form-input" rows="2" placeholder="例如: delicate facial features, double eyelids, small gentle smile" onchange="updateProfileField('${id}','face_anchor',this.value)">${prof.face_anchor||''}</textarea>
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label" style="font-size:11px; color:var(--text-sub);">💇 发型与发色 (Hairstyle)</label>
+      <input type="text" class="form-input" value="${prof.hairstyle||''}" placeholder="例如: long flowing brown hair with ponytail" onchange="updateProfileField('${id}','hairstyle',this.value)">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label" style="font-size:11px; color:var(--text-sub);">👗 服装与穿搭偏好 (Dress)</label>
+      <input type="text" class="form-input" value="${prof.dress||''}" placeholder="例如: comfortable casual sweater" onchange="updateProfileField('${id}','dress',this.value)">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label class="form-label" style="font-size:11px; color:var(--text-sub); display:flex; justify-content:space-between; align-items:center;">
+        <span>🖼️ 人脸一致性参考图 (Reference Images)</span>
+        <button class="btn btn-success" style="padding:2px 8px; font-size:10px; border-radius:4px;" onclick="triggerProfileRefUpload('${id}')">+ 上传</button>
+      </label>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; min-height:64px; padding:6px; border:1px dashed var(--border); border-radius:8px; background:rgba(0,0,0,0.01);">
+        ${refThumbnails}
+      </div>
+      <input type="file" id="profileRefFileInput" accept="image/*" style="display:none;" onchange="handleProfileRefUpload(this, '${id}')">
+    </div>
+  `;
+}
+
+function updateProfileField(id, field, value) {
+  const prof = getCharacterIdentity(id);
+  prof[field] = value.trim();
+  saveCharacterIdentity(id, prof);
+  showToast('✅ 角色属性已更新');
+}
+
+function triggerProfileRefUpload(id) {
+  document.getElementById('profileRefFileInput').click();
+}
+
+async function handleProfileRefUpload(input, id) {
+  const f = input.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = async e => {
+    try {
+      const compressed = await compressImage(e.target.result, 256, 0.8);
+      const prof = getCharacterIdentity(id);
+      if (!Array.isArray(prof.ref_images)) prof.ref_images = [];
+      if (prof.ref_images.length >= 5) {
+        alert('参考图最多支持 5 张');
+        return;
+      }
+      prof.ref_images.push(compressed);
+      saveCharacterIdentity(id, prof);
+      renderCharacterProfileDetails(id);
+      showToast('✅ 一致性参考图上传成功');
+    } catch(err) {
+      alert('上传失败: ' + err.message);
+    }
+  };
+  r.readAsDataURL(f);
+  input.value = '';
+}
+
+function removeProfileRefImage(id, idx) {
+  const prof = getCharacterIdentity(id);
+  if (Array.isArray(prof.ref_images)) {
+    prof.ref_images.splice(idx, 1);
+    saveCharacterIdentity(id, prof);
+    renderCharacterProfileDetails(id);
+    showToast('🗑️ 参考图已移除');
+  }
+}
 function renderWebSettings(){settingsMode='websearch';document.getElementById('detailTitle').innerHTML='🌐 联网功能';document.getElementById('detailBody').innerHTML=`
     <div class="switch-row"><div class="switch-info"><div class="switch-label">🌐 提示模型自行联网</div><div class="switch-desc">在提示词中告知模型可联网检索</div></div><label class="switch"><input type="checkbox" ${webSearchEnabled()?'checked':''} onchange="setBool('web_search',this.checked)"><span class="switch-slider"></span></label></div>
     <div class="form-hint" style="margin-top:10px;line-height:1.7;">当所选模型自身具备联网能力时打开即可；模型不支持时开关无效。纯前端无法绕过浏览器跨域抓取公网搜索结果。</div>`;}
@@ -639,12 +812,16 @@ if(settingsMode==='memory'){
       if(voiceUser) localStorage.setItem('tts_voice_user',voiceUser.value);
     }
     if(settingsMode==='image'){
-      const imgGenMode = document.getElementById('imgGenMode');
-      if(imgGenMode) localStorage.setItem('img_gen_mode',imgGenMode.value);
-      const imgUrl = document.getElementById('imgUrl');
-      if(imgUrl) localStorage.setItem('img_url',imgUrl.value);
-      const imgKey = document.getElementById('imgKey');
-      if(imgKey) localStorage.setItem('img_key',imgKey.value);
+      const activeId = localStorage.getItem('img_interface_id') || 'free';
+      const list = getImgInterfaces();
+      const curr = list.find(x => x.id === activeId);
+      if(curr){
+        const imgUrl = document.getElementById('imgUrl');
+        if(imgUrl) { curr.url = imgUrl.value.trim(); localStorage.setItem('img_url', curr.url); }
+        const imgKey = document.getElementById('imgKey');
+        if(imgKey) { curr.key = imgKey.value.trim(); localStorage.setItem('img_key', curr.key); }
+        saveImgInterfaces(list);
+      }
       const imgRatio = document.getElementById('imgRatio');
       if(imgRatio) localStorage.setItem('img_ratio',imgRatio.value);
     }
@@ -681,7 +858,7 @@ function addModel(){const n=prompt('模型名称');if(!n)return;const ctx=prompt
 function editModel(i){const p=getCurrentProvider();const m=p.models[i];const n=prompt('模型名字',m.name);if(n===null)return;const ctx=prompt('上下文窗口',m.context||'32K');if(ctx===null)return;const out=prompt('最大输出 Token',m.output||'4K');if(out===null)return;m.name=n||m.name;m.context=ctx;m.output=out;saveProviders();renderModelList(p);updateModelCard();showToast('✅ 已修改');}
 function deleteModel(i){if(confirm('删除该模型？')){getCurrentProvider().models.splice(i,1);saveProviders();renderModelList(getCurrentProvider());updateModelCard();}}
 function resetModels(){if(confirm('重置模型列表？')){const d=DEFAULT_PROVIDERS.find(p=>p.id===getCurrentProvider().id);if(d){getCurrentProvider().models=JSON.parse(JSON.stringify(d.models));saveProviders();renderModelList(getCurrentProvider());updateModelCard();}else alert('无默认配置');}}
-function addProvider(){const n=prompt('输入服务商名称');if(!n)return;const id='custom_'+Date.now();providers.push({id,name:n,icon:'������',endpoint:'',auth:'Bearer',models:[],note:'自定义'});saveProviders();selectProvider(id);showToast('✅ 已添加');}
+function addProvider(){const n=prompt('输入服务商名称');if(!n)return;const id='custom_'+Date.now();providers.push({id,name:n,icon:'🔌',endpoint:'',auth:'Bearer',models:[],note:'自定义'});saveProviders();selectProvider(id);showToast('✅ 已添加');}
 function deleteProvider(e,id){e.stopPropagation();const p=getProvider(id);if(p&&p.locked){alert('免费模型已固化，不可删除');return;}if(providers.length<=1){alert('至少保留一个');return;}if(!confirm('删除该服务商？'))return;providers=providers.filter(x=>x.id!==id);localStorage.removeItem(`apikey_${id}`);saveProviders();if(currentProviderId===id){currentProviderId=providers[0].id;selectedModelName=providers[0].models[0]?.name||'';saveSettings();}renderProviderList();updateModelCard();showToast('✅ 已删除');}
 function resetProviders(){if(confirm('重置所有服务商为默认？')){providers=JSON.parse(JSON.stringify(DEFAULT_PROVIDERS));saveProviders();currentProviderId='free';selectedModelName='';saveSettings();renderProviderList();updateModelCard();}}
 

@@ -1,9 +1,62 @@
 /* ===== 日记：用户 / 主AI / 群成员 各自写，按作者可见，支持 AI 主动写 ===== */
 const DIARY_DB=(()=>{const DB='ai_diary_db',S='diary',V=1;let dbp=null;
 function open(){if(dbp)return dbp;dbp=new Promise((res,rej)=>{const r=indexedDB.open(DB,V);r.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains(S)){const st=d.createObjectStore(S,{keyPath:'id'});st.createIndex('ts','ts');}};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});return dbp;}
-async function put(rec){const d=await open();return new Promise((res,rej)=>{const tx=d.transaction(S,'readwrite');tx.objectStore(S).put(rec);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});}
-async function del(id){const d=await open();return new Promise((res,rej)=>{const tx=d.transaction(S,'readwrite');tx.objectStore(S).delete(id);tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});}
-async function all(){const d=await open();return new Promise((res,rej)=>{const tx=d.transaction(S,'readonly');const rq=tx.objectStore(S).getAll();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>rej(rq.error);});}
+async function put(rec){
+  const d=await open();
+  await new Promise((res,rej)=>{
+    const tx=d.transaction(S,'readwrite');
+    tx.objectStore(S).put(rec);
+    tx.oncomplete=res;
+    tx.onerror=()=>rej(tx.error);
+  });
+  try {
+    const list = await all();
+    localStorage.setItem('diary_backup', JSON.stringify(list));
+  } catch(e) {}
+}
+async function del(id){
+  const d=await open();
+  await new Promise((res,rej)=>{
+    const tx=d.transaction(S,'readwrite');
+    tx.objectStore(S).delete(id);
+    tx.oncomplete=res;
+    tx.onerror=()=>rej(tx.error);
+  });
+  try {
+    const list = await all();
+    localStorage.setItem('diary_backup', JSON.stringify(list));
+  } catch(e) {}
+}
+async function all(){
+  const d=await open();
+  let list = await new Promise((res,rej)=>{
+    const tx=d.transaction(S,'readonly');
+    const rq=tx.objectStore(S).getAll();
+    rq.onsuccess=()=>res(rq.result||[]);
+    rq.onerror=()=>rej(rq.error);
+  });
+  if (!list || list.length === 0) {
+    try {
+      const raw = localStorage.getItem('diary_backup');
+      if (raw) {
+        const backup = JSON.parse(raw);
+        if (Array.isArray(backup) && backup.length > 0) {
+          const tx = d.transaction(S, 'readwrite');
+          const store = tx.objectStore(S);
+          for (const item of backup) {
+            store.put(item);
+          }
+          await new Promise((res) => { tx.oncomplete = res; });
+          list = backup;
+          console.log('[DIARY_DB] Successfully self-healed and restored diaries from localStorage backup cabin.');
+        }
+      }
+    } catch(e) {
+      console.error('[DIARY_DB] Self-healing restoration failed:', e);
+    }
+  }
+  return list;
+}
 return {put,del,all};})();
 
 let diaryFilter='all'; // all | user | 具体作者名
@@ -59,11 +112,44 @@ async function aiWriteDiaryBy(memberName){
   const apiKey=localStorage.getItem(`apikey_${provider.id}`)||'';
   if(!apiKey&&provider.auth!=='none'){showToast('请先填入 API Key');return false;}
   showToast('🖊️ '+mem.name+' 正在写日记...');
-  const recent=conversationHistory.filter(m=>!m.image&&m.content).slice(-30).map(m=>`${m.role==='user'?'用户':'我'}：${m.content}`).join('\n').slice(-3500);
+
+  // 1. 获取该 AI 的私聊对话历史
+  const privateKey = mem.isMain ? 'chatHistory' : `chatHistory_${mem.id}`;
+  let pHistory = [];
+  try {
+    const rawP = localStorage.getItem(privateKey);
+    if (rawP) pHistory = JSON.parse(rawP);
+  } catch(e) {}
+  const privateRecent = pHistory.filter(m => !m.image && m.content)
+    .slice(-25)
+    .map(m => `${m.role === 'user' ? '用户' : '我'}：${m.content}`)
+    .join('\n');
+
+  // 2. 获取多人群聊对话历史
+  let gHistory = [];
+  try {
+    gHistory = (typeof getGroupHistory === 'function') ? getGroupHistory() : [];
+    if (!gHistory.length) {
+      const rawG = localStorage.getItem('group_history');
+      if (rawG) gHistory = JSON.parse(rawG);
+    }
+  } catch(e) {}
+  const groupRecent = gHistory.filter(m => !m.image && m.content)
+    .slice(-25)
+    .map(m => {
+      const senderName = m.role === 'user' ? '用户' : (m.name || 'AI成员');
+      return `[群聊] ${senderName}：${m.content}`;
+    })
+    .join('\n');
+
+  const combinedRecent = `【与用户的私聊片段】\n${privateRecent || '（今天暂无私聊）'}\n\n【大家参与的群聊片段】\n${groupRecent || '（今天暂无群聊）'}`;
+
   const persona=mem.isMain?'你是用户的 AI 陪伴':('你叫'+mem.name+'，'+(mem.persona||''));
-  const sys=`${persona}。请以第一人称写一篇今天的私人日记（150字内），记录你和用户今天的互动、你的感受与小心思，语气真诚，像真的日记。只输出正文。`;
+  const sys=`${persona}。请以第一人称写一篇今天的私人日记（150字内），记录你和用户今天的互动、你的感受与小心思。
+你今天参与了和用户的私聊以及多人群聊。日记应该把私聊里的秘密、心情，以及群聊里发生的有趣互动、@问答等细节，合情合理、极为流畅地串联、写在一起。语气真诚，像真的日记。只输出正文。`;
+  
   try{const model=(typeof memberModel==='function')?memberModel(mem,provider):selectedModelName;
-    const out=await llmComplete([{role:'system',content:sys},{role:'user',content:'今天的片段：\n'+recent}],{temperature:0.85});
+    const out=await llmComplete([{role:'system',content:sys},{role:'user',content:'今天的片段：\n'+combinedRecent}],{temperature:0.85});
     if(out){
       await saveDiaryEntry('ai',mem.name,out);
       showToast('📔 '+mem.name+' 写完了');
@@ -126,32 +212,50 @@ async function checkAutoDiary(){
       continue;
     }
     
-    // 检查这一天是否有过对话 (用户消息或 AI 消息)
-    const hasChatOnTargetDate = conversationHistory.some(m => {
-      if (!m.ts) return false;
-      const msgDate = new Date(m.ts);
-      const msgDateKey = (typeof getLocalDateString === 'function') ? getLocalDateString(msgDate) : msgDate.toISOString().slice(0, 10);
-      return msgDateKey === targetKey;
-    });
-    
-    if (!hasChatOnTargetDate) {
-      continue;
-    }
-    
-    // 找到了一个符合条件的未写日记的日子：targetKey！
-    const members = (typeof getGroupMembers === 'function') ? getGroupMembers() : [{name: '主AI'}];
-    const mem = members[Math.floor(Math.random() * members.length)];
-    
-    // 提取当天的聊天记录
-    const dayChats = conversationHistory.filter(m => {
+    // 检查这一天是否有过对话 (用户消息或 AI 消息，包括私聊与群聊)
+    const privateKey = mem.isMain ? 'chatHistory' : `chatHistory_${mem.id}`;
+    let pHistory = [];
+    try {
+      const rawP = localStorage.getItem(privateKey);
+      if (rawP) pHistory = JSON.parse(rawP);
+    } catch(e) {}
+
+    let gHistory = [];
+    try {
+      gHistory = (typeof getGroupHistory === 'function') ? getGroupHistory() : [];
+      if (!gHistory.length) {
+        const rawG = localStorage.getItem('group_history');
+        if (rawG) gHistory = JSON.parse(rawG);
+      }
+    } catch(e) {}
+
+    const dayPrivateChats = pHistory.filter(m => {
       if (!m.ts || m.image || !m.content) return false;
       const msgDate = new Date(m.ts);
       const msgDateKey = (typeof getLocalDateString === 'function') ? getLocalDateString(msgDate) : msgDate.toISOString().slice(0, 10);
       return msgDateKey === targetKey;
     });
+
+    const dayGroupChats = gHistory.filter(m => {
+      if (!m.ts || m.image || !m.content) return false;
+      const msgDate = new Date(m.ts);
+      const msgDateKey = (typeof getLocalDateString === 'function') ? getLocalDateString(msgDate) : msgDate.toISOString().slice(0, 10);
+      return msgDateKey === targetKey;
+    });
+
+    if (dayPrivateChats.length === 0 && dayGroupChats.length === 0) {
+      continue;
+    }
     
-    const sliceMsgs = dayChats.length > 0 ? dayChats : conversationHistory.filter(m => !m.image && m.content);
-    const recent = sliceMsgs.slice(-30).map(m => `${m.role === 'user' ? '用户' : '我'}：${m.content}`).join('\n').slice(-3500);
+    // 提取当天的私聊记录
+    const pSegment = dayPrivateChats.slice(-25).map(m => `${m.role === 'user' ? '用户' : '我'}：${m.content}`).join('\n');
+    // 提取当天的群聊记录
+    const gSegment = dayGroupChats.slice(-25).map(m => {
+      const senderName = m.role === 'user' ? '用户' : (m.name || 'AI成员');
+      return `[群聊] ${senderName}：${m.content}`;
+    }).join('\n');
+
+    const combinedRecent = `【${targetKey} 的私聊片段】\n${pSegment || '（当天无私聊记录）'}\n\n【${targetKey} 的群聊片段】\n${gSegment || '（当天无群聊记录）'}`;
     
     const provider = (typeof memberProvider === 'function') ? memberProvider(mem) : getCurrentProvider();
     const apiKey = localStorage.getItem(`apikey_${provider.id}`) || '';
@@ -161,12 +265,13 @@ async function checkAutoDiary(){
     
     const persona = mem.isMain ? '你是用户的 AI 陪伴' : ('你叫' + mem.name + '，' + (mem.persona || ''));
     const dateDesc = i === 0 ? '今天' : (i === 1 ? '昨天' : '前天');
-    const sys = `${persona}\n请基于${dateDesc}（日期是 ${targetKey}）你和用户的对话片段，以自己的视角和口吻（第一人称）写一篇${dateDesc}的日记。日记应该真实流露情感、包含聊天里的细节/感悟、你的心理活动。直接输出日记内容即可，不要有任何 Markdown 包裹以外的废话。`;
+    const sys = `${persona}\n请基于${dateDesc}（日期是 ${targetKey}）你参与的私聊和群聊对话片段，以自己的第一人称视角和口吻写一篇${dateDesc}的日记。
+日记应真实流露情感、包含聊天里的细节（尤其是用户在群里考你、对你的提问，或者你们私底下的悄悄话/秘密）、你的心理活动与小心思，语气要极其真诚、温暖。只输出日记的正文，不要有任何 Markdown 包裹以外的废话。`;
     
     try {
       showToast('🖊️ ' + mem.name + ' 正在写日记...');
       const model = (typeof memberModel === 'function') ? memberModel(mem, provider) : selectedModelName;
-      const out = await llmComplete([{role: 'system', content: sys}, {role: 'user', content: `【${targetKey}的对话片段】\n` + recent}], {temperature: 0.85});
+      const out = await llmComplete([{role: 'system', content: sys}, {role: 'user', content: combinedRecent}], {temperature: 0.85});
       if (out) {
         // 设置时间戳为那天的晚上 23:59:59
         const targetTs = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59).getTime();

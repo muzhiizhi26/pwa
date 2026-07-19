@@ -388,7 +388,7 @@ const NarrativeManager = {
         </div>
         <p style="font-size:12px; color:#7A6B5C; line-height:1.5; margin-bottom:8px; font-style:italic;">"${imp.desc}"</p>
         <div style="background:rgba(198,139,117,0.06); border-radius:6px; padding:10px; border:1px dashed rgba(198,139,117,0.3);">
-          <div style="font-size:10.5px; font-weight:bold; color:#C68B75; margin-bottom:4px;">������ 伴侣的独自内省与自白 (Self-Reflection):</div>
+          <div style="font-size:10.5px; font-weight:bold; color:#C68B75; margin-bottom:4px;">💭 伴侣的独自内省与自白 (Self-Reflection):</div>
           <div style="font-size:12px; color:#5C4A3E; line-height:1.5;">${imp.reflection}</div>
         </div>
         <div style="font-size:10px; color:#A89482; text-align:right; margin-top:6px;">和解岁月节点: ${imp.reconciliationDate}</div>

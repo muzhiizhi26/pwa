@@ -504,6 +504,68 @@ async function syncLocalStorageAndIndexedDB() {
     if (restoredCount > 0) {
       console.log(`[StorageSync] Restored ${restoredCount} critical config keys from IndexedDB.`);
     }
+
+    // === 🌟 朋友圈动态 (Moments) 交叉舱容灾恢复与双写对齐 ===
+    if (typeof HistoryBackupDB !== 'undefined') {
+      const localMomentsRaw = localStorage.getItem('lovestory_moments');
+      const dbMomentsBackup = await HistoryBackupDB.get('lovestory_moments_backup');
+      
+      let localMoments = [];
+      try {
+        if (localMomentsRaw) localMoments = JSON.parse(localMomentsRaw);
+      } catch(e) {}
+
+      const hasLocalMoments = Array.isArray(localMoments) && localMoments.length > 0 && localMoments[0].id !== 'mom_init_1';
+      const hasDbMoments = Array.isArray(dbMomentsBackup) && dbMomentsBackup.length > 0;
+
+      if (!hasLocalMoments && hasDbMoments) {
+        localStorage.setItem('lovestory_moments', JSON.stringify(dbMomentsBackup));
+        console.log(`[StorageSync] 🩺 朋友圈容灾：成功从 IndexedDB 备份舱恢复了 ${dbMomentsBackup.length} 条朋友圈动态。`);
+      } else if (hasLocalMoments && !hasDbMoments) {
+        await HistoryBackupDB.set('lovestory_moments_backup', localMoments);
+      } else if (hasLocalMoments && hasDbMoments && localMoments.length !== dbMomentsBackup.length) {
+        if (localMoments.length > dbMomentsBackup.length) {
+          await HistoryBackupDB.set('lovestory_moments_backup', localMoments);
+        } else {
+          localStorage.setItem('lovestory_moments', JSON.stringify(dbMomentsBackup));
+        }
+      }
+    }
+
+    // === 📔 日记 (Diaries) 交叉舱容灾恢复与双写对齐 ===
+    if (typeof DIARY_DB !== 'undefined') {
+      let dbDiaries = [];
+      try {
+        dbDiaries = await DIARY_DB.all();
+      } catch(e) {}
+
+      let localDiaries = [];
+      try {
+        const localDiariesRaw = localStorage.getItem('diary_backup');
+        if (localDiariesRaw) localDiaries = JSON.parse(localDiariesRaw);
+      } catch(e) {}
+
+      const hasDbDiaries = Array.isArray(dbDiaries) && dbDiaries.length > 0;
+      const hasLocalDiaries = Array.isArray(localDiaries) && localDiaries.length > 0;
+
+      if (!hasDbDiaries && hasLocalDiaries) {
+        for (const d of localDiaries) {
+          await DIARY_DB.put(d);
+        }
+        console.log(`[StorageSync] 🩺 日记容灾：成功从 localStorage 备份舱恢复了 ${localDiaries.length} 篇日记。`);
+      } else if (hasDbDiaries && !hasLocalDiaries) {
+        localStorage.setItem('diary_backup', JSON.stringify(dbDiaries));
+      } else if (hasDbDiaries && hasLocalDiaries && dbDiaries.length !== localDiaries.length) {
+        if (dbDiaries.length >= localDiaries.length) {
+          localStorage.setItem('diary_backup', JSON.stringify(dbDiaries));
+        } else {
+          for (const d of localDiaries) {
+            await DIARY_DB.put(d);
+          }
+        }
+      }
+    }
+
   } catch (e) {
     console.error('[StorageSync] Error during mutual config sync:', e);
   }

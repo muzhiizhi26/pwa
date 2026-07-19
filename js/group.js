@@ -375,8 +375,8 @@ async function groupMemberReply(mem,userText){
   const lastMsg = groupHistory[groupHistory.length - 1];
   const queryText = (userText && userText !== '（AI 之间自由接话）') ? userText : (lastMsg ? lastMsg.content : '');
 
-  // 记忆互通：召回主库
-  let recallItems=[];if(ragEnabled() && queryText){try{recallItems=await recall(queryText, 'group');}catch(e){}}
+  // 记忆互通：召回该 AI 与用户的私有/共享关系主库
+  let recallItems=[];if(ragEnabled() && queryText){try{recallItems=await recall(queryText, mem.id);}catch(e){}}
   const roster=getGroupMembers().map(m=>m.name).join('、');
   const cl = (mem.contextLimitEnabled && mem.contextLimit !== undefined) ? 
              (mem.contextLimit === 'unlimited' ? Infinity : parseInt(mem.contextLimit)) : 

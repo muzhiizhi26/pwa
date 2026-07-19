@@ -78,7 +78,8 @@ window.saveUserLifeModel = saveUserLifeModel;
  */
 function getUserLifeModelPrompt() {
   const model = getUserLifeModel();
-  let prompt = `  // 注入：📅 共同岁月时间轴 (Life Event Timeline)
+  let prompt = '';
+  // 注入：📅 共同岁月时间轴 (Life Event Timeline)
   const timeline = getLifeEventTimeline();
   if (timeline && timeline.length > 0) {
     prompt += `\n【📅 你们共同经历的岁月时间轴 (SHARED LIFE EVENTS TIMELINE / CO-GROWTH MEMOIRS)】\n`;

@@ -7,7 +7,7 @@ const FIXED_TTS_MODELS=['fnlp/MOSS-TTSD-v0.5','fnlp/moss-ttsd-v0.5.online.utf8-b
 const EMBED_DIM=256;
 const DEFAULT_PROMPT='你是一个有帮助、友好、诚实的AI助手。请用清晰、简洁的语言回答问题。';
 
-const FREE_PROVIDER={id:'free',name:'免费模型(固化)',icon:'🆓',endpoint:'/api/free-chat',auth:'none',locked:true,models:[{name:'openai',caps:['💡'],context:'32K',output:'4K'},{name:'mistral',caps:['💡'],context:'32K',output:'4K'}],note:'无需 API Key，固化不可改'};
+const FREE_PROVIDER={id:'free',name:'免费模型(固化)',icon:'🆓',endpoint:'https://text.pollinations.ai/openai',auth:'none',locked:true,models:[{name:'openai',caps:['💡'],context:'32K',output:'4K'}],note:'无需 API Key，固化不可改'};
 const GEMINI_PROVIDER={id:'gemini_proxy',name:'内置 Gemini (极速·极稳)',icon:'✨',endpoint:'/api/chat',auth:'none',locked:true,models:[{name:'gemini-3.5-flash',caps:['💡','👁️'],context:'1M',output:'8K'}],note:'本地服务器中转，无需前端配置 API Key，响应极快，最稳定'};
 const DEFAULT_PROVIDERS=[
     JSON.parse(JSON.stringify(FREE_PROVIDER)),

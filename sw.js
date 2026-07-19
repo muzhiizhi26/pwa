@@ -1,4 +1,4 @@
-const CACHE_NAME = 'morandi-ai-v4';
+const CACHE_NAME = 'morandi-ai-v5';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -17,8 +17,13 @@ const ASSETS_TO_CACHE = [
   '/js/runtime/memory/memory-node.js',
   '/js/runtime/memory/memory-graph.js',
   '/js/runtime/runtime.js',
+  '/js/runtime/context.js',
+  '/js/runtime/prompt-builder.js',
   '/js/runtime/models/user-model.js',
   '/js/runtime/models/relationship-model.js',
+  '/js/runtime/models/ai-model.js',
+  '/js/runtime/models/group-model.js',
+  '/js/runtime/models/world-model.js',
   '/js/emotion.js',
   '/js/voice.js',
   '/js/call.js',
@@ -33,7 +38,9 @@ const ASSETS_TO_CACHE = [
   '/js/proactive.js',
   '/js/launcher.js',
   '/js/settings.js',
+  '/js/orchestrator.js',
   '/js/chat.js',
+  '/js/moments.js',
   '/js/tabs.js',
   '/js/main.js',
   '/emotions/angry.webp',

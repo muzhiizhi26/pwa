@@ -185,7 +185,7 @@ app.post(['/api/chat', '/api/chat/chat/completions'], express.json({ limit: '15m
 // Server-side Free Chat Proxy with Auto-Failover to Gemini
 app.post(['/api/free-chat', '/api/free-chat/chat/completions'], express.json({ limit: '15mb' }), async (req, res) => {
   const { model, messages, stream, temperature, top_p } = req.body;
-  const selectedModel = model || 'openai';
+  const selectedModel = 'openai';
 
   try {
     const upstreamUrl = 'https://text.pollinations.ai/v1/chat/completions';
@@ -198,6 +198,8 @@ app.post(['/api/free-chat', '/api/free-chat/chat/completions'], express.json({ l
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/event-stream',
       },
       body: JSON.stringify({
         model: selectedModel,

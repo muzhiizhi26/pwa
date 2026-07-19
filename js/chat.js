@@ -233,7 +233,21 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
         await new Promise(res => setTimeout(res, rhythm.delay));
       }
       try{
-        const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
+        let r;
+        try {
+          r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
+          if(!r.ok && (url.includes('pollinations.ai') || url.includes('/api/free-chat'))) {
+            console.warn("Direct pollinations call failed, trying server-side fallback...");
+            r = await fetch('/api/free-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          }
+        } catch (fetchErr) {
+          if (url.includes('pollinations.ai') || url.includes('/api/free-chat')) {
+            console.warn("Direct pollinations fetch error, trying server-side fallback...", fetchErr);
+            r = await fetch('/api/free-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          } else {
+            throw fetchErr;
+          }
+        }
         if(!r.ok)throw new Error(`API 错误 (${r.status})`);
         const d=await r.json();
         loading.remove();
@@ -255,6 +269,7 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
         if(typeof processAiReplyMemory==='function')processAiReplyMemory(reply, currentAi);
         markActivity();
         if(autoSpeakEnabled()&&voiceEnabled())playTTS(clean,getActiveTtsVoice());
+        if(typeof triggerVisualEvaluation==='function') triggerVisualEvaluation(q, clean, currentAi, uid);
       }catch(err){
         loading.remove();
         addMessage('assistant','❌ '+err.message,genUid());
@@ -288,7 +303,21 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
     scrollBottom();
     let thinkingEl=null,full='',reasoning='',started=false;
     try{
-      const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
+      let r;
+      try {
+        r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
+        if(!r.ok && (url.includes('pollinations.ai') || url.includes('/api/free-chat'))) {
+          console.warn("Direct pollinations call failed, trying server-side fallback...");
+          r = await fetch('/api/free-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        }
+      } catch (fetchErr) {
+        if (url.includes('pollinations.ai') || url.includes('/api/free-chat')) {
+          console.warn("Direct pollinations fetch error, trying server-side fallback...", fetchErr);
+          r = await fetch('/api/free-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        } else {
+          throw fetchErr;
+        }
+      }
       if(!r.ok)throw new Error(`API 错误 (${r.status})`);
       const reader=r.body.getReader();
       const dec=new TextDecoder();
@@ -351,6 +380,7 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
       if(typeof processAiReplyMemory==='function')processAiReplyMemory(full, currentAi);
       markActivity();
       if(autoSpeakEnabled()&&voiceEnabled()&&full)playTTS(full,getActiveTtsVoice());
+      if(typeof triggerVisualEvaluation==='function') triggerVisualEvaluation(q, display, currentAi, uid);
     }catch(err){
       bubbles.innerHTML='';
       const b=document.createElement('div');
