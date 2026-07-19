@@ -1,4 +1,4 @@
-const CACHE_NAME = 'morandi-ai-v5';
+const CACHE_NAME = 'morandi-ai-v6';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -93,6 +93,11 @@ self.addEventListener('activate', (event) => {
 // Fetch with Stale-While-Revalidate strategy for static resources
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+
+  // Avoid intercepting third-party API or external domains (e.g. pollinations, vectorengine API)
+  if (url.origin !== self.location.origin) {
+    return;
+  }
 
   // Avoid caching dynamic API requests, range requests, or non-GET requests
   if (url.pathname.startsWith('/api/') || 

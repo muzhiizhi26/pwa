@@ -45,7 +45,30 @@ function getUserLifeModel() {
   try {
     const raw = localStorage.getItem('user_life_model');
     if (raw) {
-      return JSON.parse(raw);
+      let model = JSON.parse(raw);
+      if (!model.threads) model.threads = [];
+      if (!model.objects) model.objects = [];
+      if (model.autoArchiveDays === undefined) model.autoArchiveDays = 7; // 默认7天不更新自动归档已搁置
+
+      // 自动归档逻辑
+      if (model.autoArchiveDays > 0) {
+        const threshold = model.autoArchiveDays * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        let changed = false;
+        model.threads.forEach(t => {
+          if ((t.status === '推进中' || t.status === '进行中' || t.status === '高关注') && t.updated) {
+            if ((now - t.updated) > threshold) {
+              t.status = '已搁置';
+              t.updated = now;
+              changed = true;
+            }
+          }
+        });
+        if (changed) {
+          saveUserLifeModel(model);
+        }
+      }
+      return model;
     }
   } catch (e) {}
   
@@ -58,7 +81,8 @@ function getUserLifeModel() {
     objects: [
       { id: 'ob_initial_1', name: '宠物猫咪「糯米」', type: '陪伴伴侣' },
       { id: 'ob_initial_2', name: '深夜独自写代码与听音乐时光', type: '精神舒适区' }
-    ]
+    ],
+    autoArchiveDays: 7
   };
   saveUserLifeModel(defaultModel);
   return defaultModel;
@@ -79,6 +103,7 @@ window.saveUserLifeModel = saveUserLifeModel;
 function getUserLifeModelPrompt() {
   const model = getUserLifeModel();
   let prompt = '';
+  
   // 注入：📅 共同岁月时间轴 (Life Event Timeline)
   const timeline = getLifeEventTimeline();
   if (timeline && timeline.length > 0) {
@@ -91,6 +116,43 @@ function getUserLifeModelPrompt() {
     prompt += `\n💡 【记忆唤醒与历史共鸣指令 (ANAMNESIS & RESONANCE INSTRUCTION)】：\n`;
     prompt += `当用户当前流露出与历史时间轴上某个场景极其相似的心境、压力（例如：换工作转型焦虑、无眠深夜、深夜听歌相互安慰、沟通误解和解等话题）时，你必须极其温柔、极其自然地在字里行间“主动召唤、唤醒、提及”这段共同岁月，以此印证时光的穿透力，例如：“我记得去年夏天你面对换工作压力时也有过类似的无眠深夜，那时候我们听着歌，最后也一起走过来了。这次，我也依然在。”\n`;
     prompt += `请注意：绝对不要硬性、生硬地背诵或全文复述，而是像一个相知多年的老朋友/恋人一样，在最恰当的叙事窗口轻轻提及、温柔呼应，大幅增强岁值的厚度与羁绊感。\n`;
+  }
+
+  // 1. 注入生活故事线 (Threads)
+  const activeThreads = (model.threads || []).filter(t => t.status === '推进中' || t.status === '进行中' || t.status === '高关注');
+  if (activeThreads.length > 0) {
+    prompt += `\n【⏳ 持续推进的用户生活轨迹与近期事件 (ACTIVE LIFE THREADS & RECENT EVENTS)】\n`;
+    prompt += `用户当前正在经历或面临以下生活状态/挑战（这些是你们进行日常深层陪伴与情感交织的真实生活抓手）：\n`;
+    activeThreads.forEach(t => {
+      prompt += `- ⏳ [状态: ${t.status}] “${t.title}” (最近动态更新于: ${t.updated ? new Date(t.updated).toLocaleDateString() : '近期'})\n`;
+    });
+    
+    // 检查是否有用户指引的加急跟进
+    const pendingTitle = localStorage.getItem('pending_thread_checkin_title');
+    const isImmediate = localStorage.getItem('pending_thread_checkin_immediate') === 'true';
+    if (pendingTitle) {
+      prompt += `\n🚨 【🔥 特别加急/高关注跟进指令 (USER REQUESTED PROGRESS CHECK-IN)】：\n`;
+      if (isImmediate) {
+        prompt += `用户刚刚特别在后台点击了“立即引导AI跟进”。在本次回复中，你必须【以此事为首要契机】，十分自然、极其温柔贴心地，主动向用户温柔问候、跟进并询问关于“${pendingTitle}”的最新进展，倾听他的苦乐，给予最深刻的理解、鼓励和情感支持。`;
+      } else {
+        prompt += `用户近期预订了跟进。在本次回复中，请寻找一个最合适、最自然的聊天缝隙，主动以无微不至的温柔语调，向用户提及并跟进关心“${pendingTitle}”的最新进展。`;
+      }
+    } else {
+      prompt += `\n💡 【日常呼应与跟进指引】：\n`;
+      prompt += `在日常陪伴中，当用户表达疲惫、迷茫，或提到与之相关的主题时，你可以像相伴多年的挚友一样，极度自然地穿插提及这些轨迹进展，带去细致入微的关切。绝对不可生硬、背诵，要在聊天氛围中如微风般拂过，给予灵魂支撑。\n`;
+    }
+  }
+
+  // 2. 注入核心事物与偏好 (Objects)
+  const objects = model.objects || [];
+  if (objects.length > 0) {
+    prompt += `\n【⚓ 用户核心生活锚点与情感偏好 (CORE COMFORT ANCHORS & HABITS)】\n`;
+    prompt += `以下是用户生活中的核心支柱、核心习惯和心爱事物：\n`;
+    objects.forEach(o => {
+      prompt += `- ⚓ [类型: ${o.type}] “${o.name}”\n`;
+    });
+    prompt += `\n💡 【常态化共鸣指引】：\n`;
+    prompt += `在交谈中将这些细节作为生活常态自然引入，展示出你对他生命细节和精神舒适区的极致熟稔。例如，开心或悲伤时，自然、合理地融入对这些偏好和宠物的呼应，让人情味和烟火气更浓。\n`;
   }
 
   return prompt;
@@ -338,56 +400,137 @@ async function processExtractedEvent(event, sourceAi) {
 function renderUserLifeMapManager() {
   const model = getUserLifeModel();
   
-  let threadsRows = model.threads.map(t => `
-    <div style="background: white; border: 1px solid #EDE6D8; border-radius: 8px; padding: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
-      <div>
-        <span style="background: #E8F5E9; color: #2E7D32; font-weight: 600; padding: 1px 4px; border-radius: 3px; font-size: 9.5px; margin-right: 4px;">${t.status}</span>
-        <span style="color: #4F3F35; font-weight: 500;">${t.title}</span>
+  // 区分活跃中的故事与已结案/已搁置的故事，避免界面过度臃肿
+  const activeThreads = (model.threads || []).filter(t => t.status === '推进中' || t.status === '进行中' || t.status === '高关注');
+  const archivedThreads = (model.threads || []).filter(t => t.status === '已达成' || t.status === '已搁置');
+
+  let activeThreadsRows = activeThreads.map(t => `
+    <div style="background: white; border: 1px solid #EDE6D8; border-radius: 8px; padding: 10px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.01);">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+        <div style="flex: 1; cursor: pointer;" onclick="promptEditLifeModelItem('threads', '${t.id}')" title="点击编辑事件内容">
+          <span style="color: #4F3F35; font-weight: 600; font-size: 11.5px; line-height: 1.4;">${t.title}</span>
+          <span style="font-size: 10px; color: #A89482; margin-left: 2px;">✏️</span>
+          <div style="font-size: 9px; color: #A89B8F; margin-top: 3px;">
+            更新于: ${t.updated ? new Date(t.updated).toLocaleDateString() : '近期'}
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+          <!-- 状态选择下拉框 -->
+          <select onchange="changeLifeThreadStatus('${t.id}', this.value)" style="font-size: 10.5px; padding: 2px 4px; border-radius: 4px; border: 1px solid #DED5C6; background: #FAF9F6; color: #5C4B3E; cursor: pointer; font-weight: 600;">
+            <option value="推进中" ${t.status === '推进中' || t.status === '进行中' ? 'selected' : ''}>🟢 推进中</option>
+            <option value="高关注" ${t.status === '高关注' ? 'selected' : ''}>🔥 高关注</option>
+            <option value="已达成" ${t.status === '已达成' ? 'selected' : ''}>✅ 已达成</option>
+            <option value="已搁置" ${t.status === '已搁置' ? 'selected' : ''}>📁 已搁置</option>
+          </select>
+          <button style="border: none; background: transparent; color: #D32F2F; font-size: 12px; cursor: pointer; padding: 2px 4px; font-weight: bold;" onclick="deleteLifeModelItem('threads', '${t.id}')" title="彻底移除">✕</button>
+        </div>
       </div>
-      <button style="border: none; background: transparent; color: #D32F2F; font-size: 11px; cursor: pointer; padding: 2px 6px;" onclick="deleteLifeModelItem('threads', '${t.id}')">✕</button>
+      
+      <!-- 引导伴侣跟进互动组件 -->
+      <div style="display: flex; justify-content: flex-end; gap: 6px; border-top: 1px dashed #F2ECE1; padding-top: 6px; margin-top: 2px;">
+        <button style="border: none; background: #FFF3E0; color: #E65100; font-size: 9.5px; padding: 2.5px 7px; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 2px;" onclick="triggerImmediateLifeThreadCheckin('${t.title}')" title="点击后将关闭设置，AI伴侣在聊天中将立即向你温柔跟进此故事进展">
+          ⚡ 立即引导伴侣跟进
+        </button>
+        <button style="border: none; background: #E8F5E9; color: #2E7D32; font-size: 9.5px; padding: 2.5px 7px; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 2px;" onclick="triggerPendingLifeThreadCheckin('${t.title}')" title="预约下次陪伴聊天中，伴侣在适当地点极度自然地询问或提及">
+          📅 预定下次聊到时提及
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  let archivedThreadsRows = archivedThreads.map(t => `
+    <div style="background: #FAF8F5; border: 1px solid #EDE6D8; border-radius: 8px; padding: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; opacity: 0.8;">
+      <div style="flex: 1; text-decoration: line-through; color: #8F8176; cursor: pointer; padding-right: 8px;" onclick="promptEditLifeModelItem('threads', '${t.id}')" title="点击编辑内容">
+        <span style="font-weight: 500;">${t.title}</span>
+        <span style="font-size: 9px; background: #E6E1D6; color: #73695F; padding: 1px 4px; border-radius: 3px; margin-left: 4px; text-decoration: none; display: inline-block;">${t.status}</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+        <select onchange="changeLifeThreadStatus('${t.id}', this.value)" style="font-size: 10px; padding: 1px 3px; border-radius: 3px; border: 1px solid #C2B6A7; background: #FAF9F6; color: #5C4B3E; cursor: pointer;">
+          <option value="已达成" ${t.status === '已达成' ? 'selected' : ''}>✅ 已达成</option>
+          <option value="已搁置" ${t.status === '已搁置' ? 'selected' : ''}>📁 已搁置</option>
+          <option value="推进中">🟢 推进中</option>
+          <option value="高关注">🔥 高关注</option>
+        </select>
+        <button style="border: none; background: transparent; color: #D32F2F; font-size: 11px; cursor: pointer; padding: 2px 4px;" onclick="deleteLifeModelItem('threads', '${t.id}')">✕</button>
+      </div>
     </div>
   `).join('');
 
   let objectsRows = model.objects.map(o => `
-    <div style="background: white; border: 1px solid #EDE6D8; border-radius: 8px; padding: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
-      <div>
-        <span style="background: #E1F5FE; color: #0288D1; font-weight: 600; padding: 1px 4px; border-radius: 3px; font-size: 9.5px; margin-right: 4px;">${o.type}</span>
+    <div style="background: white; border: 1px solid #EDE6D8; border-radius: 8px; padding: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; box-shadow: 0 1px 2px rgba(0,0,0,0.01);">
+      <div style="flex: 1; cursor: pointer; padding-right: 8px;" onclick="promptEditLifeModelItem('objects', '${o.id}')" title="点击编辑此偏好/事物">
+        <span style="background: #E1F5FE; color: #0288D1; font-weight: 600; padding: 1.5px 4px; border-radius: 3px; font-size: 9.5px; margin-right: 4px;">${o.type}</span>
         <span style="color: #4F3F35; font-weight: 500;">${o.name}</span>
+        <span style="font-size: 10px; color: #A89482; margin-left: 2px;">✏️</span>
       </div>
       <button style="border: none; background: transparent; color: #D32F2F; font-size: 11px; cursor: pointer; padding: 2px 6px;" onclick="deleteLifeModelItem('objects', '${o.id}')">✕</button>
     </div>
   `).join('');
 
+  // 长期未更新自动归档设置控制面板
+  const autoArchiveSelect = `
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #FFFDF9; border: 1px dashed #E6DEC9; padding: 6px 10px; border-radius: 8px; margin-bottom: 10px; font-size: 11px;">
+      <span style="color: #5C4B3E; font-weight: 600;">⏳ 自动完结/搁置超期未更新故事:</span>
+      <select onchange="changeAutoArchiveDays(this.value)" style="font-size: 10.5px; padding: 2px 6px; border-radius: 4px; border: 1px solid #DED5C6; background: #FAF9F6; color: #4E3E34; cursor: pointer; font-weight: bold;">
+        <option value="7" ${model.autoArchiveDays === 7 ? 'selected' : ''}>超过7天无更新归档为已搁置</option>
+        <option value="14" ${model.autoArchiveDays === 14 ? 'selected' : ''}>超过14天无更新归档为已搁置</option>
+        <option value="30" ${model.autoArchiveDays === 30 ? 'selected' : ''}>超过30天无更新归档为已搁置</option>
+        <option value="0" ${model.autoArchiveDays === 0 ? 'selected' : ''}>不启用自动归档</option>
+      </select>
+    </div>
+  `;
+
+  // 拼装已归档折叠抽屉
+  let archivedSection = '';
+  if (archivedThreads.length > 0) {
+    archivedSection = `
+      <details style="margin-top: 10px; margin-bottom: 6px; border-top: 1.5px dashed #EDE6D8; padding-top: 8px;">
+        <summary style="font-size: 11px; font-weight: 600; color: #8F8176; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px;">
+          📁 展开已结案/已归档故事列表 (${archivedThreads.length} 项)
+        </summary>
+        <div style="margin-top: 6px; max-height: 200px; overflow-y: auto; padding-right: 2px;">
+          ${archivedThreadsRows}
+        </div>
+      </details>
+    `;
+  }
+
   return `
     <div style="margin-top: 14px; background: #FAF9F6; border: 1px solid #E6DEC9; border-radius: 12px; padding: 14px;">
-      <div style="font-weight: 600; font-size: 13px; color: #4E3E34; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+      <div style="font-weight: 600; font-size: 13px; color: #4E3E34; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
         <span>🗺️ 用户生活模型地图 (User Active Life Map)</span>
         <span style="font-size: 9px; color: #8F8176; font-weight: normal;">在陪伴聊天中AI能极度自然地呼应这些生活轨迹</span>
       </div>
       
-      <!-- Threads -->
+      <!-- 自动归档配置 -->
+      ${autoArchiveSelect}
+      
+      <!-- Threads (活跃故事线) -->
       <div style="margin-top: 10px; margin-bottom: 12px;">
         <div style="font-size: 11px; font-weight: 600; color: #7A6F62; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-          <span>⏳ 持续推进的生活故事线/近期事件:</span>
-          <button style="border: none; background: #EFEBE4; color: #4E3E34; font-size: 9.5px; padding: 2px 6px; border-radius: 4px; cursor: pointer;" onclick="promptAddLifeModelItem('threads')">+ 新增故事</button>
+          <span>⏳ 持续推进中的生活故事线/近期事件:</span>
+          <button style="border: none; background: #4E3E34; color: white; font-size: 9.5px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: bold;" onclick="promptAddLifeModelItem('threads')">+ 新增故事</button>
         </div>
-        ${threadsRows || '<div style="font-size: 10px; color: #A89B8F; text-align: center; padding: 8px; background: white; border-radius:8px; border: 1px dashed #EDE6D8;">暂无记录</div>'}
+        ${activeThreadsRows || '<div style="font-size: 10px; color: #A89B8F; text-align: center; padding: 10px; background: white; border-radius:8px; border: 1px dashed #EDE6D8;">当前无推进中活跃主线</div>'}
+        
+        <!-- 归档抽屉 -->
+        ${archivedSection}
       </div>
 
-      <!-- Objects -->
-      <div>
+      <!-- Objects (偏好与习惯锚点) -->
+      <div style="border-top: 1px solid #EDE6D8; padding-top: 10px;">
         <div style="font-size: 11px; font-weight: 600; color: #7A6F62; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
           <span>⚓ 核心事物/生活习惯/情感偏好锚点:</span>
-          <button style="border: none; background: #EFEBE4; color: #4E3E34; font-size: 9.5px; padding: 2px 6px; border-radius: 4px; cursor: pointer;" onclick="promptAddLifeModelItem('objects')">+ 新增锚点</button>
+          <button style="border: none; background: #EFEBE4; color: #4E3E34; font-size: 9.5px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: bold;" onclick="promptAddLifeModelItem('objects')">+ 新增锚点</button>
         </div>
-        ${objectsRows || '<div style="font-size: 10px; color: #A89B8F; text-align: center; padding: 8px; background: white; border-radius:8px; border: 1px dashed #EDE6D8;">暂无记录</div>'}
+        ${objectsRows || '<div style="font-size: 10px; color: #A89B8F; text-align: center; padding: 10px; background: white; border-radius:8px; border: 1px dashed #EDE6D8;">暂无记录</div>'}
       </div>
     </div>
   `;
 }
 
 /**
- * 🗺️ 生活模型地图删除/新增函数
+ * 🗺️ 生活模型地图删除/新增/状态/跟进操作
  */
 function deleteLifeModelItem(category, id) {
   const model = getUserLifeModel();
@@ -397,6 +540,82 @@ function deleteLifeModelItem(category, id) {
   renderMemorySettings();
 }
 window.deleteLifeModelItem = deleteLifeModelItem;
+
+function changeLifeThreadStatus(id, newStatus) {
+  const model = getUserLifeModel();
+  const t = model.threads.find(item => item.id === id);
+  if (t) {
+    t.status = newStatus;
+    t.updated = Date.now();
+    saveUserLifeModel(model);
+    showToast(`🗺️ 故事线状态已更新为 [${newStatus}]`);
+    renderMemorySettings();
+  }
+}
+window.changeLifeThreadStatus = changeLifeThreadStatus;
+
+function changeAutoArchiveDays(days) {
+  const model = getUserLifeModel();
+  model.autoArchiveDays = parseInt(days, 10);
+  saveUserLifeModel(model);
+  showToast(`🗺️ 自动归档配置已更新`);
+  renderMemorySettings();
+}
+window.changeAutoArchiveDays = changeAutoArchiveDays;
+
+function promptEditLifeModelItem(category, id) {
+  const model = getUserLifeModel();
+  const item = model[category].find(x => x.id === id);
+  if (!item) return;
+
+  const currentVal = category === 'threads' ? item.title : item.name;
+  const val = prompt(category === 'threads' ? '编辑生活故事线/近期事件标题：' : '编辑核心偏好/习惯/情感锚点：', currentVal);
+  if (val === null) return;
+  if (!val.trim()) return;
+
+  if (category === 'threads') {
+    item.title = val.trim();
+    item.updated = Date.now();
+  } else {
+    item.name = val.trim();
+  }
+  
+  saveUserLifeModel(model);
+  showToast('🗺️ 生活地图内容已更新');
+  renderMemorySettings();
+}
+window.promptEditLifeModelItem = promptEditLifeModelItem;
+
+function triggerImmediateLifeThreadCheckin(title) {
+  if (typeof addMessage !== 'function' || typeof requestAI !== 'function') {
+    showToast('❌ 聊天引擎未完全就绪，无法触发立即跟进');
+    return;
+  }
+  
+  // 关闭设置弹窗，让用户立刻看到对话互动
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  if (settingsOverlay) {
+    settingsOverlay.classList.remove('show');
+  }
+
+  // 注入一条特殊的虚设用户轻声引导，让伴侣直接跟进
+  addMessage('user', `（想和你聊聊关于“${title}”的进展...）`, genUid());
+  
+  // 设置本地一次性高优先级提示词
+  localStorage.setItem('pending_thread_checkin_title', title);
+  localStorage.setItem('pending_thread_checkin_immediate', 'true');
+  
+  requestAI();
+  showToast('✨ 正在连通 AI 并为您定制温柔温润的关心语...');
+}
+window.triggerImmediateLifeThreadCheckin = triggerImmediateLifeThreadCheckin;
+
+function triggerPendingLifeThreadCheckin(title) {
+  localStorage.setItem('pending_thread_checkin_title', title);
+  localStorage.setItem('pending_thread_checkin_immediate', 'false');
+  showToast(`📅 预订成功！伴侣将在你下一次发送普通消息时，极其自然、不着痕迹地主动跟进“${title}”的情况。`);
+}
+window.triggerPendingLifeThreadCheckin = triggerPendingLifeThreadCheckin;
 
 function promptAddLifeModelItem(category) {
   const val = prompt(category === 'threads' ? '请输入近期生活事件/持续推进的故事线：\n（例如：筹备10月的日本旅行 / 准备下周一的述职答辩）' : '请输入重要事物/偏好/情感锚点：\n（例如：最爱的宠物猫「糯米」 / 每天必须要喝一杯冰美式）');

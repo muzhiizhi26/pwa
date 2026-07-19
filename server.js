@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3000;
+const MAX_IMAGE_PROXY_BYTES = 25 * 1024 * 1024;
 
 // Log requests for debugging
 app.use((req, res, next) => {
@@ -55,6 +56,78 @@ app.get('/api/song', async (req, res) => {
     if (!res.headersSent) {
       res.status(502).send('upstream error');
     }
+  }
+});
+
+app.post('/api/image-materialize', express.json({ limit: '1mb' }), async (req, res) => {
+  const { url, key } = req.body || {};
+  if (!url || typeof url !== 'string') {
+    return res.status(400).send('missing image url');
+  }
+
+  let target;
+  try {
+    target = new URL(url);
+  } catch (error) {
+    return res.status(400).send('invalid image url');
+  }
+
+  if (!['http:', 'https:'].includes(target.protocol)) {
+    return res.status(400).send('unsupported image url protocol');
+  }
+
+  const hostname = target.hostname.toLowerCase();
+  const isLocalTarget =
+    hostname === 'localhost' ||
+    hostname === '::1' ||
+    hostname.startsWith('127.') ||
+    hostname.startsWith('10.') ||
+    hostname.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+  if (isLocalTarget) {
+    return res.status(400).send('local image proxy targets are blocked');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const upstreamResponse = await fetch(target, {
+      headers: {
+        Accept: 'image/*',
+        ...(key ? { Authorization: `Bearer ${key}` } : {})
+      },
+      signal: controller.signal
+    });
+
+    if (!upstreamResponse.ok) {
+      return res.status(502).send(`image upstream ${upstreamResponse.status}`);
+    }
+
+    const contentLength = Number(upstreamResponse.headers.get('content-length') || 0);
+    if (contentLength > MAX_IMAGE_PROXY_BYTES) {
+      return res.status(413).send('image too large');
+    }
+
+    const contentType = upstreamResponse.headers.get('content-type') || 'image/png';
+    if (!contentType.toLowerCase().startsWith('image/')) {
+      return res.status(415).send('upstream response is not an image');
+    }
+
+    const buffer = Buffer.from(await upstreamResponse.arrayBuffer());
+    if (buffer.byteLength > MAX_IMAGE_PROXY_BYTES) {
+      return res.status(413).send('image too large');
+    }
+
+    res.json({
+      dataUrl: `data:${contentType};base64,${buffer.toString('base64')}`
+    });
+  } catch (error) {
+    console.error('Image materialize error:', error);
+    res.status(502).send(error.message || 'image materialize failed');
+  } finally {
+    clearTimeout(timeoutId);
   }
 });
 

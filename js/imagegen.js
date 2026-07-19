@@ -241,8 +241,6 @@ async function runImgGen(){
   }
   const initImg=pendingGenInit;
   document.getElementById('imgGenPanel').classList.remove('show');
-  const curr=getActiveImgInterface();
-  const mode=curr.type;
   addMessage('user','🎨 '+promptText+(initImg?'（图生图）':''));
   if(initImg){
     const uid=genUid();
@@ -253,121 +251,8 @@ async function runImgGen(){
   }
   const loading=addLoadingDOM();
   try{
-    let imgUrl=null;
-    const{w,h}=getImgWH();
-    if(mode==='free'){
-      imgUrl=`https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=${w}&height=${h}&nologo=true&seed=${Date.now()}`;
-      await new Promise((res,rej)=>{
-        const im=new Image();
-        im.onload=res;
-        im.onerror=()=>rej(new Error('免费图片加载失败'));
-        im.src=imgUrl;
-      });
-    } else {
-      const url=(curr.url||'').trim();
-      const key=(curr.key||'').trim();
-      const model=(curr.selectedModel||localStorage.getItem('img_model')||getImgModels()[0]||'').trim();
-      if(!key){
-        loading.remove();
-        alert('请先在「生图设置」填入收费 API Key');
-        openSettings();
-        settingsMode='image';
-        renderProviderList();
-        renderImageSettings();
-        return;
-      }
-      const base=url.replace(/\/+$/,'');
-      if(mode==='gemini'){
-        let gurl = '';
-        if (base.includes(':generateContent') || base.includes('/v1beta/')) {
-          gurl = base;
-        } else {
-          gurl = `${base}/v1beta/models/${model}:generateContent`;
-        }
-        if (gurl.includes('${model}') || gurl.includes('<模型>')) {
-          gurl = gurl.replace('${model}', model).replace('<模型>', model);
-        }
-        
-        const parts=[{text:promptText}];
-        if(initImg){
-          const b64=initImg.split(',')[1];
-          const mt=(initImg.match(/^data:(.*?);/)||[])[1]||'image/png';
-          parts.push({inline_data:{mime_type:mt,data:b64}});
-        }
-        const r=await fetch(gurl,{
-          method:'POST',
-          headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-          body:JSON.stringify({contents:[{parts}]})
-        });
-        if(!r.ok){
-          const t=await r.text();
-          throw new Error(`Gemini生图接口返回错误(${r.status}) ${t.slice(0,120)}`);
-        }
-        const d=await r.json();
-        const ps=d.candidates?.[0]?.content?.parts||[];
-        for(const p of ps){
-          const id=p.inlineData||p.inline_data;
-          if(id&&id.data){
-            imgUrl='data:'+(id.mimeType||id.mime_type||'image/png')+';base64,'+id.data;
-            break;
-          }
-        }
-        if(!imgUrl) {
-          throw new Error('Gemini未返回有效的图片数据，请确认调用的模型是否为生图模型，或检查提示词合规性。');
-        }
-      }
-      else if(mode==='openai'){
-        let ourl = '';
-        if (base.includes('/images/generations') || base.includes('/v1/images/generations')) {
-          ourl = base;
-        } else {
-          ourl = base + '/v1/images/generations';
-        }
-        const r=await fetch(ourl,{
-          method:'POST',
-          headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-          body:JSON.stringify({model,prompt:promptText,size:`${w}x${h}`,image_size:`${w}x${h}`,n:1})
-        });
-        if(!r.ok){
-          const t=await r.text();
-          throw new Error(`OpenAI生图接口返回错误(${r.status}) ${t.slice(0,120)}`);
-        }
-        const d=await r.json();
-        imgUrl=d.data?.[0]?.url||(d.data?.[0]?.b64_json && ('data:image/png;base64,'+d.data[0].b64_json))||d.images?.[0]?.url;
-        if(!imgUrl) {
-          throw new Error('OpenAI未返回图片链接或Base64数据');
-        }
-      }
-      else if(mode==='chat'){
-        let curl = '';
-        if (base.includes('/chat/completions') || base.includes('/v1/chat/completions')) {
-          curl = base;
-        } else {
-          curl = base + '/v1/chat/completions';
-        }
-        const content=[{type:'text',text:'生成图片：'+promptText}];
-        if(initImg) content.push({type:'image_url',image_url:{url:initImg}});
-        const r=await fetch(curl,{
-          method:'POST',
-          headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-          body:JSON.stringify({model,messages:[{role:'user',content}]})
-        });
-        if(!r.ok){
-          const t=await r.text();
-          throw new Error(`Chat生图接口返回错误(${r.status}) ${t.slice(0,120)}`);
-        }
-        const d=await r.json();
-        const msg=d.choices?.[0]?.message;
-        imgUrl=msg?.images?.[0]?.url||msg?.images?.[0]?.image_url?.url;
-        if(!imgUrl&&msg?.content){
-          const md=(typeof msg.content==='string'?msg.content:'').match(/!\[.*?\]\((.*?)\)|(https?:\/\/\S+\.(?:png|jpg|jpeg|webp))|(data:image\/[^)\s]+)/i);
-          if(md) imgUrl=md[1]||md[2]||md[3];
-        }
-        if(!imgUrl) {
-          throw new Error('Chat模式未返回有效的图片链接/格式，请检查模型是否支持图片输出。');
-        }
-      }
-    }
+    const activeAi = (typeof currentPrivateAiId === 'function') ? currentPrivateAiId() : 'main';
+    const { imgUrl } = await generateImageWithFailover(promptText, initImg, activeAi);
     loading.remove();
     const uid=genUid();
     const ts=Date.now();
@@ -545,6 +430,421 @@ if (typeof window !== 'undefined') {
   window.LovestoryCharacterDB.init();
 }
 
+window.LovestoryImageDB = {
+  DB_NAME: 'LovestoryImagesDB',
+  STORE_NAME: 'images',
+  VERSION: 1,
+  _db: null,
+
+  async init() {
+    return new Promise((resolve) => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        console.warn('[LovestoryImageDB] IndexedDB is not supported.');
+        resolve();
+        return;
+      }
+      try {
+        const request = window.indexedDB.open(this.DB_NAME, this.VERSION);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+            db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
+          }
+        };
+        request.onsuccess = (e) => {
+          this._db = e.target.result;
+          console.log('[LovestoryImageDB] Initialized successfully.');
+          resolve();
+        };
+        request.onerror = (e) => {
+          console.error('[LovestoryImageDB] Open request failed:', e.target.error);
+          resolve();
+        };
+      } catch (err) {
+        console.error('[LovestoryImageDB] Failed to open database:', err);
+        resolve();
+      }
+    });
+  },
+
+  async put(id, dataUrlOrBlob) {
+    if (!this._db) return false;
+    return new Promise((resolve) => {
+      try {
+        const tx = this._db.transaction(this.STORE_NAME, 'readwrite');
+        const store = tx.objectStore(this.STORE_NAME);
+        store.put({ id, data: dataUrlOrBlob, ts: Date.now() });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => {
+          console.error('[LovestoryImageDB] Put failed:', tx.error);
+          resolve(false);
+        };
+      } catch (err) {
+        console.error('[LovestoryImageDB] Error storing image:', err);
+        resolve(false);
+      }
+    });
+  },
+
+  async get(id) {
+    if (!this._db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = this._db.transaction(this.STORE_NAME, 'readonly');
+        const store = tx.objectStore(this.STORE_NAME);
+        const request = store.get(id);
+        request.onsuccess = () => {
+          resolve(request.result ? request.result.data : null);
+        };
+        request.onerror = () => {
+          resolve(null);
+        };
+      } catch (err) {
+        resolve(null);
+      }
+    });
+  },
+
+  async remove(id) {
+    if (!this._db) return false;
+    return new Promise((resolve) => {
+      try {
+        const tx = this._db.transaction(this.STORE_NAME, 'readwrite');
+        const store = tx.objectStore(this.STORE_NAME);
+        store.delete(id);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch (err) {
+        resolve(false);
+      }
+    });
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.LovestoryImageDB.init();
+}
+
+async function downloadAndStoreImage(url, id) {
+  try {
+    if (!url) return null;
+    if (url.startsWith('data:')) {
+      if (window.LovestoryImageDB) {
+        await window.LovestoryImageDB.put(id, url);
+      }
+      return url;
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+    const blob = await res.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64data = reader.result;
+        if (window.LovestoryImageDB) {
+          await window.LovestoryImageDB.put(id, base64data);
+        }
+        resolve(base64data);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn('[ImagePersistence] Failed to download/convert image to base64:', e);
+    return url;
+  }
+}
+window.downloadAndStoreImage = downloadAndStoreImage;
+
+function normalizeGeneratedImageValue(value, fallbackMime = 'image/png') {
+  if (!value || typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^data:image\/[^;]+;base64,/i.test(trimmed)) return trimmed;
+  if (/^https?:\/\//i.test(trimmed) || /^blob:/i.test(trimmed)) return trimmed;
+  const compact = trimmed.replace(/\s+/g, '');
+  if (compact.length > 200 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
+    return `data:${fallbackMime};base64,${compact}`;
+  }
+  return '';
+}
+
+function extractGeneratedImageFromText(text) {
+  if (!text || typeof text !== 'string') return '';
+  const markdownMatch = text.match(/!\[[^\]]*]\(([^)\s]+)\)/);
+  if (markdownMatch) return normalizeGeneratedImageValue(markdownMatch[1]);
+  const dataMatch = text.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=\s]+/i);
+  if (dataMatch) return normalizeGeneratedImageValue(dataMatch[0]);
+  const urlMatch = text.match(/https?:\/\/[^\s"'<>）)]+/i);
+  if (urlMatch) return normalizeGeneratedImageValue(urlMatch[0]);
+  return normalizeGeneratedImageValue(text);
+}
+
+function extractGeneratedImageFromResponse(payload) {
+  if (!payload) return '';
+  if (typeof payload === 'string') return extractGeneratedImageFromText(payload);
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const extracted = extractGeneratedImageFromResponse(item);
+      if (extracted) return extracted;
+    }
+    return '';
+  }
+  if (typeof payload !== 'object') return '';
+
+  const directCandidates = [
+    payload.url,
+    payload.output_url,
+    payload.image_url?.url,
+    payload.image_url,
+    payload.image,
+    payload.b64_json,
+    payload.base64,
+    payload.data_url,
+    payload.inlineData?.data,
+    payload.inline_data?.data,
+    payload.source?.url
+  ];
+  for (const candidate of directCandidates) {
+    const mimeType = payload.mimeType || payload.mime_type || payload.inlineData?.mimeType || payload.inline_data?.mime_type || 'image/png';
+    const normalized = normalizeGeneratedImageValue(candidate, mimeType);
+    if (normalized) return normalized;
+  }
+
+  const nestedCandidates = [
+    payload.data,
+    payload.images,
+    payload.artifacts,
+    payload.output,
+    payload.outputs,
+    payload.result,
+    payload.results,
+    payload.candidates,
+    payload.choices,
+    payload.message,
+    payload.content,
+    payload.parts
+  ];
+  for (const nested of nestedCandidates) {
+    const extracted = extractGeneratedImageFromResponse(nested);
+    if (extracted) return extracted;
+  }
+  return '';
+}
+
+function imageUrlToDataUrl(url, key) {
+  return fetch(url, {
+    headers: {
+      Accept: 'image/*',
+      ...(key ? { Authorization: `Bearer ${key}` } : {})
+    }
+  }).then(response => {
+    if (!response.ok) throw new Error(`image fetch ${response.status}`);
+    return response.blob();
+  }).catch(async directError => {
+    const proxyResponse = await fetch('/api/image-materialize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, key })
+    });
+    if (!proxyResponse.ok) {
+      const text = await proxyResponse.text().catch(() => '');
+      throw new Error(text || directError.message || `image proxy ${proxyResponse.status}`);
+    }
+    const payload = await proxyResponse.json();
+    if (!payload.dataUrl) throw new Error('image proxy returned empty data');
+    return fetch(payload.dataUrl).then(response => response.blob());
+  }).then(blob => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  }));
+}
+
+function waitForRenderableImage(src, timeoutMs = 12000) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const timer = setTimeout(() => {
+      image.onload = null;
+      image.onerror = null;
+      reject(new Error('image load timeout'));
+    }, timeoutMs);
+    image.onload = () => {
+      clearTimeout(timer);
+      resolve(src);
+    };
+    image.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error('image URL cannot be rendered by <img>'));
+    };
+    image.referrerPolicy = 'no-referrer';
+    image.src = src;
+  });
+}
+
+async function ensureRenderableGeneratedImage(imgUrl, key = '') {
+  const normalized = normalizeGeneratedImageValue(imgUrl);
+  if (!normalized) return '';
+  if (normalized.startsWith('data:') || normalized.startsWith('blob:')) return normalized;
+  if (!/^https?:\/\//i.test(normalized)) return normalized;
+
+  try {
+    await waitForRenderableImage(normalized);
+    return normalized;
+  } catch (loadError) {
+    if (!key) throw loadError;
+    return imageUrlToDataUrl(normalized, key);
+  }
+}
+
+async function generateImageWithFailover(promptText, initImg = null, memberId = 'main') {
+  const interfaces = getImgInterfaces();
+  const active = getActiveImgInterface();
+  const tryQueue = [];
+
+  // 1. Try active first
+  tryQueue.push(active);
+
+  // 2. Add other paid providers if configured (i.e. have a key)
+  interfaces.forEach(it => {
+    if (it.id !== active.id && it.type !== 'free' && it.key && it.key.trim()) {
+      tryQueue.push(it);
+    }
+  });
+
+  // 3. Add free Pollinations as final backup if not tried
+  const freeProv = interfaces.find(it => it.type === 'free') || { id: 'free', type: 'free', name: '免费 · Pollinations' };
+  if (!tryQueue.some(it => it.id === freeProv.id)) {
+    tryQueue.push(freeProv);
+  }
+
+  let lastError = null;
+  const { w, h } = getImgWH();
+  const profile = getCharacterIdentity(memberId) || {};
+  const refImg = initImg || (Array.isArray(profile.ref_images) && profile.ref_images.length > 0 ? profile.ref_images[0] : null);
+
+  for (const prov of tryQueue) {
+    const mode = prov.type;
+    console.log(`[ImageFailover] Attempting image generation with provider: ${prov.name || mode}`);
+
+    if (mode !== 'free' && (!prov.key || !prov.key.trim())) {
+      console.log(`[ImageFailover] Skipping ${prov.name || mode} (no API Key configured)`);
+      continue;
+    }
+
+    const maxRetries = mode === 'free' ? 2 : 1;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        let imgUrl = null;
+        let authKey = '';
+        if (mode === 'free') {
+          imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=${w}&height=${h}&nologo=true&seed=${Date.now() + attempt}`;
+          
+          // Verify loadability
+          await new Promise((resolve, reject) => {
+            const im = new Image();
+            im.onload = resolve;
+            im.onerror = () => reject(new Error('Pollinations image server failed or returned 500'));
+            im.src = imgUrl;
+          });
+        } else {
+          const url = (prov.url || '').trim();
+          const key = (prov.key || '').trim();
+          authKey = key;
+          const model = (prov.selectedModel || localStorage.getItem('img_model') || (prov.models && prov.models[0]) || '').trim();
+          const base = url.replace(/\/+$/, '');
+
+          if (mode === 'gemini') {
+            let gurl = base.includes(':generateContent') || base.includes('/v1beta/') ? base : `${base}/v1beta/models/${model}:generateContent`;
+            if (gurl.includes('${model}') || gurl.includes('<模型>')) {
+              gurl = gurl.replace('${model}', model).replace('<模型>', model);
+            }
+
+            const parts = [{ text: promptText }];
+            if (refImg) {
+              const b64 = refImg.split(',')[1];
+              const mt = (refImg.match(/^data:(.*?);/) || [])[1] || 'image/png';
+              parts.push({ inline_data: { mime_type: mt, data: b64 } });
+            }
+
+            const r = await fetch(gurl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+              body: JSON.stringify({ contents: [{ parts }] })
+            });
+            if (!r.ok) {
+              const t = await r.text();
+              throw new Error(`Gemini Error (${r.status}): ${t.slice(0, 100)}`);
+            }
+            const d = await r.json();
+            const ps = d.candidates?.[0]?.content?.parts || [];
+            for (const p of ps) {
+              const id = p.inlineData || p.inline_data;
+              if (id && id.data) {
+                imgUrl = 'data:' + (id.mimeType || id.mime_type || 'image/png') + ';base64,' + id.data;
+                break;
+              }
+            }
+            if (!imgUrl) imgUrl = extractGeneratedImageFromResponse(d);
+            if (!imgUrl) throw new Error('Gemini did not return image data');
+          } else if (mode === 'openai') {
+            const ourl = base.includes('/images/generations') || base.includes('/v1/images/generations') ? base : base + '/v1/images/generations';
+            const r = await fetch(ourl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+              body: JSON.stringify({ model, prompt: promptText, size: `${w}x${h}`, image_size: `${w}x${h}`, n: 1 })
+            });
+            if (!r.ok) {
+              const t = await r.text();
+              throw new Error(`OpenAI Error (${r.status}): ${t.slice(0, 100)}`);
+            }
+            const d = await r.json();
+            imgUrl = extractGeneratedImageFromResponse(d);
+            if (!imgUrl) throw new Error('OpenAI did not return image URL');
+          } else if (mode === 'chat') {
+            const curl = base.includes('/chat/completions') || base.includes('/v1/chat/completions') ? base : base + '/v1/chat/completions';
+            const content = [{ type: 'text', text: 'Generate image: ' + promptText }];
+            if (refImg) content.push({ type: 'image_url', image_url: { url: refImg } });
+            const r = await fetch(curl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+              body: JSON.stringify({ model, messages: [{ role: 'user', content }] })
+            });
+            if (!r.ok) {
+              const t = await r.text();
+              throw new Error(`Chat Error (${r.status}): ${t.slice(0, 100)}`);
+            }
+            const d = await r.json();
+            imgUrl = extractGeneratedImageFromResponse(d);
+            if (!imgUrl) throw new Error('Chat model did not return image format');
+          }
+        }
+
+        if (imgUrl) {
+          try {
+            imgUrl = await ensureRenderableGeneratedImage(imgUrl, authKey);
+          } catch (renderError) {
+            renderError.generatedImageReceived = true;
+            throw renderError;
+          }
+          console.log(`[ImageFailover] Successfully generated image using: ${prov.name || mode}`);
+          return { imgUrl, providerName: prov.name || mode };
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn(`[ImageFailover] Attempt ${attempt} failed for provider ${prov.name || mode}: ${err.message}`);
+        if (err && err.generatedImageReceived) {
+          throw err;
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('All image generation providers failed');
+}
+window.generateImageWithFailover = generateImageWithFailover;
+
 function imgPermissionMode() {
   return localStorage.getItem('img_permission_mode') || 'off';
 }
@@ -669,10 +969,10 @@ function showVisualSuggestion(memberId, scene, description, assistantMsgUid) {
   if (!msgDiv) return;
   const bubbles = msgDiv.querySelector('.bubbles');
   if (!bubbles) return;
-  
+
   // Prevent duplicate suggestions
   if (msgDiv.querySelector('.visual-suggestion')) return;
-  
+
   const card = document.createElement('div');
   card.className = 'visual-suggestion';
   card.style.cssText = 'margin-top: 10px; border: 1.5px dashed var(--accent); border-radius: 12px; padding: 12px; background-color: var(--bg-hover); text-align: center; font-size: 12px; animation: slideUp 0.3s ease; box-shadow: 0 2px 8px var(--shadow);';
@@ -698,25 +998,6 @@ async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded
     buttonEl.innerHTML = '⏳ 正在构建画面...';
   }
   
-  const curr = getActiveImgInterface();
-  const mode = curr.type;
-  const url = (curr.url || '').trim();
-  const key = (curr.key || '').trim();
-  const model = (curr.selectedModel || localStorage.getItem('img_model') || getImgModels()[0] || '').trim();
-  
-  if (mode !== 'free' && !key) {
-    alert('请先在「生图设置」填入 API Key');
-    openSettings();
-    settingsMode = 'image';
-    renderProviderList();
-    renderImageSettings();
-    if (buttonEl) {
-      buttonEl.disabled = false;
-      buttonEl.innerHTML = '🎨 重新生成';
-    }
-    return;
-  }
-  
   // Remove the visual suggestion box to prevent reuse
   const suggestCard = buttonEl ? buttonEl.closest('.visual-suggestion') : null;
   if (suggestCard) suggestCard.remove();
@@ -726,110 +1007,9 @@ async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded
   
   try {
     const finalPrompt = buildFinalImgPrompt(memberId, scene);
-    const { w, h } = getImgWH();
-    let imgUrl = null;
     
-    // Check if there are character reference images to use for image-to-image/face guide
-    const profile = getCharacterIdentity(memberId);
-    const hasRef = Array.isArray(profile.ref_images) && profile.ref_images.length > 0;
-    const refImg = hasRef ? profile.ref_images[0] : null; // Pick the first reference image as character anchor
-    
-    if (mode === 'free') {
-      imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?width=${w}&height=${h}&nologo=true&seed=${Date.now()}`;
-      await new Promise((res, rej) => {
-        const im = new Image();
-        im.onload = res;
-        im.onerror = () => rej(new Error('免费生图加载失败'));
-        im.src = imgUrl;
-      });
-    } else {
-      const base = url.replace(/\/+$/, '');
-      if (mode === 'gemini') {
-        let gurl = '';
-        if (base.includes(':generateContent') || base.includes('/v1beta/')) {
-          gurl = base;
-        } else {
-          gurl = `${base}/v1beta/models/${model}:generateContent`;
-        }
-        if (gurl.includes('${model}') || gurl.includes('<模型>')) {
-          gurl = gurl.replace('${model}', model).replace('<模型>', model);
-        }
-        
-        const parts = [{ text: finalPrompt }];
-        // If there's a reference image, pass it to Gemini for visual/style guidance!
-        if (refImg) {
-          const b64 = refImg.split(',')[1];
-          const mt = (refImg.match(/^data:(.*?);/) || [])[1] || 'image/png';
-          parts.push({ inline_data: { mime_type: mt, data: b64 } });
-        }
-        const r = await fetch(gurl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify({ contents: [{ parts }] })
-        });
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(`Gemini生图接口返回错误(${r.status}) ${t.slice(0, 120)}`);
-        }
-        const d = await r.json();
-        const ps = d.candidates?.[0]?.content?.parts || [];
-        for (const p of ps) {
-          const id = p.inlineData || p.inline_data;
-          if (id && id.data) {
-            imgUrl = 'data:' + (id.mimeType || id.mime_type || 'image/png') + ';base64,' + id.data;
-            break;
-          }
-        }
-        if (!imgUrl) throw new Error('Gemini接口未返回图片内容，请检查调用的模型是否支持多模态生成，或提示词是否符合合规安全政策');
-      } else if (mode === 'openai') {
-        let ourl = '';
-        if (base.includes('/images/generations') || base.includes('/v1/images/generations')) {
-          ourl = base;
-        } else {
-          ourl = base + '/v1/images/generations';
-        }
-        const r = await fetch(ourl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify({ model, prompt: finalPrompt, size: `${w}x${h}`, image_size: `${w}x${h}`, n: 1 })
-        });
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(`OpenAI生图接口返回错误(${r.status}) ${t.slice(0, 120)}`);
-        }
-        const d = await r.json();
-        imgUrl = d.data?.[0]?.url || (d.data?.[0]?.b64_json && ('data:image/png;base64,' + d.data[0].b64_json)) || d.images?.[0]?.url;
-        if (!imgUrl) throw new Error('OpenAI接口未返回有效的图片链接或数据');
-      } else if (mode === 'chat') {
-        let curl = '';
-        if (base.includes('/chat/completions') || base.includes('/v1/chat/completions')) {
-          curl = base;
-        } else {
-          curl = base + '/v1/chat/completions';
-        }
-        const content = [{ type: 'text', text: '生成图片：' + finalPrompt }];
-        if (refImg) {
-          content.push({ type: 'image_url', image_url: { url: refImg } });
-        }
-        const r = await fetch(curl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify({ model, messages: [{ role: 'user', content }] })
-        });
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(`Chat生图接口返回错误(${r.status}) ${t.slice(0, 120)}`);
-        }
-        const d = await r.json();
-        const msg = d.choices?.[0]?.message;
-        imgUrl = msg?.images?.[0]?.url || msg?.images?.[0]?.image_url?.url;
-        if (!imgUrl && msg?.content) {
-          const md = (typeof msg.content === 'string' ? msg.content : '').match(/!\[.*?\]\((.*?)\)|(https?:\/\/\S+\.(?:png|jpg|jpeg|webp))|(data:image\/[^)\s]+)/i);
-          if (md) imgUrl = md[1] || md[2] || md[3];
-        }
-        if (!imgUrl) throw new Error('Chat模式未返回有效的图片，请检查模型输出是否符合预期，或改用 Gemini/OpenAI 模式');
-      }
-    }
+    // Call failover image engine
+    const { imgUrl } = await generateImageWithFailover(finalPrompt, null, memberId);
     
     loadingDiv.remove();
     const uid = genUid();
@@ -855,118 +1035,9 @@ async function autoGenerateVisualCompanion(memberId, scene, description, assista
   const loadingDiv = addLoadingDOM();
   try {
     const finalPrompt = buildFinalImgPrompt(memberId, scene);
-    const { w, h } = getImgWH();
-    let imgUrl = null;
     
-    const curr = getActiveImgInterface();
-    const mode = curr.type;
-    const url = (curr.url || '').trim();
-    const key = (curr.key || '').trim();
-    const model = (curr.selectedModel || localStorage.getItem('img_model') || getImgModels()[0] || '').trim();
-    
-    if (mode !== 'free' && !key) {
-      loadingDiv.remove();
-      // Silently fall back to rendering inline suggest button so they can configure Key
-      showVisualSuggestion(memberId, scene, description, assistantMsgUid);
-      return;
-    }
-    
-    const profile = getCharacterIdentity(memberId);
-    const refImg = Array.isArray(profile.ref_images) && profile.ref_images.length > 0 ? profile.ref_images[0] : null;
-    
-    if (mode === 'free') {
-      imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?width=${w}&height=${h}&nologo=true&seed=${Date.now()}`;
-      await new Promise((res, rej) => {
-        const im = new Image();
-        im.onload = res;
-        im.onerror = () => rej(new Error('自动生图失败'));
-        im.src = imgUrl;
-      });
-    } else {
-      const base = url.replace(/\/+$/, '');
-      if (mode === 'gemini') {
-        let gurl = '';
-        if (base.includes(':generateContent') || base.includes('/v1beta/')) {
-          gurl = base;
-        } else {
-          gurl = `${base}/v1beta/models/${model}:generateContent`;
-        }
-        if (gurl.includes('${model}') || gurl.includes('<模型>')) {
-          gurl = gurl.replace('${model}', model).replace('<模型>', model);
-        }
-        
-        const parts = [{ text: finalPrompt }];
-        if (refImg) {
-          const b64 = refImg.split(',')[1];
-          const mt = (refImg.match(/^data:(.*?);/) || [])[1] || 'image/png';
-          parts.push({ inline_data: { mime_type: mt, data: b64 } });
-        }
-        const r = await fetch(gurl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify({ contents: [{ parts }] })
-        });
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(`Gemini生图接口返回错误(${r.status}) ${t.slice(0, 120)}`);
-        }
-        const d = await r.json();
-        const ps = d.candidates?.[0]?.content?.parts || [];
-        for (const p of ps) {
-          const id = p.inlineData || p.inline_data;
-          if (id && id.data) {
-            imgUrl = 'data:' + (id.mimeType || id.mime_type || 'image/png') + ';base64,' + id.data;
-            break;
-          }
-        }
-        if (!imgUrl) throw new Error('Gemini接口未返回图片内容');
-      } else if (mode === 'openai') {
-        let ourl = '';
-        if (base.includes('/images/generations') || base.includes('/v1/images/generations')) {
-          ourl = base;
-        } else {
-          ourl = base + '/v1/images/generations';
-        }
-        const r = await fetch(ourl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify({ model, prompt: finalPrompt, size: `${w}x${h}`, image_size: `${w}x${h}`, n: 1 })
-        });
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(`OpenAI生图接口返回错误(${r.status}) ${t.slice(0, 120)}`);
-        }
-        const d = await r.json();
-        imgUrl = d.data?.[0]?.url || (d.data?.[0]?.b64_json && ('data:image/png;base64,' + d.data[0].b64_json)) || d.images?.[0]?.url;
-        if (!imgUrl) throw new Error('OpenAI接口未返回有效的图片数据');
-      } else if (mode === 'chat') {
-        let curl = '';
-        if (base.includes('/chat/completions') || base.includes('/v1/chat/completions')) {
-          curl = base;
-        } else {
-          curl = base + '/v1/chat/completions';
-        }
-        const content = [{ type: 'text', text: '生成图片：' + finalPrompt }];
-        if (refImg) content.push({ type: 'image_url', image_url: { url: refImg } });
-        const r = await fetch(curl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify({ model, messages: [{ role: 'user', content }] })
-        });
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(`Chat生图接口返回错误(${r.status}) ${t.slice(0, 120)}`);
-        }
-        const d = await r.json();
-        const msg = d.choices?.[0]?.message;
-        imgUrl = msg?.images?.[0]?.url || msg?.images?.[0]?.image_url?.url;
-        if (!imgUrl && msg?.content) {
-          const md = (typeof msg.content === 'string' ? msg.content : '').match(/!\[.*?\]\((.*?)\)|(https?:\/\/\S+\.(?:png|jpg|jpeg|webp))|(data:image\/[^)\s]+)/i);
-          if (md) imgUrl = md[1] || md[2] || md[3];
-        }
-        if (!imgUrl) throw new Error('Chat模式未返回有效的图片');
-      }
-    }
+    // Call failover image engine
+    const { imgUrl } = await generateImageWithFailover(finalPrompt, null, memberId);
     
     loadingDiv.remove();
     if (imgUrl) {

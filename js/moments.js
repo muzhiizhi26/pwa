@@ -61,9 +61,24 @@ const MomentsEngine = {
     const moments = this.getMoments();
     moments.unshift(moment);
     this.saveMoments(moments);
+
+    // Cache image in LovestoryImageDB if present
+    if (moment.image && window.LovestoryImageDB) {
+      if (typeof downloadAndStoreImage === 'function') {
+        downloadAndStoreImage(moment.image, moment.id).then(() => {
+          console.log(`[MomentsPersistence] Auto-cached image for moment: ${moment.id}`);
+        }).catch(err => console.warn('[MomentsPersistence] Failed to cache moment image:', err));
+      } else {
+        window.LovestoryImageDB.put(moment.id, moment.image);
+      }
+    }
+
     // 限制最大长度在 100 条
     if (moments.length > 100) {
-      moments.pop();
+      const removed = moments.pop();
+      if (removed && window.LovestoryImageDB) {
+        window.LovestoryImageDB.remove(removed.id).catch(() => {});
+      }
       this.saveMoments(moments);
     }
   },
@@ -512,7 +527,7 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
         if (m.image) {
           mediaHtml = `
             <div style="margin-top: 8px; max-width: 180px; max-height: 180px; border-radius: 4px; overflow: hidden; display: inline-block;">
-              <img src="${m.image}" style="width: 100%; max-height: 180px; object-fit: cover; display: block; cursor: zoom-in;" onclick="viewFullImage('${m.image}')">
+              <img id="moment-img-${m.id}" src="${m.image}" style="width: 100%; max-height: 180px; object-fit: cover; display: block; cursor: zoom-in;" onclick="viewFullImage(this.src)">
             </div>
           `;
         }
@@ -673,6 +688,30 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
         ${momentsListHtml}
       </div>
     `;
+
+    // Start asynchronously loading moments images from IndexedDB
+    moments.forEach(m => {
+      if (m.image && window.LovestoryImageDB) {
+        window.LovestoryImageDB.get(m.id).then(storedData => {
+          if (storedData) {
+            const imgEl = document.getElementById(`moment-img-${m.id}`);
+            if (imgEl) {
+              imgEl.src = storedData;
+            }
+          } else {
+            // Download and cache it right now if not yet in DB
+            if (typeof downloadAndStoreImage === 'function') {
+              downloadAndStoreImage(m.image, m.id).then(storedUrl => {
+                const imgEl = document.getElementById(`moment-img-${m.id}`);
+                if (imgEl && storedUrl) {
+                  imgEl.src = storedUrl;
+                }
+              }).catch(err => console.warn('[MomentsPersistence] Fail to cache moment image on view:', err));
+            }
+          }
+        }).catch(err => console.warn('[MomentsPersistence] Failed to fetch image from IndexedDB:', err));
+      }
+    });
   },
 
   // 展开或收起微信朋友圈点赞与评论操作菜单

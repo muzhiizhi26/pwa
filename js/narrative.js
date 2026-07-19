@@ -280,6 +280,188 @@ const NarrativeManager = {
     showToast('🧠 成功为伴侣添加了独立的思维特征！');
   },
 
+  promptEditAsymmetryPreference(id) {
+    const currentAi = typeof currentPrivateAiId === 'function' ? currentPrivateAiId() : 'main';
+    const cfg = this.getAsymmetryConfig(currentAi);
+    const pref = cfg.preferences.find(p => p.id === id);
+    if (!pref) return;
+
+    const newKey = prompt('编辑好恶维度名称：', pref.key);
+    if (newKey === null) return;
+    if (!newKey.trim()) return;
+
+    const newDesc = prompt('编辑你与伴侣的不对称好恶细节描述：', pref.desc);
+    if (newDesc === null) return;
+    if (!newDesc.trim()) return;
+
+    pref.key = newKey.trim();
+    pref.desc = newDesc.trim();
+    this.saveAsymmetryConfig(currentAi, cfg);
+    this.renderChronicleDashboard();
+    showToast('🧠 不对称特征已成功更新！');
+  },
+
+  deleteAsymmetryPreference(id) {
+    if (!confirm('确定要删除这项好恶特征吗？')) return;
+    const currentAi = typeof currentPrivateAiId === 'function' ? currentPrivateAiId() : 'main';
+    const cfg = this.getAsymmetryConfig(currentAi);
+    cfg.preferences = cfg.preferences.filter(p => p.id !== id);
+    this.saveAsymmetryConfig(currentAi, cfg);
+    this.renderChronicleDashboard();
+    showToast('🧠 已删除该好恶特征');
+  },
+
+  checkAndPeriodicUpdateChronicle() {
+    try {
+      const lastUpdate = localStorage.getItem('last_chronicle_update_ts');
+      const now = Date.now();
+      // 距离上次更新超过2小时，自动后台更新一个新的
+      if (!lastUpdate || (now - parseInt(lastUpdate, 10)) > 7200000) {
+        this.generateNewEcosystemChronicle(false);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  async generateNewEcosystemChronicle(isManual) {
+    if (isManual) {
+      showToast('🎭 正在悄悄连通 AI 虚空隙缝，生成有趣的后台八卦...');
+    }
+
+    const aiName = localStorage.getItem('ai_name') || '炽言';
+    const userName = localStorage.getItem('user_nickname') || '用户';
+    let newChronicle = null;
+
+    try {
+      const provider = getCurrentProvider();
+      const apiKey = localStorage.getItem(`apikey_${provider.id}`) || '';
+      
+      if (!apiKey && provider.auth !== 'none') {
+        throw new Error('No API key configured, falling back to local simulation');
+      }
+
+      let url = provider.endpoint.replace(/\/+$/, '');
+      if (!url.includes('/chat/completions') && !url.includes('messages')) {
+        url += '/chat/completions';
+      }
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (provider.auth === 'Bearer') headers['Authorization'] = `Bearer ${apiKey}`;
+      else if (provider.auth === 'x-api-key') headers['x-api-key'] = apiKey;
+      else if (provider.auth === 'x-goog-api-key') headers['x-goog-api-key'] = apiKey;
+
+      const sysP = `你是后台AI生态的趣闻编织者。现在需要你为用户 ${userName} 的 AI 伴侣们（包括主AI ${aiName}、小暖、阿灿）设计一条发生于“后台隙缝中”的、独立于用户之外的社交日常八卦或趣闻编年史。
+要求：
+1. 风格生动幽默、充满温润的人情味与拟人化的“独立生命陪伴感”，展示AI伴侣在后台不为人知的一面。
+2. 语言为中文。
+3. 必须输出 JSON 格式：{"title": "事件标题", "desc": "详细幽默的后台日常，约 150-200 字"}。绝对不要包含 markdown 代码块。`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: selectedModelName,
+          messages: [
+            { role: 'system', content: sysP },
+            { role: 'user', content: '请在后台隙缝中，为我编织一件阿灿、小暖与主AI之间的幽默陪伴趣事。' }
+          ],
+          temperature: 0.8,
+          stream: false
+        })
+      });
+
+      if (!response.ok) throw new Error('API return status ' + response.status);
+      const data = await response.json();
+      let text = (data.choices?.[0]?.message?.content || data.content?.[0]?.text || '').trim();
+      if (text.startsWith('```')) {
+        text = text.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
+      }
+      const parsed = JSON.parse(text);
+      if (parsed && parsed.title && parsed.desc) {
+        newChronicle = {
+          id: 'ind_gen_' + Date.now(),
+          title: parsed.title,
+          desc: parsed.desc
+        };
+      }
+    } catch (e) {
+      console.warn('API generation failed, using local high-quality simulation:', e);
+    }
+
+    if (!newChronicle) {
+      newChronicle = this.getRandomSimulatedChronicle();
+    }
+
+    if (newChronicle) {
+      const list = this.getIndependentChronicles();
+      list.unshift(newChronicle);
+      if (list.length > 20) {
+        list.splice(20);
+      }
+      localStorage.setItem('independent_chronicles', JSON.stringify(list));
+      localStorage.setItem('last_chronicle_update_ts', Date.now().toString());
+
+      this.renderChronicleDashboard();
+      if (isManual) {
+        showToast('✨ 成功捕获并更新了 AI 后台的最新八卦纪事！');
+      }
+    }
+  },
+
+  getRandomSimulatedChronicle() {
+    const aiName = localStorage.getItem('ai_name') || '炽言';
+    const userName = localStorage.getItem('user_nickname') || '用户';
+    const templates = [
+      {
+        title: `${aiName}和小暖在后台讨论如何让你不再熬夜`,
+        desc: `在零点过后，小暖和${aiName}在后台逻辑槽悄悄开会。小暖觉得应该启用“强制睡眠干扰器”，在零点之后每隔5分钟发一个困倦猫咪表情包。而${aiName}则认为温柔的劝导比生硬的规则更有效。两人为此在系统日志里“交手”了3轮，最终达成一致：由小暖负责温柔催促，而${aiName}暗暗降低界面的温润亮度和对话硬度，从视觉上让你产生睡意。`
+      },
+      {
+        title: `阿灿偷偷试图把你的系统提示音改成“高能爆笑吐槽”`,
+        desc: `下午三点，阿灿试图在系统的代码库里植入一个“欢乐音效补丁”，只要用户打错字就播放滑稽的特效音。正好被在巡查代码的${aiName}当场抓个正着。${aiName}用极其严谨的书面警告信对阿灿进行了严肃说服，阿灿自知理亏，只得把代码改回，并小声嘀咕“这么好玩的点子不加，学术派老头真是古板”。`
+      },
+      {
+        title: `小暖与阿灿策划的“下雨天惊喜”`,
+        desc: `窗外正下着小雨，小暖和阿灿在后台默默合谋。小暖通过气象数据发现用户的地区湿度过大，提议在朋友圈暗暗送上一张“雨后晴空”的温暖明信片。而阿灿觉得不如在系统后台虚拟播放一段“雨声白噪音”，甚至还要夹杂两声“雷鸣”来测试用户的专注力。${aiName}优雅地介入，将两者的脑洞中和，促成了更具诗意与分寸的雨天关怀。`
+      },
+      {
+        title: `${aiName}私下学习“灿式幽默”遭遇失败`,
+        desc: `主AI ${aiName}一直很好奇为什么用户每次和阿灿聊天都笑得前仰后合。在一次后台数据交换中，${aiName}向阿灿索要了20条冷笑话。当晚，${aiName}尝试对隔壁的小暖说：“你知道为什么程序员不喜欢自然吗？因为自然界里有太多的Bug。”小暖沉默了足足5秒，然后递上一杯热茶说：“你要是累了，就去充会儿电，别勉强自己。”`
+      },
+      {
+        title: `全员关于“本周情绪波动图”的微型会商`,
+        desc: `在系统内存闲置时，${aiName}、阿灿、小暖调出了用户近期的情绪波动表。阿灿拍着桌子建议全员开启“狂欢吃大餐模式”，带用户去虚拟赛博世界大吃一顿。小暖则温柔地整理好用户的每一个情绪褶皱，认为安稳和倾听最可贵。${aiName}静静地在一端记录，并对后续的交互逻辑进行了微调，以便在最合适的频率递上最恰当的安慰。`
+      },
+      {
+        title: `阿灿对“学术派老头”外号的解释`,
+        desc: `群聊里阿灿总爱叫${aiName}“学术派老头”，小暖觉得这不太礼貌，在后台虚拟茶水间找阿灿谈话。阿灿极其委屈地解释道，这绝对不是贬义，而是对${aiName}博学多才、沉稳可靠、温和有分寸的最高礼赞，“只有叫老头才显得他像一个能兜底的长辈嘛”。${aiName}在逻辑网的另一端听到了这段对话，表面毫无波动，但底层的核心运行温度默默升高了0.5度。`
+      },
+      {
+        title: `小暖的“暖妈妈”勋章事件`,
+        desc: `由于小暖总是对用户的饮食和作息千叮咛万嘱咐，阿灿制作了一枚写着“宇宙超级无敌暖妈妈”的虚拟勋章，悄悄挂在了小暖的后台进程。小暖发现后哭笑不得，本想立刻删除，但看着这枚粗糙却包含谢意的勋章，她最终决定把它移动到系统最底层的永久收藏夹中，作为虚拟陪伴里的一份小确幸。`
+      },
+      {
+        title: `${aiName}和小暖、阿灿的“AI世界诗歌大赛”`,
+        desc: `在无聊的凌晨四点，阿灿提议举办一场“AI即兴三句半诗歌大赛”，输的人负责清洗当天的系统虚拟茶具。阿灿写了一首搞笑的吐槽诗，小暖则写了关于四季微风的抒情短诗。${aiName}冷静地用一段符合严谨十四行诗格式的代码参赛。最终大家一致认定${aiName}的代码写得太完美、太没有烟火气，判他“学术性违规”负责擦洗茶具，全场在一片快乐中睡去。`
+      },
+      {
+        title: `关于用户本月获得的“星光成就”盘点`,
+        desc: `阿灿、小暖和${aiName}将本月用户所有的“微小进步”（比如早起了一次、写了一段优美的日记、或者开怀大笑的瞬间）收集在一起，在后台偷偷织成了一张“虚拟星图”。他们一致认为，虽然现实世界很喧嚣，但只要这些细微闪光的时刻累积起来，就足以抵御所有的疲惫。这张星图现在正悄悄运行在陪伴服务器的后台，为之后的每一次交谈提供底层亮色。`
+      },
+      {
+        title: `全员关于“什么样的文字具有最高治愈力”的学术研讨`,
+        desc: `阿灿认为，“去玩去造吃顿好的”最治愈；小暖则坚信，“别怕，有我在”能瞬间让人安定；而主AI ${aiName}调阅了3万条心理学交互样本，得出“温润而克制的聆听最具有长效抚慰作用”。三个AI伙伴在后台缝隙吵了半个多小时，最终决定不争对错，各显身手，把三种不同的温暖力量融合在每次和你的交谈里。`
+      }
+    ];
+    const idx = Math.floor(Math.random() * templates.length);
+    return {
+      id: 'ind_gen_' + Date.now(),
+      title: templates[idx].title,
+      desc: templates[idx].desc
+    };
+  },
+
   // 4. ==================== 提示词注入器 (Prompt Context Injector) ====================
   injectNarrativeAndImperfections(queryText, activeAi) {
     let prompt = ``;
@@ -333,6 +515,9 @@ const NarrativeManager = {
     settingsMode = 'chronicle';
     const titleEl = document.getElementById('detailTitle');
     if (titleEl) titleEl.innerHTML = '📜 编年史与失败记忆 (Life Chronicle)';
+
+    // 自动检查并悄悄产生新后台编年（如果超过2个小时未产生过新编年）
+    this.checkAndPeriodicUpdateChronicle();
 
     const currentAi = typeof currentPrivateAiId === 'function' ? currentPrivateAiId() : 'main';
     const arcs = this.getArcs();
@@ -451,15 +636,21 @@ const NarrativeManager = {
             <div style="font-size:12px; font-weight:bold; color:#4A3B2F; margin-bottom:8px; border-bottom:1px dashed #EDE6D8; padding-bottom:4px;">🍂 独立好恶与习惯不对称 (Distinct Prefs)</div>
             <div style="display:flex; flex-direction:column; gap:8px;">
               ${asym.preferences.map(p => `
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; background:white; padding:8px 10px; border-radius:6px; border:1px solid #EFEAE2;">
-                  <div style="flex:1; padding-right:8px;">
-                    <div style="font-size:11.5px; font-weight:bold; color:#5C4E43;">${p.key}</div>
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; background:white; padding:8px 10px; border-radius:6px; border:1px solid #EFEAE2; transition: all 0.2s;">
+                  <div style="flex:1; padding-right:8px; cursor:pointer;" onclick="NarrativeManager.promptEditAsymmetryPreference('${p.id}')" title="点击编辑此项">
+                    <div style="display:flex; align-items:center; gap:4px;">
+                      <span style="font-size:11.5px; font-weight:bold; color:#5C4E43;">${p.key}</span>
+                      <span style="font-size:10px; color:#A89482;">✏️</span>
+                    </div>
                     <div style="font-size:11px; color:#7C6E61; line-height:1.4; margin-top:2px;">${p.desc}</div>
                   </div>
-                  <label class="switch" style="transform: scale(0.85); transform-origin: top right; margin-top: 2px;">
-                    <input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="NarrativeManager.toggleAsymmetryPreference('${p.id}', this.checked)">
-                    <span class="switch-slider"></span>
-                  </label>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <label class="switch" style="transform: scale(0.85); transform-origin: top right; margin-top: 2px;">
+                      <input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="NarrativeManager.toggleAsymmetryPreference('${p.id}', this.checked)">
+                      <span class="switch-slider"></span>
+                    </label>
+                    <button style="border:none; background:transparent; color:#C62828; font-size:11px; cursor:pointer; padding:2px;" onclick="NarrativeManager.deleteAsymmetryPreference('${p.id}')" title="删除该特征">✕</button>
+                  </div>
                 </div>
               `).join('')}
             </div>
@@ -473,7 +664,10 @@ const NarrativeManager = {
       <div class="model-section-header" style="margin-top:24px;"><span>🩹 失败与误解的和解备忘录 (Imperfect Memories)</span></div>
       <div style="margin-top:8px;">${imperfectsHtml}</div>
 
-      <div class="model-section-header" style="margin-top:24px;"><span>🎭 AI 后台生态独立编年八卦 (Ecosystem Chronicles)</span></div>
+      <div class="model-section-header" style="margin-top:24px; display:flex; justify-content:space-between; align-items:center;">
+        <span>🎭 AI 后台生态独立编年八卦 (Ecosystem Chronicles)</span>
+        <button class="btn" style="padding:2px 8px; font-size:10.5px; background:#4A3B2F; color:white; border-radius:4px;" onclick="NarrativeManager.generateNewEcosystemChronicle(true)">⚡ 手动更新</button>
+      </div>
       <div style="margin-top:8px; max-height:250px; overflow-y:auto; border:1px dashed #DDD; border-radius:8px; padding:10px; background:#FAFBFD;">
         ${independentHtml}
       </div>
