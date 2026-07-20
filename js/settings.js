@@ -520,7 +520,7 @@ function renderImageSettings(){
 
   document.getElementById('detailBody').innerHTML=`
     <div class="form-group" style="margin-bottom:12px;">
-      <label class="form-label">🤖 生图权限与触发模式</label>
+      <label class="form-label">🤖 生图触发与模式</label>
       <select class="form-input" id="imgPermissionMode" onchange="changeImgPermissionMode(this.value)">
         <option value="off" ${imgPermissionMode()==='off'?'selected':''}>🔇 关闭 (AI只聊天，不会生图)</option>
         <option value="suggest" ${imgPermissionMode()==='suggest'?'selected':''}>📷 智能建议 (推荐：氛围到了AI建议生图，用户点击生图)</option>
@@ -531,7 +531,7 @@ function renderImageSettings(){
     <div id="characterProfileSection" style="${imgPermissionMode()==='off'?'display:none':''}; border:1px solid var(--border); padding:12px; border-radius:12px; margin-top:12px; margin-bottom:16px; background-color:var(--bg-hover);">
       <h4 style="margin:0 0 10px 0; font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; font-weight:600;">👤 角色身份固定系统 (Character Profile)</h4>
       <div class="form-group" style="margin-bottom:10px;">
-        <label class="form-label" style="font-size:11px;">选择要配置的 AI 角色</label>
+        <label class="form-label">选择要配置的 AI 角色</label>
         <select class="form-input" id="characterProfileId" onchange="renderCharacterProfileDetails(this.value)">
           ${profOptions}
         </select>
@@ -590,54 +590,206 @@ function renderCharacterProfileDetails(id) {
   const prof = getCharacterIdentity(id);
   const container = document.getElementById('characterProfileDetails');
   if (!container) return;
-  
-  let refThumbnails = '';
-  if (Array.isArray(prof.ref_images) && prof.ref_images.length > 0) {
-    refThumbnails = prof.ref_images.map((img, idx) => `
-      <div style="position:relative; width:64px; height:64px; border-radius:8px; border:1.5px solid var(--border); overflow:hidden; background:var(--bg-hover);">
-        <img src="${img}" style="width:100%; height:100%; object-fit:cover;" />
-        <button onclick="removeProfileRefImage('${id}', ${idx})" style="position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:50%; background:rgba(0,0,0,0.6); color:#fff; border:none; font-size:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">✕</button>
+
+  // Render Tabs
+  const tabHTML = `
+    <div style="display:flex; border-bottom:1px solid var(--border); margin-bottom:12px; gap:4px; padding-bottom:4px; overflow-x:auto;">
+      <button onclick="changeProfileSubTab('${id}', 'character')" style="flex:1; padding:6px 4px; font-size:11px; border:none; background:${activeProfileSubTab==='character'?'var(--accent)':'transparent'}; color:${activeProfileSubTab==='character'?'#fff':'var(--text-sub)'}; border-radius:6px; font-weight:500; cursor:pointer; white-space:nowrap; display:flex; align-items:center; justify-content:center; gap:2px;">👤 伴侣</button>
+      <button onclick="changeProfileSubTab('${id}', 'pet')" style="flex:1; padding:6px 4px; font-size:11px; border:none; background:${activeProfileSubTab==='pet'?'var(--accent)':'transparent'}; color:${activeProfileSubTab==='pet'?'#fff':'var(--text-sub)'}; border-radius:6px; font-weight:500; cursor:pointer; white-space:nowrap; display:flex; align-items:center; justify-content:center; gap:2px;">🐾 宠物</button>
+      <button onclick="changeProfileSubTab('${id}', 'object')" style="flex:1; padding:6px 4px; font-size:11px; border:none; background:${activeProfileSubTab==='object'?'var(--accent)':'transparent'}; color:${activeProfileSubTab==='object'?'#fff':'var(--text-sub)'}; border-radius:6px; font-weight:500; cursor:pointer; white-space:nowrap; display:flex; align-items:center; justify-content:center; gap:2px;">🎁 物品</button>
+      <button onclick="changeProfileSubTab('${id}', 'place')" style="flex:1; padding:6px 4px; font-size:11px; border:none; background:${activeProfileSubTab==='place'?'var(--accent)':'transparent'}; color:${activeProfileSubTab==='place'?'#fff':'var(--text-sub)'}; border-radius:6px; font-weight:500; cursor:pointer; white-space:nowrap; display:flex; align-items:center; justify-content:center; gap:2px;">🏡 空间</button>
+    </div>
+  `;
+
+  let subContentHTML = '';
+
+  if (activeProfileSubTab === 'character') {
+    let refThumbnails = '';
+    if (Array.isArray(prof.ref_images) && prof.ref_images.length > 0) {
+      refThumbnails = prof.ref_images.map((img, idx) => `
+        <div style="position:relative; width:64px; height:64px; border-radius:8px; border:1.5px solid var(--border); overflow:hidden; background:var(--bg-hover);">
+          <img src="${img}" style="width:100%; height:100%; object-fit:cover;" />
+          <button onclick="removeProfileRefImage('${id}', ${idx})" style="position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:50%; background:rgba(0,0,0,0.6); color:#fff; border:none; font-size:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">✕</button>
+        </div>
+      `).join('');
+    } else {
+      refThumbnails = `<div style="font-size:11px; color:var(--text-sub); line-height:64px; padding-left:10px;">暂无参考图 (最多5张)</div>`;
+    }
+
+    let anchorSection = '';
+    if (prof.character_anchor) {
+      const features = prof.appearance_profile || {};
+      const featureBadges = [];
+      if (features.face_shape) featureBadges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">脸型: ${features.face_shape}</span>`);
+      if (features.eyes) featureBadges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">双眼: ${features.eyes}</span>`);
+      if (features.hair) featureBadges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">发型: ${features.hair}</span>`);
+      if (features.skin) featureBadges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">肤色: ${features.skin}</span>`);
+      
+      let uniqueList = '';
+      if (Array.isArray(features.unique_features) && features.unique_features.length > 0) {
+        uniqueList = features.unique_features.map(f => `<li style="margin-bottom:2px; font-size:11px; list-style-type:disc; margin-left:12px; color:var(--text-main);">${f}</li>`).join('');
+      }
+
+      anchorSection = `
+        <div style="background:var(--bg-hover); border:1.5px solid var(--border); border-left:4px solid var(--accent); border-radius:10px; padding:12px; margin-top:8px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+          <div style="font-weight:600; font-size:12px; color:var(--accent); margin-bottom:6px; display:flex; align-items:center; gap:4px;">
+            👤 AI 一致性人物锁脸档案（已激活）
+          </div>
+          <p style="font-size:11px; color:var(--text-main); margin-bottom:8px; line-height:1.5; font-style:italic; background:rgba(0,0,0,0.02); padding:6px; border-radius:4px;">
+            "${prof.character_anchor.visualDescription || '暂无描述'}"
+          </p>
+          <div style="margin-bottom:6px;">
+            ${featureBadges.join('')}
+          </div>
+          ${uniqueList ? `
+            <div style="margin-bottom:8px; border-top: 1px dashed var(--border); padding-top: 6px;">
+              <div style="font-size:10px; font-weight:600; color:var(--text-sub); text-transform:uppercase; margin-bottom:4px;">独特定位记号：</div>
+              <ul style="margin:0; padding:0; list-style:none;">
+                ${uniqueList}
+              </ul>
+            </div>
+          ` : ''}
+          <button class="btn btn-success" style="width:100%; padding:4px 10px; font-size:11px; border-radius:6px; font-weight:500; border:none; display:flex; align-items:center; justify-content:center; gap:4px; background:var(--accent); color:#fff;" onclick="window.triggerReanalysis('${id}')">
+            🪄 重新进行 AI 视觉特征分析
+          </button>
+        </div>
+      `;
+    } else {
+      anchorSection = `
+        <div style="background:var(--bg-hover); border:1.5px dashed var(--border); border-radius:10px; padding:12px; margin-top:8px; margin-bottom:12px; text-align:center;">
+          <div style="font-size:11px; color:var(--text-main); font-weight:500; margin-bottom:4px;">💡 开启高精度视觉锁脸档案</div>
+          <div style="font-size:10px; color:var(--text-sub); line-height:1.4;">上传您的第 1 张参考图，系统将自动触发 AI 深度分析，提取核心五官比例、发型和特异性面部记号，实现真正的长期画质一致性。</div>
+        </div>
+      `;
+    }
+
+    subContentHTML = `
+      ${anchorSection}
+      <div class="form-group" style="margin-top:10px; margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub);">🧑 性别 (Gender)</label>
+        <input type="text" id="prof_gender_${id}" class="form-input" value="${prof.gender||'female'}" onchange="updateProfileField('${id}','gender',this.value)">
       </div>
-    `).join('');
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub);">🎂 年龄感 (Age)</label>
+        <input type="text" id="prof_age_${id}" class="form-input" value="${prof.age||'young adult'}" onchange="updateProfileField('${id}','age',this.value)">
+      </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub);">🎨 绘画风格偏好 (Style)</label>
+        <input type="text" id="prof_style_${id}" class="form-input" value="${prof.style||''}" placeholder="例如: digital painting, soft cinematic lighting" onchange="updateProfileField('${id}','style',this.value)">
+      </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub);">👁️ 人脸五官锚点 (Face Anchor)</label>
+        <textarea id="prof_face_anchor_${id}" class="form-input" rows="2" placeholder="例如: delicate facial features, double eyelids, small gentle smile" onchange="updateProfileField('${id}','face_anchor',this.value)">${prof.face_anchor||''}</textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub);">💇 发型与发色 (Hairstyle)</label>
+        <input type="text" id="prof_hairstyle_${id}" class="form-input" value="${prof.hairstyle||''}" placeholder="例如: long flowing brown hair with ponytail" onchange="updateProfileField('${id}','hairstyle',this.value)">
+      </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub);">👗 服装与穿搭偏好 (Dress)</label>
+        <input type="text" id="prof_dress_${id}" class="form-input" value="${prof.dress||''}" placeholder="例如: comfortable casual sweater" onchange="updateProfileField('${id}','dress',this.value)">
+      </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub); display:flex; justify-content:space-between; align-items:center;">
+          <span>🖼️ 人脸一致性参考图 (Reference Images)</span>
+          <button class="btn btn-success" style="padding:2px 8px; font-size:10px; border-radius:4px; background:var(--accent); color:#fff; border:none;" onclick="triggerProfileRefUpload('${id}')">+ 上传</button>
+        </label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; min-height:64px; padding:6px; border:1px dashed var(--border); border-radius:8px; background:rgba(0,0,0,0.01);">
+          ${refThumbnails}
+        </div>
+        <input type="file" id="profileRefFileInput" accept="image/*" style="display:none;" onchange="handleProfileRefUpload(this, '${id}')">
+      </div>
+    `;
   } else {
-    refThumbnails = `<div style="font-size:11px; color:var(--text-sub); line-height:64px; padding-left:10px;">暂无参考图 (最多5张)</div>`;
-  }
-  
-  container.innerHTML = `
-    <div class="form-group" style="margin-top:10px; margin-bottom:10px;">
-      <label class="form-label" style="font-size:11px; color:var(--text-sub);">🧑 性别 (Gender)</label>
-      <input type="text" class="form-input" value="${prof.gender||'female'}" onchange="updateProfileField('${id}','gender',this.value)">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label class="form-label" style="font-size:11px; color:var(--text-sub);">🎂 年龄感 (Age)</label>
-      <input type="text" class="form-input" value="${prof.age||'young adult'}" onchange="updateProfileField('${id}','age',this.value)">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label class="form-label" style="font-size:11px; color:var(--text-sub);">🎨 绘画风格偏好 (Style)</label>
-      <input type="text" class="form-input" value="${prof.style||''}" placeholder="例如: digital painting, soft cinematic lighting" onchange="updateProfileField('${id}','style',this.value)">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label class="form-label" style="font-size:11px; color:var(--text-sub);">👁️ 人脸五官锚点 (Face Anchor)</label>
-      <textarea class="form-input" rows="2" placeholder="例如: delicate facial features, double eyelids, small gentle smile" onchange="updateProfileField('${id}','face_anchor',this.value)">${prof.face_anchor||''}</textarea>
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label class="form-label" style="font-size:11px; color:var(--text-sub);">💇 发型与发色 (Hairstyle)</label>
-      <input type="text" class="form-input" value="${prof.hairstyle||''}" placeholder="例如: long flowing brown hair with ponytail" onchange="updateProfileField('${id}','hairstyle',this.value)">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label class="form-label" style="font-size:11px; color:var(--text-sub);">👗 服装与穿搭偏好 (Dress)</label>
-      <input type="text" class="form-input" value="${prof.dress||''}" placeholder="例如: comfortable casual sweater" onchange="updateProfileField('${id}','dress',this.value)">
-    </div>
-    <div class="form-group" style="margin-bottom:10px;">
-      <label class="form-label" style="font-size:11px; color:var(--text-sub); display:flex; justify-content:space-between; align-items:center;">
-        <span>🖼️ 人脸一致性参考图 (Reference Images)</span>
-        <button class="btn btn-success" style="padding:2px 8px; font-size:10px; border-radius:4px;" onclick="triggerProfileRefUpload('${id}')">+ 上传</button>
-      </label>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; min-height:64px; padding:6px; border:1px dashed var(--border); border-radius:8px; background:rgba(0,0,0,0.01);">
-        ${refThumbnails}
+    // Render custom anchors (Pet, Object, Place)
+    const anchorKey = `${activeProfileSubTab}_anchor`;
+    const anchor = prof[anchorKey] || null;
+    let label = '专属宠物';
+    let placeholderDesc = '猫咪，毛色橘白相间，胖乎乎，眼神好奇温和';
+    let emoji = '🐾';
+    if (activeProfileSubTab === 'object') {
+      label = '专属物品';
+      placeholderDesc = '皮质复古日记本，封面雕刻着枫叶，带古铜色锁扣';
+      emoji = '🎁';
+    } else if (activeProfileSubTab === 'place') {
+      label = '专属空间';
+      placeholderDesc = '暖色调的小木屋书房，有一面巨大的落地窗，摆着壁炉和书架';
+      emoji = '🏡';
+    }
+
+    let anchorHTML = '';
+    if (anchor) {
+      let badges = [];
+      const f = anchor.features || {};
+      if (activeProfileSubTab === 'pet') {
+        if (f.species) badges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">品种: ${f.species}</span>`);
+        if (f.fur) badges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">毛发: ${f.fur}</span>`);
+        if (f.eyes) badges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">双眼: ${f.eyes}</span>`);
+      } else if (activeProfileSubTab === 'object') {
+        if (f.name) badges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">品名: ${f.name}</span>`);
+        if (f.material) badges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">材质: ${f.material}</span>`);
+        if (f.color) badges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">主色: ${f.color}</span>`);
+      } else if (activeProfileSubTab === 'place') {
+        if (f.name) badges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">空间: ${f.name}</span>`);
+        if (f.style) badges.push(`<span style="background:var(--accent-light, rgba(139,90,75,0.06)); color:var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; border:0.5px solid var(--accent); margin-right:4px; margin-bottom:4px; display:inline-block;">风格: ${f.style}</span>`);
+      }
+
+      let uList = '';
+      if (Array.isArray(f.unique_features) && f.unique_features.length > 0) {
+        uList = f.unique_features.map(x => `<li style="margin-bottom:2px; font-size:11px; list-style-type:disc; margin-left:12px; color:var(--text-main);">${x}</li>`).join('');
+      }
+
+      anchorHTML = `
+        <div style="background:var(--bg-hover); border:1.5px solid var(--border); border-left:4px solid var(--accent); border-radius:10px; padding:12px; margin-top:8px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+          <div style="font-weight:600; font-size:12px; color:var(--accent); margin-bottom:6px; display:flex; align-items:center; gap:4px;">
+            ${emoji} 一致性${label}视觉档案（已激活）
+          </div>
+          <p style="font-size:11px; color:var(--text-main); margin-bottom:8px; line-height:1.5; font-style:italic; background:rgba(0,0,0,0.02); padding:6px; border-radius:4px;">
+            "${anchor.visualDescription || '已成功固定视觉特征'}"
+          </p>
+          <div style="margin-bottom:6px;">
+            ${badges.join('')}
+          </div>
+          ${uList ? `
+            <div style="margin-bottom:8px; border-top:1px dashed var(--border); padding-top:6px;">
+              <div style="font-size:10px; font-weight:600; color:var(--text-sub); text-transform:uppercase; margin-bottom:4px;">核心视觉特征：</div>
+              <ul style="margin:0; padding:0; list-style:none;">
+                ${uList}
+              </ul>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    } else {
+      anchorHTML = `
+        <div style="background:var(--bg-hover); border:1.5px dashed var(--border); border-radius:10px; padding:12px; margin-top:8px; margin-bottom:12px; text-align:center;">
+          <div style="font-size:11px; color:var(--text-main); font-weight:500; margin-bottom:4px;">💡 开启高精度${label}一致性</div>
+          <div style="font-size:10px; color:var(--text-sub); line-height:1.4;">上传 1 张该${label}的参考图（如爱猫照片、情侣杯子照片、常去房间照片），AI 深度视觉模型将自动剖析并固定其色彩、特征，使之后的生图高度一致。</div>
+        </div>
+      `;
+    }
+    subContentHTML = `
+      ${anchorHTML}
+      <div class="form-group" style="margin-top:10px; margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub);">${emoji} ${label}特征描述 / Prompt</label>
+        <textarea id="prof_anchor_prompt_${id}" class="form-input" rows="2" placeholder="例如: ${placeholderDesc}" onchange="updateOtherAnchorPrompt('${id}', '${activeProfileSubTab}', this.value)">${(anchor && (anchor.anchorPromptEn || anchor.visualDescription)) || ''}</textarea>
       </div>
-      <input type="file" id="profileRefFileInput" accept="image/*" style="display:none;" onchange="handleProfileRefUpload(this, '${id}')">
-    </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px; color:var(--text-sub); display:flex; justify-content:space-between; align-items:center;">
+          <span>🖼️ ${label}一致性参考图</span>
+          <button class="btn btn-success" style="padding:2px 8px; font-size:10px; border-radius:4px; background:var(--accent); color:#fff; border:none;" onclick="triggerProfileAnchorUpload('${id}', '${activeProfileSubTab}')">+ 上传</button>
+        </label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; min-height:64px; padding:6px; border:1px dashed var(--border); border-radius:8px; background:rgba(0,0,0,0.01);">
+          ${thumbHTML}
+        </div>
+        <input type="file" id="profileAnchorFileInput" accept="image/*" style="display:none;" onchange="handleProfileAnchorUpload(this, '${id}', '${activeProfileSubTab}')">
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    ${tabHTML}
+    ${subContentHTML}
   `;
 }
 
@@ -669,6 +821,12 @@ async function handleProfileRefUpload(input, id) {
       saveCharacterIdentity(id, prof);
       renderCharacterProfileDetails(id);
       showToast('✅ 一致性参考图上传成功');
+      
+      // Automatically trigger AI background vision profiling!
+      if (typeof window.analyzeAndSetCharacterAnchor === 'function') {
+        // Run asynchronously without blocking
+        window.analyzeAndSetCharacterAnchor(id, compressed);
+      }
     } catch(err) {
       alert('上传失败: ' + err.message);
     }
@@ -681,11 +839,36 @@ function removeProfileRefImage(id, idx) {
   const prof = getCharacterIdentity(id);
   if (Array.isArray(prof.ref_images)) {
     prof.ref_images.splice(idx, 1);
+    
+    // Clear anchor profile if they remove all images
+    if (prof.ref_images.length === 0) {
+      prof.character_anchor = null;
+      prof.appearance_profile = {
+        face_shape:'',
+        eyes:'',
+        hair:'',
+        skin:'',
+        age:'',
+        unique_features:[]
+      };
+    }
+    
     saveCharacterIdentity(id, prof);
     renderCharacterProfileDetails(id);
     showToast('🗑️ 参考图已移除');
   }
 }
+
+window.triggerReanalysis = function(id) {
+  const prof = getCharacterIdentity(id);
+  if (Array.isArray(prof.ref_images) && prof.ref_images.length > 0) {
+    if (typeof window.analyzeAndSetCharacterAnchor === 'function') {
+      window.analyzeAndSetCharacterAnchor(id, prof.ref_images[0]);
+    }
+  } else {
+    alert('请先上传人像参考图再进行 AI 分析');
+  }
+};
 function renderWebSettings(){settingsMode='websearch';document.getElementById('detailTitle').innerHTML='🌐 联网功能';document.getElementById('detailBody').innerHTML=`
     <div class="switch-row"><div class="switch-info"><div class="switch-label">🌐 提示模型自行联网</div><div class="switch-desc">在提示词中告知模型可联网检索</div></div><label class="switch"><input type="checkbox" ${webSearchEnabled()?'checked':''} onchange="setBool('web_search',this.checked)"><span class="switch-slider"></span></label></div>
     <div class="form-hint" style="margin-top:10px;line-height:1.7;">当所选模型自身具备联网能力时打开即可；模型不支持时开关无效。纯前端无法绕过浏览器跨域抓取公网搜索结果。</div>`;}

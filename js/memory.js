@@ -182,59 +182,6 @@ function forgetLambda(){const v=parseFloat(localStorage.getItem('forget_lambda')
 /* 优化12：时间窗口（按天分桶） */
 function dayBucket(ts){return Math.floor((ts||Date.now())/(24*3600*1000));}
 
-function normalizeMemoryText(text) {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[，。！？、；：,.!?;:"'“”‘’()[\]{}【】（）]/g, '')
-    .slice(0, 220);
-}
-
-function isSameMemoryCandidate(leftText, rightText) {
-  const left = normalizeMemoryText(leftText);
-  const right = normalizeMemoryText(rightText);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  const minLength = Math.min(left.length, right.length);
-  if (minLength < 18) return false;
-  return left.includes(right) || right.includes(left);
-}
-
-async function findDuplicateMemory(content, activeAi, role) {
-  let records = [];
-  try {
-    records = await VDB.all();
-  } catch (error) {
-    return null;
-  }
-  const cutoffTs = Date.now() - 7 * 24 * 3600 * 1000;
-  return records.find(record => {
-    if (!record || !record.text) return false;
-    const sameRole = !role || record.role === role;
-    const sameAi = (record.ai_id || 'main') === activeAi;
-    const recentEnough = !record.ts || record.ts >= cutoffTs;
-    return sameRole && sameAi && recentEnough && isSameMemoryCandidate(content, record.text);
-  }) || null;
-}
-
-async function writeDedupedMemory(rec) {
-  const duplicate = await findDuplicateMemory(rec.text, rec.ai_id, rec.role);
-  if (duplicate) {
-    duplicate.boost = Math.min((duplicate.boost || 1) + 0.25, 3);
-    duplicate.ts = Date.now();
-    duplicate.window_id = rec.window_id;
-    duplicate.emotion = duplicate.emotion || rec.emotion;
-    duplicate.tier = Math.max(duplicate.tier || 1, rec.tier || 1);
-    duplicate.importance_score = Math.max(duplicate.importance_score || 0, rec.importance_score || 0);
-    duplicate.expiry_ts = Math.max(duplicate.expiry_ts || 0, rec.expiry_ts || 0) || rec.expiry_ts;
-    await VDB.put(duplicate);
-    return duplicate;
-  }
-  rec.vector = await embed(rec.text);
-  await VDB.put(rec);
-  return rec;
-}
-
 /* 评估记忆的分数与三层分类 */
 function evaluateMemory(content, role, emotion) {
   let score = 15; // 基础分
@@ -355,13 +302,15 @@ async function memorize(role,content,emotion,aiId){
   if (window.MemoryLockQueue) {
     return window.MemoryLockQueue.enqueue(async () => {
       try {
-        await writeDedupedMemory(rec);
+        rec.vector=await embed(content);
+        await VDB.put(rec);
         await trimVectorStore();
       } catch(e) {}
     });
   } else {
     try {
-      await writeDedupedMemory(rec);
+      rec.vector=await embed(content);
+      await VDB.put(rec);
       await trimVectorStore();
     } catch(e) {}
   }

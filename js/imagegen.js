@@ -556,149 +556,7 @@ async function downloadAndStoreImage(url, id) {
 }
 window.downloadAndStoreImage = downloadAndStoreImage;
 
-function normalizeGeneratedImageValue(value, fallbackMime = 'image/png') {
-  if (!value || typeof value !== 'string') return '';
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (/^data:image\/[^;]+;base64,/i.test(trimmed)) return trimmed;
-  if (/^https?:\/\//i.test(trimmed) || /^blob:/i.test(trimmed)) return trimmed;
-  const compact = trimmed.replace(/\s+/g, '');
-  if (compact.length > 200 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
-    return `data:${fallbackMime};base64,${compact}`;
-  }
-  return '';
-}
-
-function extractGeneratedImageFromText(text) {
-  if (!text || typeof text !== 'string') return '';
-  const markdownMatch = text.match(/!\[[^\]]*]\(([^)\s]+)\)/);
-  if (markdownMatch) return normalizeGeneratedImageValue(markdownMatch[1]);
-  const dataMatch = text.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=\s]+/i);
-  if (dataMatch) return normalizeGeneratedImageValue(dataMatch[0]);
-  const urlMatch = text.match(/https?:\/\/[^\s"'<>）)]+/i);
-  if (urlMatch) return normalizeGeneratedImageValue(urlMatch[0]);
-  return normalizeGeneratedImageValue(text);
-}
-
-function extractGeneratedImageFromResponse(payload) {
-  if (!payload) return '';
-  if (typeof payload === 'string') return extractGeneratedImageFromText(payload);
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      const extracted = extractGeneratedImageFromResponse(item);
-      if (extracted) return extracted;
-    }
-    return '';
-  }
-  if (typeof payload !== 'object') return '';
-
-  const directCandidates = [
-    payload.url,
-    payload.output_url,
-    payload.image_url?.url,
-    payload.image_url,
-    payload.image,
-    payload.b64_json,
-    payload.base64,
-    payload.data_url,
-    payload.inlineData?.data,
-    payload.inline_data?.data,
-    payload.source?.url
-  ];
-  for (const candidate of directCandidates) {
-    const mimeType = payload.mimeType || payload.mime_type || payload.inlineData?.mimeType || payload.inline_data?.mime_type || 'image/png';
-    const normalized = normalizeGeneratedImageValue(candidate, mimeType);
-    if (normalized) return normalized;
-  }
-
-  const nestedCandidates = [
-    payload.data,
-    payload.images,
-    payload.artifacts,
-    payload.output,
-    payload.outputs,
-    payload.result,
-    payload.results,
-    payload.candidates,
-    payload.choices,
-    payload.message,
-    payload.content,
-    payload.parts
-  ];
-  for (const nested of nestedCandidates) {
-    const extracted = extractGeneratedImageFromResponse(nested);
-    if (extracted) return extracted;
-  }
-  return '';
-}
-
-function imageUrlToDataUrl(url, key) {
-  return fetch(url, {
-    headers: {
-      Accept: 'image/*',
-      ...(key ? { Authorization: `Bearer ${key}` } : {})
-    }
-  }).then(response => {
-    if (!response.ok) throw new Error(`image fetch ${response.status}`);
-    return response.blob();
-  }).catch(async directError => {
-    const proxyResponse = await fetch('/api/image-materialize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, key })
-    });
-    if (!proxyResponse.ok) {
-      const text = await proxyResponse.text().catch(() => '');
-      throw new Error(text || directError.message || `image proxy ${proxyResponse.status}`);
-    }
-    const payload = await proxyResponse.json();
-    if (!payload.dataUrl) throw new Error('image proxy returned empty data');
-    return fetch(payload.dataUrl).then(response => response.blob());
-  }).then(blob => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  }));
-}
-
-function waitForRenderableImage(src, timeoutMs = 12000) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    const timer = setTimeout(() => {
-      image.onload = null;
-      image.onerror = null;
-      reject(new Error('image load timeout'));
-    }, timeoutMs);
-    image.onload = () => {
-      clearTimeout(timer);
-      resolve(src);
-    };
-    image.onerror = () => {
-      clearTimeout(timer);
-      reject(new Error('image URL cannot be rendered by <img>'));
-    };
-    image.referrerPolicy = 'no-referrer';
-    image.src = src;
-  });
-}
-
-async function ensureRenderableGeneratedImage(imgUrl, key = '') {
-  const normalized = normalizeGeneratedImageValue(imgUrl);
-  if (!normalized) return '';
-  if (normalized.startsWith('data:') || normalized.startsWith('blob:')) return normalized;
-  if (!/^https?:\/\//i.test(normalized)) return normalized;
-
-  try {
-    await waitForRenderableImage(normalized);
-    return normalized;
-  } catch (loadError) {
-    if (!key) throw loadError;
-    return imageUrlToDataUrl(normalized, key);
-  }
-}
-
-async function generateImageWithFailover(promptText, initImg = null, memberId = 'main') {
+async function generateImageWithFailover(promptText, initImg = null, memberId = 'main', intentType = 'character') {
   const interfaces = getImgInterfaces();
   const active = getActiveImgInterface();
   const tryQueue = [];
@@ -722,7 +580,21 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
   let lastError = null;
   const { w, h } = getImgWH();
   const profile = getCharacterIdentity(memberId) || {};
-  const refImg = initImg || (Array.isArray(profile.ref_images) && profile.ref_images.length > 0 ? profile.ref_images[0] : null);
+  
+  let refImg = initImg;
+  if (!refImg) {
+    if (intentType === 'character') {
+      refImg = (Array.isArray(profile.ref_images) && profile.ref_images.length > 0) ? profile.ref_images[0] : null;
+    } else if (intentType === 'pet') {
+      refImg = (profile.pet_anchor && profile.pet_anchor.originalImage) ? profile.pet_anchor.originalImage : null;
+    } else if (intentType === 'object') {
+      refImg = (profile.object_anchor && profile.object_anchor.originalImage) ? profile.object_anchor.originalImage : null;
+    } else if (intentType === 'scene') {
+      refImg = (profile.place_anchor && profile.place_anchor.originalImage) ? profile.place_anchor.originalImage : null;
+    } else if (intentType === 'food') {
+      refImg = null; // Strictly no reference image for foods to avoid contamination
+    }
+  }
 
   for (const prov of tryQueue) {
     const mode = prov.type;
@@ -737,7 +609,6 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         let imgUrl = null;
-        let authKey = '';
         if (mode === 'free') {
           imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=${w}&height=${h}&nologo=true&seed=${Date.now() + attempt}`;
           
@@ -751,7 +622,6 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
         } else {
           const url = (prov.url || '').trim();
           const key = (prov.key || '').trim();
-          authKey = key;
           const model = (prov.selectedModel || localStorage.getItem('img_model') || (prov.models && prov.models[0]) || '').trim();
           const base = url.replace(/\/+$/, '');
 
@@ -786,7 +656,6 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
                 break;
               }
             }
-            if (!imgUrl) imgUrl = extractGeneratedImageFromResponse(d);
             if (!imgUrl) throw new Error('Gemini did not return image data');
           } else if (mode === 'openai') {
             const ourl = base.includes('/images/generations') || base.includes('/v1/images/generations') ? base : base + '/v1/images/generations';
@@ -800,7 +669,7 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
               throw new Error(`OpenAI Error (${r.status}): ${t.slice(0, 100)}`);
             }
             const d = await r.json();
-            imgUrl = extractGeneratedImageFromResponse(d);
+            imgUrl = d.data?.[0]?.url || (d.data?.[0]?.b64_json && ('data:image/png;base64,' + d.data[0].b64_json)) || d.images?.[0]?.url;
             if (!imgUrl) throw new Error('OpenAI did not return image URL');
           } else if (mode === 'chat') {
             const curl = base.includes('/chat/completions') || base.includes('/v1/chat/completions') ? base : base + '/v1/chat/completions';
@@ -816,27 +685,23 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
               throw new Error(`Chat Error (${r.status}): ${t.slice(0, 100)}`);
             }
             const d = await r.json();
-            imgUrl = extractGeneratedImageFromResponse(d);
+            const msg = d.choices?.[0]?.message;
+            imgUrl = msg?.images?.[0]?.url || msg?.images?.[0]?.image_url?.url;
+            if (!imgUrl && msg?.content) {
+              const md = (typeof msg.content === 'string' ? msg.content : '').match(/!\[.*?\]\((.*?)\)|(https?:\/\/\S+\.(?:png|jpg|jpeg|webp))|(data:image\/[^)\s]+)/i);
+              if (md) imgUrl = md[1] || md[2] || md[3];
+            }
             if (!imgUrl) throw new Error('Chat model did not return image format');
           }
         }
 
         if (imgUrl) {
-          try {
-            imgUrl = await ensureRenderableGeneratedImage(imgUrl, authKey);
-          } catch (renderError) {
-            renderError.generatedImageReceived = true;
-            throw renderError;
-          }
           console.log(`[ImageFailover] Successfully generated image using: ${prov.name || mode}`);
           return { imgUrl, providerName: prov.name || mode };
         }
       } catch (err) {
         lastError = err;
         console.warn(`[ImageFailover] Attempt ${attempt} failed for provider ${prov.name || mode}: ${err.message}`);
-        if (err && err.generatedImageReceived) {
-          throw err;
-        }
       }
     }
   }
@@ -871,9 +736,38 @@ function getCharacterIdentity(id){
       face_anchor:isMain?'delicate features, expressive beautiful eyes, warm gentle smile':'cute features, cheerful smile',
       hairstyle:isMain?'long flowing brown ponytail':'short dark neat bob cut',
       dress:'comfortable casual sweater',
-      ref_images:[]
+      ref_images:[],
+      appearance_profile:{
+        face_shape:'',
+        eyes:'',
+        hair:'',
+        skin:'',
+        age:'',
+        unique_features:[]
+      },
+      character_anchor:null
     };
     window.LovestoryCharacterDB.put(char);
+  } else {
+    let updated = false;
+    if (!char.appearance_profile) {
+      char.appearance_profile = {
+        face_shape:'',
+        eyes:'',
+        hair:'',
+        skin:'',
+        age:'',
+        unique_features:[]
+      };
+      updated = true;
+    }
+    if (char.character_anchor === undefined) {
+      char.character_anchor = null;
+      updated = true;
+    }
+    if (updated) {
+      window.LovestoryCharacterDB.put(char);
+    }
   }
   return char;
 }
@@ -904,7 +798,8 @@ async function triggerVisualEvaluation(userText, aiReply, memberId, assistantMsg
     '画', '图', '照', '看', '海', '星', '纪念', '拥抱', '抱', '吻', '夕阳', '日落', '日出', '风景', '合照', '自拍',
     '模样', '身穿', '裙子', '衣服', '场景', '背景', '氛围', '穿', '去', '咖啡馆', '公园', '电影', '庆祝', '难过',
     '伤心', '累', '抱抱', '安慰', '留念', '照片', '样子', '长相', '衣服', '海边', '夜空', '星空', '下雨', '飘雪',
-    '雪花', '街道', '沙滩', '森林', '卧室', '沙发', '手拉手', '牵手', '依偎', '肩膀', '眼泪', '哭泣', '笑', '开心'
+    '雪花', '街道', '沙滩', '森林', '卧室', '沙发', '手拉手', '牵手', '依偎', '肩膀', '眼泪', '哭泣', '笑', '开心',
+    '猫', '狗', '宠物', '小动物', '蛋糕', '下午茶', '咖啡', '甜点', '晚餐', '好吃的'
   ];
   
   const hasVisualCue = scenicKeywords.some(kw => uText.includes(kw) || aReply.includes(kw));
@@ -919,15 +814,28 @@ async function triggerVisualEvaluation(userText, aiReply, memberId, assistantMsg
     const mem = members.find(m => m.id === memberId);
     const companionName = mem ? mem.name : (localStorage.getItem('ai_name') || 'AI伴侣');
     
-    const sysPrompt = `你是一个聊天视觉场景分析师。请分析用户与AI伴侣 (${companionName}) 的最新对话，判断这是否是一个富有情绪感、画面感、值得用画面纪念/陪伴的场景（例如：一起去海边、看流星、悲伤安慰、庆祝完成项目、看日落、温馨拥抱、讨论特色场景等）。
-如果【是】，请提取出一个精美的、高质量的英文生图场景提示词，并在中文里用一句话说明这是什么纪念图（如：一起去海边的纪念图）。
+    const sysPrompt = `你是一个聊天视觉场景 analysis 与意图路由专家。请分析用户与AI伴侣 (${companionName}) 的最新对话，判断这是否是一个富有情绪感、画面感、值得用画面纪念/陪伴的场景。
+你必须对该生图意图进行【多类型生图策略路由】（Visual Identity System），将画面类型归入以下五类之一：
+- "character": 含有AI角色、用户、人像，或两人合照、拥抱等有人物在场、有长相外貌特征的场景（默认优先）。
+- "pet": 宠物、猫咪、狗狗、或其他小动物的场景，且人物不作为画面主体（如果有宠物和人一起亲密互动，依然属于 character）。
+- "food": 纯美食、下午茶、蛋糕、咖啡、饮品、丰盛晚餐，不含有AI角色、人脸或任何人物痕迹。
+- "scene": 纯风景、自然环境、星空日落、下雨天、街景、温馨卧室或空旷环境，不含有任何特定人物痕迹。
+- "object": 纯物件，如手写日记本、手作礼物、一束鲜花、纪念饰品，不含有特定人物痕迹。
+
+如果确定要触发生图：
+- trigger: true
+- intentType: "character" | "pet" | "food" | "scene" | "object"
+- scene: 提取出一个非常精美、具有艺术感和故事感的英文生图提示词（不需要包含人物的外貌/服装特征，这些会由系统各层的视觉锚点自动补全）。
+- description: 用温馨的中文描述一句话，说明这是什么图（例如：“下午茶时光的草莓蛋糕纪念图”、“星空下依偎的纪念自拍”）。
+
 请严格输出为以下 JSON 格式，不要包含任何 markdown 标记、\`\`\`json 包裹或多余文字：
 {
   "trigger": true,
-  "scene": "detailed English prompt describing the environment, atmosphere, and lighting of the scene. Do NOT include character physical appearance or clothes here",
+  "intentType": "character",
+  "scene": "detailed English prompt describing the environment, atmosphere, and lighting. Do NOT include character physical appearance or clothes here",
   "description": "一起看夕阳的纪念图"
 }
-如果【不是】或者不需要画面陪伴，直接输出：
+如果不触发，直接输出：
 {
   "trigger": false
 }`;
@@ -951,11 +859,12 @@ AI伴侣："${aiReply}"`;
     
     const result = JSON.parse(jsonText);
     if (result && result.trigger && result.scene) {
-      console.log(`[VisualEvaluation] Trigger matched: ${result.description}`);
+      const intentType = result.intentType || 'character';
+      console.log(`[VisualEvaluation] Trigger matched: ${result.description} | Strategy: ${intentType}`);
       if (mode === 'suggest') {
-        showVisualSuggestion(memberId, result.scene, result.description, assistantMsgUid);
+        showVisualSuggestion(memberId, result.scene, result.description, assistantMsgUid, intentType);
       } else if (mode === 'auto') {
-        autoGenerateVisualCompanion(memberId, result.scene, result.description, assistantMsgUid);
+        autoGenerateVisualCompanion(memberId, result.scene, result.description, assistantMsgUid, intentType);
       }
     }
   } catch (e) {
@@ -964,7 +873,7 @@ AI伴侣："${aiReply}"`;
 }
 
 // Inject visual suggestion button into assistant bubble
-function showVisualSuggestion(memberId, scene, description, assistantMsgUid) {
+function showVisualSuggestion(memberId, scene, description, assistantMsgUid, intentType = 'character') {
   const msgDiv = document.querySelector(`.message[data-uid="${assistantMsgUid}"]`);
   if (!msgDiv) return;
   const bubbles = msgDiv.querySelector('.bubbles');
@@ -973,14 +882,20 @@ function showVisualSuggestion(memberId, scene, description, assistantMsgUid) {
   // Prevent duplicate suggestions
   if (msgDiv.querySelector('.visual-suggestion')) return;
 
+  let emojiPrefix = '📷';
+  if (intentType === 'pet') emojiPrefix = '🐾';
+  if (intentType === 'food') emojiPrefix = '🍰';
+  if (intentType === 'scene') emojiPrefix = '🏡';
+  if (intentType === 'object') emojiPrefix = '🎁';
+
   const card = document.createElement('div');
   card.className = 'visual-suggestion';
   card.style.cssText = 'margin-top: 10px; border: 1.5px dashed var(--accent); border-radius: 12px; padding: 12px; background-color: var(--bg-hover); text-align: center; font-size: 12px; animation: slideUp 0.3s ease; box-shadow: 0 2px 8px var(--shadow);';
   card.innerHTML = `
     <div style="font-weight: 600; margin-bottom: 8px; color: var(--accent); display: flex; align-items: center; justify-content: center; gap: 4px;">
-      📷 氛围感画面建议：${description}
+      ${emojiPrefix} 氛围感智能建议 (${intentType === 'character' ? '人物' : intentType === 'pet' ? '宠物' : intentType === 'food' ? '美食' : intentType === 'scene' ? '风景' : '物品'})：${description}
     </div>
-    <button class="btn btn-success" style="padding: 4px 14px; font-size: 11px; border-radius: 8px; font-weight: 500;" onclick="generateCompanionImage('${memberId}', '${encodeURIComponent(scene)}', '${encodeURIComponent(description)}', '${assistantMsgUid}', this)">
+    <button class="btn btn-success" style="padding: 4px 14px; font-size: 11px; border-radius: 8px; font-weight: 500;" onclick="generateCompanionImage('${memberId}', '${encodeURIComponent(scene)}', '${encodeURIComponent(description)}', '${assistantMsgUid}', this, '${intentType}')">
       🎨 开启视觉陪伴 (生成纪念图)
     </button>
   `;
@@ -989,7 +904,7 @@ function showVisualSuggestion(memberId, scene, description, assistantMsgUid) {
 }
 
 // User clicked generate button
-async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded, assistantMsgUid, buttonEl) {
+async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded, assistantMsgUid, buttonEl, intentType = 'character') {
   const scene = decodeURIComponent(sceneDecoded);
   const description = decodeURIComponent(descriptionDecoded);
   
@@ -1006,10 +921,10 @@ async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded
   const loadingDiv = addLoadingDOM();
   
   try {
-    const finalPrompt = buildFinalImgPrompt(memberId, scene);
+    const finalPrompt = buildFinalImgPrompt(memberId, scene, intentType);
     
     // Call failover image engine
-    const { imgUrl } = await generateImageWithFailover(finalPrompt, null, memberId);
+    const { imgUrl } = await generateImageWithFailover(finalPrompt, null, memberId, intentType);
     
     loadingDiv.remove();
     const uid = genUid();
@@ -1030,14 +945,14 @@ async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded
 }
 
 // Auto generate mode
-async function autoGenerateVisualCompanion(memberId, scene, description, assistantMsgUid) {
+async function autoGenerateVisualCompanion(memberId, scene, description, assistantMsgUid, intentType = 'character') {
   // Append loading status
   const loadingDiv = addLoadingDOM();
   try {
-    const finalPrompt = buildFinalImgPrompt(memberId, scene);
+    const finalPrompt = buildFinalImgPrompt(memberId, scene, intentType);
     
     // Call failover image engine
-    const { imgUrl } = await generateImageWithFailover(finalPrompt, null, memberId);
+    const { imgUrl } = await generateImageWithFailover(finalPrompt, null, memberId, intentType);
     
     loadingDiv.remove();
     if (imgUrl) {
@@ -1053,31 +968,288 @@ async function autoGenerateVisualCompanion(memberId, scene, description, assista
       }
     } else {
       // Fallback
-      showVisualSuggestion(memberId, scene, description, assistantMsgUid);
+      showVisualSuggestion(memberId, scene, description, assistantMsgUid, intentType);
     }
   } catch (err) {
     loadingDiv.remove();
     console.error('[AutoVisual] Auto draw failed, falling back to suggestion:', err);
-    showVisualSuggestion(memberId, scene, description, assistantMsgUid);
+    showVisualSuggestion(memberId, scene, description, assistantMsgUid, intentType);
   }
 }
 
-// Build visual prompt combining profile
-function buildFinalImgPrompt(id, scenePrompt) {
+// Build visual prompt combining profile and multi-anchor visual intelligence routing
+function buildFinalImgPrompt(id, scenePrompt, intentType = 'character') {
   const profile = getCharacterIdentity(id);
-  let characterDesc = `${profile.gender || 'female'}, ${profile.age || 'young adult'}`;
-  if (profile.face_anchor) characterDesc += `, ${profile.face_anchor}`;
-  if (profile.hairstyle) characterDesc += `, with ${profile.hairstyle}`;
-  if (profile.dress) characterDesc += `, wearing ${profile.dress}`;
   
-  let finalPrompt = `masterpiece, highly detailed, ${characterDesc}, ${scenePrompt}`;
-  if (profile.style) {
-    finalPrompt += `, ${profile.style}`;
-  } else {
-    finalPrompt += `, digital painting, soft cinematic lighting, warm emotional atmosphere`;
+  if (intentType === 'food') {
+    let foodSection = `[Subject Features]
+Subject: beautiful food, high culinary detail, delicious presentation, fresh and appetizing.`;
+
+    let sceneSection = `[Scene & Environment]
+Action & Setting: ${scenePrompt}`;
+
+    let styleSection = `[Style & Lighting]`;
+    if (profile.style) {
+      styleSection += `\nArt Style: ${profile.style}`;
+    } else {
+      styleSection += `\nArt Style: close-up gourmet food photography, soft warm lighting, appetizing mood, morandi pastel color theme`;
+    }
+    return `${foodSection}\n\n${sceneSection}\n\n${styleSection}`;
   }
+  
+  if (intentType === 'pet') {
+    let petDesc = 'a cute pet';
+    let hasPetRef = false;
+    if (profile.pet_anchor) {
+      hasPetRef = !!profile.pet_anchor.originalImage;
+      if (profile.pet_anchor.anchorPromptEn) {
+        petDesc = profile.pet_anchor.anchorPromptEn;
+      } else if (profile.pet_anchor.visualDescription) {
+        petDesc = profile.pet_anchor.visualDescription;
+      }
+    }
+    
+    let identitySection = '';
+    if (hasPetRef) {
+      identitySection = `[Identity]
+This is the EXACT same pet animal from the reference image. You must strictly preserve its facial structure, fur color, patterns, and look. Match the features with maximum fidelity.
+Priority: Extremely High.`;
+    } else {
+      identitySection = `[Identity]
+Maintain consistent appearance of the described pet animal.`;
+    }
+
+    let petSection = `[Subject Features]
+Subject: ${petDesc}`;
+
+    let sceneSection = `[Scene & Environment]
+Action & Setting: ${scenePrompt}`;
+
+    let styleSection = `[Style & Lighting]`;
+    if (profile.style) {
+      styleSection += `\nArt Style: ${profile.style}`;
+    } else {
+      styleSection += `\nArt Style: digital painting, soft cinematic lighting, warm emotional atmosphere, detailed features, morandi pastel color theme`;
+    }
+    return `${identitySection}\n\n${petSection}\n\n${sceneSection}\n\n${styleSection}`;
+  }
+  
+  if (intentType === 'object') {
+    let objDesc = 'a beautiful item';
+    let hasObjRef = false;
+    if (profile.object_anchor) {
+      hasObjRef = !!profile.object_anchor.originalImage;
+      if (profile.object_anchor.anchorPromptEn) {
+        objDesc = profile.object_anchor.anchorPromptEn;
+      } else if (profile.object_anchor.visualDescription) {
+        objDesc = profile.object_anchor.visualDescription;
+      }
+    }
+    
+    let identitySection = '';
+    if (hasObjRef) {
+      identitySection = `[Identity]
+This is the EXACT same object from the reference image. You must strictly preserve its colors, textures, craftsmanship, and look. Match the object features with maximum fidelity.
+Priority: Extremely High.`;
+    } else {
+      identitySection = `[Identity]
+Maintain consistent appearance of the described object.`;
+    }
+
+    let objSection = `[Subject Features]
+Subject: ${objDesc}`;
+
+    let sceneSection = `[Scene & Environment]
+Action & Setting: ${scenePrompt}`;
+
+    let styleSection = `[Style & Lighting]`;
+    if (profile.style) {
+      styleSection += `\nArt Style: ${profile.style}`;
+    } else {
+      styleSection += `\nArt Style: digital painting, soft cinematic lighting, warm emotional atmosphere, detailed features, morandi pastel color theme`;
+    }
+    return `${identitySection}\n\n${objSection}\n\n${sceneSection}\n\n${styleSection}`;
+  }
+  
+  if (intentType === 'scene') {
+    let placeDesc = 'a beautiful place';
+    let hasPlaceRef = false;
+    if (profile.place_anchor) {
+      hasPlaceRef = !!profile.place_anchor.originalImage;
+      if (profile.place_anchor.anchorPromptEn) {
+        placeDesc = profile.place_anchor.anchorPromptEn;
+      } else if (profile.place_anchor.visualDescription) {
+        placeDesc = profile.place_anchor.visualDescription;
+      }
+    }
+    
+    let identitySection = '';
+    if (hasPlaceRef) {
+      identitySection = `[Identity]
+This is the EXACT same room or setting environment from the reference image. You must strictly preserve its architecture, colors, layout, and look. Match the environment features with maximum fidelity.
+Priority: Extremely High.`;
+    } else {
+      identitySection = `[Identity]
+Maintain consistent appearance of the described scene.`;
+    }
+
+    let placeSection = `[Environment Features]
+Base Environment: ${placeDesc}`;
+
+    let sceneSection = `[Scene & Environment]
+Action & Setting: ${scenePrompt}`;
+
+    let styleSection = `[Style & Lighting]`;
+    if (profile.style) {
+      styleSection += `\nArt Style: ${profile.style}`;
+    } else {
+      styleSection += `\nArt Style: digital painting, soft cinematic lighting, warm emotional atmosphere, detailed environment, morandi pastel color theme`;
+    }
+    return `${identitySection}\n\n${placeSection}\n\n${sceneSection}\n\n${styleSection}`;
+  }
+
+  // Fallback to 'character' mode
+  const hasRefImage = Array.isArray(profile.ref_images) && profile.ref_images.length > 0;
+  
+  let identitySection = '';
+  if (hasRefImage) {
+    identitySection = `[Identity]
+This is the EXACT same person from the reference image. You must strictly preserve their facial identity, structural details, and look. Match the facial features from the provided reference image with maximum fidelity.
+Priority: Extremely High. Do not deviate from the reference face.`;
+  } else {
+    identitySection = `[Identity]
+Maintain consistent appearance of the described character.`;
+  }
+
+  let faceSection = `[Face Features]
+Gender: ${profile.gender || 'female'}, Age: ${profile.age || 'young adult'}.`;
+  if (profile.face_anchor) {
+    faceSection += `\nFacial Details: ${profile.face_anchor}.`;
+  }
+  if (profile.hairstyle) {
+    faceSection += `\nHairstyle: ${profile.hairstyle}.`;
+  }
+
+  let sceneSection = `[Scene & Environment]
+Action & Setting: ${scenePrompt}`;
+  if (profile.dress) {
+    sceneSection += `\nClothing: wearing ${profile.dress}.`;
+  }
+
+  let styleSection = `[Style & Lighting]`;
+  if (profile.style) {
+    styleSection += `\nArt Style: ${profile.style}`;
+  } else {
+    styleSection += `\nArt Style: digital painting, soft cinematic lighting, warm emotional atmosphere, detailed face, morandi pastel color theme`;
+  }
+  
+  // Combine into a structured, highly prioritized prompt
+  const finalPrompt = `${identitySection}
+
+${faceSection}
+
+${sceneSection}
+
+${styleSection}`;
+
   return finalPrompt;
 }
+
+// AI vision-based character visual profiling analyzer
+async function analyzeAndSetCharacterAnchor(id, base64Image) {
+  showToast('✨ AI 正在深度分析参考图人物五官特征，生成专属人脸一致性锚点档案...');
+  
+  const sysPrompt = `你是一个专业的 AI 视觉人像分析专家。
+请仔细分析用户上传的这张人物参考图（人脸和整体形象），提取出最稳定、最显著、最精准的脸部和外貌特征。
+你必须返回一个符合以下结构的 JSON 字符串。
+不要包含任何 markdown 标记、\`\`\`json 包裹或多余的解释。
+
+{
+  "gender": "英文性别，如 female 或 male",
+  "age": "英文年龄感，如 young adult, teenage, 25 years old 等",
+  "face_shape": "英文脸型描述，如 oval, round, heart-shaped 等",
+  "eyes": "英文眼睛与眼神描述，如 large double-eyelid brown eyes, expressive and gentle",
+  "hair": "英文发型发色与细节，如 long wavy brown hair, styled with ponytail",
+  "skin": "英文皮肤质感与肤色，如 fair smooth skin, warm peach undertone",
+  "unique_features": [
+    "中文描述：五官的独特记号或特征1，例如：左眼角有一颗小泪痣",
+    "中文描述：特征2，例如：高挺的鼻梁",
+    "中文描述：特征3，例如：笑起来有浅浅的酒窝"
+  ],
+  "dress_style": "英文衣服穿搭风格，如 comfortable casual oversized cream sweater",
+  "face_anchor_en": "精炼且特异性极高的英文面部锚点 Prompt（用于生图锁脸）。必须用英语逗号分隔，包含脸型、双眼、嘴唇、五官比例、表情、泪痣/雀斑等独特微小特征，避免 general 词汇如 'beautiful face'。例如: 'oval face, highly detailed big brown eyes, high nose bridge, soft rosy lips, tiny elegant mole near left eye corner, gentle and warm expression'",
+  "visual_description_cn": "一段优美、详尽的中文人物外貌特征描写，用于展示在档案中（150字以内）。"
+}`;
+
+  try {
+    const messages = [
+      { role: 'system', content: sysPrompt },
+      { role: 'user', content: [
+        { type: 'text', text: '请分析这张照片并提取出核心人脸和外貌锚点。' },
+        { type: 'image_url', image_url: { url: base64Image } }
+      ]}
+    ];
+
+    // Force using our highly reliable built-in Gemini proxy provider
+    const response = await llmComplete(messages, {
+      provider: GEMINI_PROVIDER,
+      model: 'gemini-3.5-flash',
+      temperature: 0.1
+    });
+
+    if (!response) {
+      throw new Error('AI 未返回任何分析数据');
+    }
+
+    let cleaned = response.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+    }
+
+    const res = JSON.parse(cleaned);
+    
+    // Save to character identity
+    const prof = getCharacterIdentity(id);
+    
+    // Level 2: Human visual description profile
+    prof.appearance_profile = {
+      face_shape: res.face_shape || '',
+      eyes: res.eyes || '',
+      hair: res.hair || '',
+      skin: res.skin || '',
+      age: res.age || '',
+      unique_features: Array.isArray(res.unique_features) ? res.unique_features : []
+    };
+
+    // Level 3: Anchor info
+    prof.character_anchor = {
+      originalImage: base64Image,
+      visualDescription: res.visual_description_cn || '',
+      faceFeatures: prof.appearance_profile,
+      createdTime: Date.now()
+    };
+
+    // Auto-fill standard visual profile properties
+    if (res.gender) prof.gender = res.gender;
+    if (res.age) prof.age = res.age;
+    if (res.face_anchor_en) prof.face_anchor = res.face_anchor_en;
+    if (res.hair) prof.hairstyle = res.hair;
+    if (res.dress_style) prof.dress = res.dress_style;
+
+    saveCharacterIdentity(id, prof);
+    
+    // Trigger render if setting panel is open
+    if (typeof renderCharacterProfileDetails === 'function') {
+      renderCharacterProfileDetails(id);
+    }
+    
+    showToast('✨ AI 深度视觉分析已完成！成功生成高精度人脸一致性锚点特征档案。');
+  } catch (e) {
+    console.error('[VisionAnalysis] Failed to analyze character ref photo:', e);
+    showToast('⚠️ AI 人像特征分析失败（将使用普通模式保存）：' + e.message);
+  }
+}
+window.analyzeAndSetCharacterAnchor = analyzeAndSetCharacterAnchor;
 
 // Memory integration (Phase 1 part)
 function recordVisualMemoryEvent(memberId, description, scene, imgUrl) {
@@ -1138,4 +1310,135 @@ function recordVisualMemoryEvent(memberId, description, scene, imgUrl) {
     console.error('Failed to record visual memory event:', e);
   }
 }
+
+// AI vision-based multi-anchor analyzer for Pets, Objects, and Places
+async function analyzeAndSetOtherAnchor(id, type, base64Image) {
+  let anchorName = '宠物';
+  if (type === 'object') anchorName = '物品';
+  if (type === 'place') anchorName = '空间';
+  
+  showToast(`✨ AI 正在深度分析参考图${anchorName}特征，生成专属一致性锚点档案...`);
+  
+  let sysPrompt = '';
+  if (type === 'pet') {
+    sysPrompt = `你是一个专业的 AI 宠物/动物形象分析专家。
+请仔细分析用户上传的这张宠物参考图，提取出最稳定、最显著、最精准的动物品种、毛发颜色、面部花纹、眼睛颜色和独特外貌特征。
+你必须返回一个符合以下结构的 JSON 字符串。
+不要包含任何 markdown 标记、\`\`\`json 包裹或多余的解释。
+
+{
+  "species": "英文品种或物种，例如 orange tabby cat, golden retriever puppy, cute red fox 等",
+  "fur": "英文毛发细节，例如 fluffy thick ginger fur, white patch on the chest",
+  "eyes": "英文眼睛描述，例如 round green sparkling eyes",
+  "unique_features": [
+    "中文描述：品种与毛色特征，例如：橘黄色条纹，胸口有一块白色爱心花纹",
+    "中文描述：耳朵与尾巴特征，例如：耳朵尖是白色的，尾巴蓬松"
+  ],
+  "visual_description_cn": "一段优美的、100字以内的中文宠物形象描述，用于展示在档案中。",
+  "anchor_prompt_en": "精炼且特异性极高的英文宠物锚点 Prompt。例如: 'fluffy ginger tabby cat, green sparkling eyes, white chest patch, highly detailed fur texture'"
+}`;
+  } else if (type === 'object') {
+    sysPrompt = `你是一个专业的 3D 物品/静态物件分析专家。
+请仔细分析用户上传的这张物品参考图，提取出材质、颜色、纹理、结构和独特细节。
+你必须返回一个符合以下结构的 JSON 字符串。
+不要包含任何 markdown 标记、\`\`\`json 包裹或多余的解释。
+
+{
+  "name": "英文物品名称，例如 leatherbound vintage diary, handmade ceramic tea cup",
+  "material": "英文材质与质感，例如 worn brown leather, polished gold accents, glossy ceramic glaze",
+  "color": "英文色彩搭配，例如 deep cognac brown, aged golden bronze",
+  "unique_features": [
+    "中文描述：外观纹理，例如：封面上雕刻着一片精美的枫叶纹路",
+    "中文描述：配件细节，例如：带有一条铜质的书签带"
+  ],
+  "visual_description_cn": "一段优美的、100字以内的中文物品细节描述，用于展示在档案中。",
+  "anchor_prompt_en": "精炼且特异性极高的英文物品锚点 Prompt。例如: 'vintage cognac leather notebook, embossed maple leaf pattern, brass clasp, aged paper edges, warm lighting'"
+}`;
+  } else if (type === 'place') {
+    sysPrompt = `你是一个专业的 室内设计/场景环境分析专家。
+请仔细分析用户上传的这张场景空间参考图，提取出空间布局、家具风格、主色调、光影氛围和标志性摆设。
+你必须返回一个符合以下结构的 JSON 字符串。
+不要包含任何 markdown 标记、\`\`\`json 包裹或多余的解释。
+
+{
+  "name": "英文空间名称，例如 cozy warm-toned reading cabin, minimalist modern study corner",
+  "style": "英文装修风格与氛围，例如 rustic warm cabin, minimalist modern, vintage retro, soft warm light",
+  "layout": "英文布局摆设，例如 wooden bookshelf filled with books, leather armchair near fireplace",
+  "unique_features": [
+    "中文描述：空间特质，例如：背景中有一面巨大的落地窗，透出暖黄色的落日余晖",
+    "中文描述：装饰细节，例如：墙壁上挂着一幅复古油画，桌面上点着一盏香薰蜡烛"
+  ],
+  "visual_description_cn": "一段优美的、100字以内的中文空间氛围描述，用于展示在档案中。",
+  "anchor_prompt_en": "精炼且特异性极高的英文空间锚点 Prompt。例如: 'cozy warm reading room, floor-to-ceiling bookshelf, fireplace glowing, soft leather armchair, amber cinematic lighting'"
+}`;
+  }
+
+  try {
+    const messages = [
+      { role: 'system', content: sysPrompt },
+      { role: 'user', content: [
+        { type: 'text', text: `请分析这张照片并提取出核心${anchorName}锚点。` },
+        { type: 'image_url', image_url: { url: base64Image } }
+      ]}
+    ];
+
+    const response = await llmComplete(messages, {
+      provider: typeof GEMINI_PROVIDER !== 'undefined' ? GEMINI_PROVIDER : 'gemini',
+      model: 'gemini-3.5-flash',
+      temperature: 0.1
+    });
+
+    if (!response) {
+      throw new Error('AI 未返回任何分析数据');
+    }
+
+    let cleaned = response.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+    }
+
+    const res = JSON.parse(cleaned);
+    
+    const prof = getCharacterIdentity(id);
+    const anchorKey = `${type}_anchor`;
+    
+    prof[anchorKey] = {
+      originalImage: base64Image,
+      visualDescription: res.visual_description_cn || '',
+      anchorPromptEn: res.anchor_prompt_en || '',
+      features: res,
+      createdTime: Date.now()
+    };
+
+    saveCharacterIdentity(id, prof);
+    
+    if (typeof renderCharacterProfileDetails === 'function') {
+      renderCharacterProfileDetails(id);
+    }
+    
+    showToast(`✨ AI 深度视觉分析已完成！成功生成高精度${anchorName}一致性锚点特征档案。`);
+  } catch (e) {
+    console.error('[VisionAnalysis] Failed to analyze reference photo:', e);
+    
+    // Direct save fallback
+    const prof = getCharacterIdentity(id);
+    const anchorKey = `${type}_anchor`;
+    prof[anchorKey] = {
+      originalImage: base64Image,
+      visualDescription: '已保存参考图',
+      anchorPromptEn: type === 'pet' ? 'cute fluffy pet' : type === 'object' ? 'beautiful object' : 'cozy room',
+      features: {},
+      createdTime: Date.now()
+    };
+    saveCharacterIdentity(id, prof);
+    
+    if (typeof renderCharacterProfileDetails === 'function') {
+      renderCharacterProfileDetails(id);
+    }
+    
+    showToast(`⚠️ AI 特征分析失败（已使用普通模式保存）：` + e.message);
+  }
+}
+window.analyzeAndSetOtherAnchor = analyzeAndSetOtherAnchor;
+
 

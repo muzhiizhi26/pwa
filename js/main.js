@@ -75,7 +75,7 @@ window.onload=async()=>{
         'js/music.js?v=20260708',
         'js/songcraft.js?v=20260708',
         'js/ebook.js?v=20260708',
-        'js/imagegen.js?v=20260719',
+        'js/imagegen.js?v=20260708',
         'js/group.js?v=20260708',
         'js/project-context.js?v=20260714',
         'js/code-analyzer.js?v=20260714'
