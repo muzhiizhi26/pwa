@@ -1,11 +1,10 @@
 /* ===== 语音：TTS / STT / 按住录音 ===== */
 function voiceKey(){return (localStorage.getItem('voice_key')||'').trim();}
 function voiceForRole(role){return role==='user'?(localStorage.getItem('tts_voice_user')||''):(localStorage.getItem('tts_voice_ai')||'');}
-function renderVoiceToggle(){
-  const b=document.getElementById('voiceToggleBtn');
-  if(voiceEnabled()){b.textContent='🔊';b.classList.remove('voice-off');}else{b.textContent='🔇';b.classList.add('voice-off');}
-  if(typeof renderAutoSpeakToggle === 'function') renderAutoSpeakToggle();
-}
+function renderAutoSpeakToggle(){const b=document.getElementById('autoSpeakToggleBtn');if(!b)return;const on=autoSpeakEnabled();b.title=on?'自动朗读 AI 回复：已开启':'自动朗读 AI 回复：已关闭';b.classList.toggle('voice-off',!on);const icon=b.querySelector('span');if(icon)icon.textContent=on?'🔈':'🔕';const label=b.querySelector('b');if(label)label.textContent='自动朗读';}
+function setAutoSpeak(on){localStorage.setItem('auto_speak',on?'true':'false');renderAutoSpeakToggle();}
+function toggleAutoSpeakFromHeader(){setAutoSpeak(!autoSpeakEnabled());showToast(autoSpeakEnabled()?'🔈 自动朗读 AI 回复已开启':'🔕 自动朗读 AI 回复已关闭');}
+function renderVoiceToggle(){const b=document.getElementById('voiceToggleBtn');if(voiceEnabled()){b.textContent='🔊';b.classList.remove('voice-off');}else{b.textContent='🔇';b.classList.add('voice-off');}renderAutoSpeakToggle();}
 function toggleVoiceMaster(){localStorage.setItem('voice_enabled',voiceEnabled()?'false':'true');renderVoiceToggle();showToast(voiceEnabled()?'🔊 语音已开启':'🔇 语音已关闭');}
 function setVoiceMaster(on){localStorage.setItem('voice_enabled',on?'true':'false');renderVoiceToggle();}
 
@@ -92,30 +91,4 @@ function endPTT(){
   if(!pttActive)return;
   pttActive=false;recording=false;
   if(mediaRecorder&&mediaRecorder.state!=='inactive'){try{mediaRecorder.stop();}catch(e){}}
-}
-
-function renderAutoSpeakToggle() {
-  const b = document.getElementById('autoSpeakToggleBtn');
-  if (!b) return;
-  if (autoSpeakEnabled()) {
-    b.innerHTML = '🔔 <b>自动朗读</b>';
-    b.classList.remove('voice-off');
-  } else {
-    b.innerHTML = '🔕 <b>自动朗读</b>';
-    b.classList.add('voice-off');
-  }
-}
-
-function toggleAutoSpeakFromHeader() {
-  const next = !autoSpeakEnabled();
-  localStorage.setItem('auto_speak', next ? 'true' : 'false');
-  renderAutoSpeakToggle();
-  
-  // Also sync the settings page checkbox if it exists and is open
-  const settingsChk = document.querySelector('input[onchange*="auto_speak"]');
-  if (settingsChk) {
-    settingsChk.checked = next;
-  }
-  
-  showToast(next ? '🔔 自动朗读已开启' : '🔕 自动朗读已关闭');
 }

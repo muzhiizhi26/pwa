@@ -147,6 +147,8 @@ async function trimVectorStore(){
 }
 
 function localEmbed(text){const v=new Float32Array(EMBED_DIM);const c=(text||'').toLowerCase().replace(/\s+/g,'');const g=[];for(let i=0;i<c.length;i++){g.push(c[i]);if(i<c.length-1)g.push(c[i]+c[i+1]);}for(const x of g){let h=2166136261;for(let i=0;i<x.length;i++){h^=x.charCodeAt(i);h=Math.imul(h,16777619);}const idx=Math.abs(h)%EMBED_DIM;v[idx]+=(h&1)?1:-1;}let n=0;for(let i=0;i<EMBED_DIM;i++)n+=v[i]*v[i];n=Math.sqrt(n)||1;for(let i=0;i<EMBED_DIM;i++)v[i]/=n;return Array.from(v);}
+function strictSingleApiMode(){return localStorage.getItem('single_api_per_message')!=='false';}
+window.strictSingleApiMode = strictSingleApiMode;
 async function remoteEmbed(text){const url=(localStorage.getItem('embed_url')||'').trim();const key=(localStorage.getItem('embed_key')||'').trim();const model=(localStorage.getItem('embed_model')||'text-embedding-3-small').trim();if(!url)throw new Error('未配置嵌入API');let u=url.replace(/\/+$/,'');if(!u.includes('/embeddings'))u+='/embeddings';const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json',...(key?{'Authorization':`Bearer ${key}`}:{})},body:JSON.stringify({model,input:text})});if(!r.ok)throw new Error('嵌入API错误');const d=await r.json();return d.data[0].embedding;}
 const _embedCache = new Map();
 async function embed(text){
@@ -156,7 +158,7 @@ async function embed(text){
   }
   const m=localStorage.getItem('embed_mode')||'local';
   let vec;
-  if(m==='remote'){
+  if(m==='remote' && !strictSingleApiMode()){
     try{
       vec = await remoteEmbed(text);
     }catch(e){
@@ -181,6 +183,59 @@ function ragThreshold(){return parseFloat(localStorage.getItem('rag_threshold')|
 function forgetLambda(){const v=parseFloat(localStorage.getItem('forget_lambda'));return isNaN(v)?0.05:v;}
 /* 优化12：时间窗口（按天分桶） */
 function dayBucket(ts){return Math.floor((ts||Date.now())/(24*3600*1000));}
+
+function normalizeMemoryText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、；：,.!?;:"'“”‘’()[\]{}【】（）]/g, '')
+    .slice(0, 220);
+}
+
+function isSameMemoryCandidate(leftText, rightText) {
+  const left = normalizeMemoryText(leftText);
+  const right = normalizeMemoryText(rightText);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const minLength = Math.min(left.length, right.length);
+  if (minLength < 18) return false;
+  return left.includes(right) || right.includes(left);
+}
+
+async function findDuplicateMemory(content, activeAi, role) {
+  let records = [];
+  try {
+    records = await VDB.all();
+  } catch (error) {
+    return null;
+  }
+  const cutoffTs = Date.now() - 7 * 24 * 3600 * 1000;
+  return records.find(record => {
+    if (!record || !record.text) return false;
+    const sameRole = !role || record.role === role;
+    const sameAi = (record.ai_id || 'main') === activeAi;
+    const recentEnough = !record.ts || record.ts >= cutoffTs;
+    return sameRole && sameAi && recentEnough && isSameMemoryCandidate(content, record.text);
+  }) || null;
+}
+
+async function writeDedupedMemory(rec) {
+  const duplicate = await findDuplicateMemory(rec.text, rec.ai_id, rec.role);
+  if (duplicate) {
+    duplicate.boost = Math.min((duplicate.boost || 1) + 0.25, 3);
+    duplicate.ts = Date.now();
+    duplicate.window_id = rec.window_id;
+    duplicate.emotion = duplicate.emotion || rec.emotion;
+    duplicate.tier = Math.max(duplicate.tier || 1, rec.tier || 1);
+    duplicate.importance_score = Math.max(duplicate.importance_score || 0, rec.importance_score || 0);
+    duplicate.expiry_ts = Math.max(duplicate.expiry_ts || 0, rec.expiry_ts || 0) || rec.expiry_ts;
+    await VDB.put(duplicate);
+    return duplicate;
+  }
+  rec.vector = await embed(rec.text);
+  await VDB.put(rec);
+  return rec;
+}
 
 /* 评估记忆的分数与三层分类 */
 function evaluateMemory(content, role, emotion) {
@@ -302,15 +357,13 @@ async function memorize(role,content,emotion,aiId){
   if (window.MemoryLockQueue) {
     return window.MemoryLockQueue.enqueue(async () => {
       try {
-        rec.vector=await embed(content);
-        await VDB.put(rec);
+        await writeDedupedMemory(rec);
         await trimVectorStore();
       } catch(e) {}
     });
   } else {
     try {
-      rec.vector=await embed(content);
-      await VDB.put(rec);
+      await writeDedupedMemory(rec);
       await trimVectorStore();
     } catch(e) {}
   }

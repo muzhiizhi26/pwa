@@ -117,7 +117,7 @@ async function acquireMicAndStartVAD() {
     micSource.connect(analyserFallback);
     const data = new Uint8Array(analyserFallback.frequencyBinCount);
     const loop = () => {
-      if (!callActive || callState !== 'listening') return;
+      if (!callActive || (callState !== 'listening' && callState !== 'speaking')) return;
       analyserFallback.getByteTimeDomainData(data);
       let s = 0;
       for (let i = 0; i < data.length; i++) {
@@ -224,6 +224,16 @@ function finalizeUtterance(){
   if(callRecorder&&callRecorder.state==='recording'){recStopReason='utterance';try{callRecorder.stop();}catch(e){}}
 }
 
+async function prepareBargeInVAD(){
+  if(!callActive||callMuted||!bargeInEnabled())return;
+  resetVad();
+  try{
+    await acquireMicAndStartVAD();
+  }catch(e){
+    console.warn('[Call] Barge-in VAD failed:', e);
+  }
+}
+
 async function onRecorderStop(){
   if(!callActive)return;
   if(recStopReason==='mute'||recStopReason==='end')return;
@@ -270,7 +280,12 @@ async function onRecorderStop(){
         setCallStatus(`${mem.name} 回复：`,reply);
         callState='speaking';
         vad.bargeMs=0;vad.last=performance.now();
+        await prepareBargeInVAD();
         await playTTSCall(reply, mem.voice || localStorage.getItem('tts_voice_ai'));
+        if(callState!=='speaking'){
+          document.querySelectorAll('.group-call-member').forEach(el=>el.classList.remove('active-speaker'));
+          return;
+        }
       }
       document.querySelectorAll('.group-call-member').forEach(el=>el.classList.remove('active-speaker'));
       if(callAudioCtx&&callAudioCtx.state==='suspended')await callAudioCtx.resume();
@@ -290,6 +305,7 @@ async function onRecorderStop(){
     callState='speaking';
     document.getElementById('callAvatar').classList.add('speaking');
     vad.bargeMs=0;vad.last=performance.now();
+    await prepareBargeInVAD();
     await playTTSCall(reply);
     document.getElementById('callAvatar').classList.remove('speaking');
     if(callAudioCtx&&callAudioCtx.state==='suspended')await callAudioCtx.resume();

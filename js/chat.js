@@ -107,6 +107,26 @@ async function handleImage(input){const f=input.files[0];if(!f)return;const read
 function setQuote(t){quotedText=t;document.getElementById('quoteText').textContent='引用: '+t.slice(0,40);document.getElementById('quotePreview').classList.add('show');document.getElementById('messageInput').focus();}
 function clearQuote(){quotedText=null;document.getElementById('quotePreview').classList.remove('show');}
 let chatReplying = false;
+let chatRequestInFlightKey = '';
+
+function chatRequestHash(text) {
+  const s = String(text || '');
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function makeChatRequestKey(provider, model, body, url) {
+  return `${provider?.id || provider?.name || ''}|${model || ''}|${url || ''}|${chatRequestHash(JSON.stringify(body || {}))}`;
+}
+
+function isStrictSingleApiChatMode() {
+  return typeof strictSingleApiMode === 'function' ? strictSingleApiMode() : localStorage.getItem('single_api_per_message') !== 'false';
+}
+
 async function sendMessage(){
   if(chatReplying) return;
   markActivity();
@@ -121,11 +141,14 @@ async function sendMessage(){
     const img=pendingImage;pendingImage=null;
     let emotion='calm';
     if(text&&localStorage.getItem('emotion_enabled')!=='false'){emotion=detectEmotion(text);updateEmotionState(emotion);renderEmotionPills();}
-    if(text){const uid=genUid();const ts=Date.now();conversationHistory.push({role:'user',content:text,uid,emotion,ts});renderTextMessage('user',text,uid,null,null,false,ts);saveHistory();memorize('user',text,emotion);bumpMsgCounter();if(typeof maybeUpdateLongTerm==='function')maybeUpdateLongTerm(text);if(typeof bumpPrivateChatCount==='function')bumpPrivateChatCount(currentPrivateAiId());}
+    if(text){const uid=genUid();const ts=Date.now();conversationHistory.push({role:'user',content:text,uid,emotion,ts});renderTextMessage('user',text,uid,null,null,false,ts);saveHistory();memorize('user',text,emotion);bumpMsgCounter();if(!isStrictSingleApiChatMode()&&typeof maybeUpdateLongTerm==='function')maybeUpdateLongTerm(text);if(typeof bumpPrivateChatCount==='function')bumpPrivateChatCount(currentPrivateAiId());}
     input.value='';autoResize(input);
+    if(text && typeof handleDirectImageCommand === 'function' && await handleDirectImageCommand(text, img, { source:'chat-send' })) {
+      return;
+    }
     await requestAI(img,text);
     maybeAutoCompress();
-    if(typeof maybeUpdateMidterm==='function')maybeUpdateMidterm();
+    if(!isStrictSingleApiChatMode()&&typeof maybeUpdateMidterm==='function')maybeUpdateMidterm();
   } catch (err) {
     console.error('Error in sendMessage:', err);
   } finally {
@@ -235,28 +258,14 @@ if (typeof RhythmEngine !== 'undefined' && RhythmEngine.shouldSilence(q)) {
 const rhythm = (typeof RhythmEngine !== 'undefined') ? RhythmEngine.determineRhythm(q) : { slow: false, delay: 0, introText: '' };
 
 let sp = await composeSystemPrompt(q, recallItems, null, currentAi);
-const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));const messages=[{role:'system',content:sp},...shortTerm];if(currentImage)messages.push({role:'user',content:[{type:'text',text:queryText||'请描述这张图片'},{type:'image_url',image_url:{url:currentImage}}]});let url=provider.endpoint.replace(/\/+$/,'');if(!url.includes('/chat/completions')&&!url.includes('messages'))url+='/chat/completions';const headers={'Content-Type':'application/json'};if(provider.auth==='Bearer')headers['Authorization']=`Bearer ${apiKey}`;else if(provider.auth==='x-api-key')headers['x-api-key']=apiKey;else if(provider.auth==='x-goog-api-key')headers['x-goog-api-key']=apiKey;const stream=streamEnabled();const body={model:useModel,messages,stream};if(localStorage.getItem('temp_enabled')==='true')body.temperature=parseFloat(localStorage.getItem('temperature')||'1');if(localStorage.getItem('top_p_enabled')==='true')body.top_p=parseFloat(localStorage.getItem('top_p')||'1');
+const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));const messages=[{role:'system',content:sp},...shortTerm];if(currentImage)messages.push({role:'user',content:[{type:'text',text:queryText||'请描述这张图片'},{type:'image_url',image_url:{url:currentImage}}]});let url=provider.endpoint.replace(/\/+$/,'');if(!url.includes('/chat/completions')&&!url.includes('messages'))url+='/chat/completions';const headers={'Content-Type':'application/json'};if(provider.auth==='Bearer')headers['Authorization']=`Bearer ${apiKey}`;else if(provider.auth==='x-api-key')headers['x-api-key']=apiKey;else if(provider.auth==='x-goog-api-key')headers['x-goog-api-key']=apiKey;const stream=streamEnabled();const body={model:useModel,messages,stream};if(localStorage.getItem('temp_enabled')==='true')body.temperature=parseFloat(localStorage.getItem('temperature')||'1');if(localStorage.getItem('top_p_enabled')==='true')body.top_p=parseFloat(localStorage.getItem('top_p')||'1');const requestKey=makeChatRequestKey(provider,useModel,body,url);if(chatRequestInFlightKey===requestKey){console.warn('[API Dedup] Duplicate chat completion blocked.');showToast('已拦截重复 API 请求');return;}chatRequestInFlightKey=requestKey;if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',provider:provider.id||provider.name||'',model:useModel,messages,promptChars:JSON.stringify(messages||[]).length,meta:{stream,hasImage:!!currentImage}});
     if(!stream){
       const loading=rhythm.slow ? addLoadingWithIntroDOM(rhythm.introText) : addLoadingDOM();
       if (rhythm.slow) {
         await new Promise(res => setTimeout(res, rhythm.delay));
       }
       try{
-        let r;
-        try {
-          r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
-          if(!r.ok && (url.includes('pollinations.ai') || url.includes('/api/free-chat'))) {
-            console.warn("Direct pollinations call failed, trying server-side fallback...");
-            r = await fetch('/api/free-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-          }
-        } catch (fetchErr) {
-          if (url.includes('pollinations.ai') || url.includes('/api/free-chat')) {
-            console.warn("Direct pollinations fetch error, trying server-side fallback...", fetchErr);
-            r = await fetch('/api/free-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-          } else {
-            throw fetchErr;
-          }
-        }
+        const r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
         if(!r.ok)throw new Error(`API 错误 (${r.status})`);
         const d=await r.json();
         loading.remove();
@@ -270,6 +279,7 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
         const ts=Date.now();
         conversationHistory.push({role:'assistant',content:reply,uid,reasoning,ts});
         const clean=(typeof cleanAiText==='function')?cleanAiText(reply):reply;
+        if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-output',provider:provider.id||provider.name||'',model:useModel,inputTokens:0,output:clean,meta:{stream:false}});
         renderTextMessage('assistant',clean,uid,reasoning,recallNote,false,ts);
         conversationHistory[conversationHistory.length-1].content=clean;
         saveHistory();
@@ -278,10 +288,12 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
         if(typeof processAiReplyMemory==='function')processAiReplyMemory(reply, currentAi);
         markActivity();
         if(autoSpeakEnabled()&&voiceEnabled())playTTS(clean,getActiveTtsVoice());
-        if(typeof triggerVisualEvaluation==='function') triggerVisualEvaluation(q, clean, currentAi, uid);
+        if(!isStrictSingleApiChatMode()&&typeof triggerVisualEvaluation==='function') triggerVisualEvaluation(q, clean, currentAi, uid);
       }catch(err){
         loading.remove();
         addMessage('assistant','❌ '+err.message,genUid());
+      } finally {
+        if (chatRequestInFlightKey === requestKey) chatRequestInFlightKey = '';
       }
       return;
     }
@@ -312,21 +324,7 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
     scrollBottom();
     let thinkingEl=null,full='',reasoning='',started=false;
     try{
-      let r;
-      try {
-        r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
-        if(!r.ok && (url.includes('pollinations.ai') || url.includes('/api/free-chat'))) {
-          console.warn("Direct pollinations call failed, trying server-side fallback...");
-          r = await fetch('/api/free-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-        }
-      } catch (fetchErr) {
-        if (url.includes('pollinations.ai') || url.includes('/api/free-chat')) {
-          console.warn("Direct pollinations fetch error, trying server-side fallback...", fetchErr);
-          r = await fetch('/api/free-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-        } else {
-          throw fetchErr;
-        }
-      }
+      const r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
       if(!r.ok)throw new Error(`API 错误 (${r.status})`);
       const reader=r.body.getReader();
       const dec=new TextDecoder();
@@ -369,6 +367,7 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
       }
       if(!started)full=full||'无响应';
       const display=(typeof cleanAiText==='function'?cleanAiText(full):full);
+      if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-output',provider:provider.id||provider.name||'',model:useModel,inputTokens:0,output:display,meta:{stream:true}});
       const finalDisplay = (rhythm.slow && rhythm.introText) ? (rhythm.introText + '\n' + display) : display;
       bubbles.innerHTML='';
       const linesOut=splitToBubbles(finalDisplay);
@@ -389,13 +388,15 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
       if(typeof processAiReplyMemory==='function')processAiReplyMemory(full, currentAi);
       markActivity();
       if(autoSpeakEnabled()&&voiceEnabled()&&full)playTTS(full,getActiveTtsVoice());
-      if(typeof triggerVisualEvaluation==='function') triggerVisualEvaluation(q, display, currentAi, uid);
+      if(!isStrictSingleApiChatMode()&&typeof triggerVisualEvaluation==='function') triggerVisualEvaluation(q, display, currentAi, uid);
     }catch(err){
       bubbles.innerHTML='';
       const b=document.createElement('div');
       b.className='bubble';
       b.innerText='❌ '+err.message;
       bubbles.appendChild(b);
+    } finally {
+      if (chatRequestInFlightKey === requestKey) chatRequestInFlightKey = '';
     }
   }
 

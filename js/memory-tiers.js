@@ -1,5 +1,63 @@
 /* ===== 三层记忆 + 关系阶段 + 修改日志 + 确认机制 + 主题分段 ===== */
-async function llmCompleteRaw(messages, {temperature, provider, model}={}){
+function estimateLovestoryTokens(value) {
+  if (!value) return 0;
+  let text = '';
+  if (Array.isArray(value)) text = value.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join('\n');
+  else if (typeof value === 'object') text = JSON.stringify(value);
+  else text = String(value);
+  let total = 0;
+  for (const ch of text) total += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? 1 : 0.3;
+  return Math.ceil(total);
+}
+
+function getTokenTelemetryLog() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('lovestory_token_telemetry') || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch(e) {
+    return [];
+  }
+}
+
+function recordTokenTelemetry(entry) {
+  try {
+    const log = getTokenTelemetryLog();
+    const inputTokens = entry.inputTokens != null ? entry.inputTokens : estimateLovestoryTokens(entry.input || entry.messages || '');
+    const outputTokens = entry.outputTokens != null ? entry.outputTokens : estimateLovestoryTokens(entry.output || '');
+    log.unshift({
+      ts: Date.now(),
+      caller: entry.caller || 'unknown',
+      provider: entry.provider || '',
+      model: entry.model || '',
+      promptChars: entry.promptChars || 0,
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      meta: entry.meta || {}
+    });
+    localStorage.setItem('lovestory_token_telemetry', JSON.stringify(log.slice(0, 80)));
+  } catch(e) {
+    console.warn('[TokenTelemetry] record failed:', e);
+  }
+}
+
+window.estimateLovestoryTokens = estimateLovestoryTokens;
+window.getTokenTelemetryLog = getTokenTelemetryLog;
+window.recordTokenTelemetry = recordTokenTelemetry;
+
+const LLM_COMPLETE_INFLIGHT = new Map();
+
+function lovestoryHashText(text) {
+  const s = String(text || '');
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+async function llmCompleteRaw(messages, {temperature, provider, model, callerId}={}){
   const p = provider || getCurrentProvider();
   const mName = model || selectedModelName;
   const apiKey = localStorage.getItem(`apikey_${p.id}`)||'';
@@ -12,8 +70,33 @@ async function llmCompleteRaw(messages, {temperature, provider, model}={}){
   else if(p.auth==='x-goog-api-key')headers['x-goog-api-key']=apiKey;
   const body = {model: mName, messages, stream:false};
   if(temperature!=null)body.temperature=temperature;
-  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});if(!r.ok)throw new Error('API '+r.status);
-  const d=await r.json();return (d.choices?.[0]?.message?.content||d.content?.[0]?.text||'').trim();
+  const requestKey = `${callerId || 'llmComplete'}|${p.id || p.name || ''}|${url}|${lovestoryHashText(JSON.stringify(body))}`;
+  if (LLM_COMPLETE_INFLIGHT.has(requestKey)) {
+    console.warn('[API Dedup] Reusing in-flight llmComplete request:', callerId || 'llmComplete');
+    return await LLM_COMPLETE_INFLIGHT.get(requestKey);
+  }
+  const startedAt = Date.now();
+  const runPromise = (async () => {
+    const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});if(!r.ok)throw new Error('API '+r.status);
+    const d=await r.json();
+    const out=(d.choices?.[0]?.message?.content||d.content?.[0]?.text||'').trim();
+    recordTokenTelemetry({
+      caller: callerId || 'llmComplete',
+      provider: p.id || p.name || '',
+      model: mName,
+      messages,
+      output: out,
+      promptChars: JSON.stringify(messages || []).length,
+      meta: { temperature, durationMs: Date.now() - startedAt }
+    });
+    return out;
+  })();
+  LLM_COMPLETE_INFLIGHT.set(requestKey, runPromise);
+  try {
+    return await runPromise;
+  } finally {
+    LLM_COMPLETE_INFLIGHT.delete(requestKey);
+  }
 }
 window.llmCompleteRaw = llmCompleteRaw;
 
@@ -113,7 +196,7 @@ async function processAiReplyMemory(reply, memberId){
   const cm=reply.match(/【确认[:：]([^=：】]+)[=＝]([^】]+)】/);
   if(cm){const key=cm[1].trim(),val=cm[2].trim();const ok=await showMemoryConfirm(key,val);if(ok){const cur=getLongTermProfile();const line=`- ${key}：${val}`;setLongTermProfile(cur?(cur+'\n'+line):line,'ai');showToast('🗂️ 已记入长期档案');}}
 
-  if (typeof triggerMemoryEventBus === 'function') {
+  if (typeof triggerMemoryEventBus === 'function' && !(typeof strictSingleApiMode === 'function' && strictSingleApiMode())) {
     let lastUserText = '';
     const groupOpen = document.getElementById('groupPanel')?.classList.contains('show');
     if (groupOpen && typeof getGroupHistory === 'function') {
@@ -318,6 +401,52 @@ const ContextAggregator = {
     this.providers.sort((a, b) => a.priority - b.priority);
   },
 
+  buildLeanPrompt(queryClean, recallItems, extra, currentAi, attentionPlan, startTime) {
+    const clip = (text, max) => {
+      const s = String(text || '').trim();
+      return s.length > max ? s.slice(0, max) + '\n...[已省略]' : s;
+    };
+    const aiName = (typeof memberById === 'function')
+      ? (memberById(currentAi)?.name || localStorage.getItem('ai_name') || '小艾')
+      : (localStorage.getItem('ai_name') || '小艾');
+    const customSysPrompt = localStorage.getItem('systemPrompt') || '';
+    const worldBook = currentAi === 'main'
+      ? (localStorage.getItem('world_book') || '你叫「小艾」，是用户的贴心伴侣，性格温柔体贴、善解人意。')
+      : '';
+    const profile = typeof getLongTermProfile === 'function' ? getLongTermProfile() : '';
+    const rel = typeof relationshipInstruction === 'function' ? relationshipInstruction(currentAi) : '';
+    const timeCtx = typeof generateTimeContext === 'function' ? generateTimeContext() : '';
+    const emoCtx = typeof emotionContext === 'function' ? emotionContext() : '';
+    const recall = recallItems && recallItems.length && typeof formatRecall === 'function'
+      ? formatRecall(recallItems.slice(0, 2))
+      : '';
+    const base = customSysPrompt || `你是${aiName}，一位长期陪伴型 AI 伴侣。你自然、温暖、克制，有稳定人格，不要机械说教。`;
+    const parts = [
+      `【角色内核】\n${clip(base, 500)}`,
+      worldBook ? `【世界书/人设】\n${clip(worldBook, 500)}` : '',
+      profile ? `【用户档案】\n${clip(profile, 500)}` : '',
+      rel ? `【关系状态】\n${clip(rel, 300)}` : '',
+      recall ? `【相关记忆】\n${clip(recall, 600)}` : '',
+      `【当前状态】\n${clip(timeCtx, 180)}\n${clip(emoCtx, 160)}`,
+      `【回复规则】\n只用自然口语回复。不要输出工具调用 JSON、dalle.text2im、action/action_input 或代码块。若用户明确要求发图/生图，前端会直接处理，你不要把生图动作写成文本。不要使用括号/星号描写动作或内心旁白。`,
+      extra ? `【额外场景】\n${clip(extra, 400)}` : ''
+    ].filter(Boolean);
+    const finalPrompt = parts.join('\n\n');
+    this.cache.lastPrompt = finalPrompt;
+    this.cache.lastQuery = queryClean;
+    this.cache.lastTime = Date.now();
+    this.cache.lastMemberId = currentAi;
+    this.cache.lastPromptComposition = {
+      lean: finalPrompt.length,
+      system: (parts[0] || '').length,
+      ai: worldBook.length,
+      user: profile.length,
+      context: finalPrompt.length
+    };
+    this.cache.lastProviderDurations = { lean: Date.now() - startTime };
+    return finalPrompt;
+  },
+
   async compile(query, recallItems, extra, memberId) {
     const startTime = Date.now();
     const currentAi = memberId || (typeof currentPrivateAiId === 'function' ? currentPrivateAiId() : 'main');
@@ -403,6 +532,10 @@ const ContextAggregator = {
     }
 
     const attentionPlan = { category, categoryName, goal, plan: actionPlan, budgetModifiers };
+
+    if (typeof strictSingleApiMode === 'function' && strictSingleApiMode()) {
+      return this.buildLeanPrompt(queryClean, recallItems, extra, currentAi, attentionPlan, startTime);
+    }
 
     // ==========================================
     // 🔍 Pipeline Phase 2: RETRIEVAL (多源认知微观数据检索与编译)
@@ -824,6 +957,10 @@ function renderRuntimeInspector() {
       </h3>
       <div style="margin-top: 8px;">
         ${renderProviderMetrics(cache)}
+        <div style="margin-top:12px; border-top:1px solid var(--border); padding-top:10px;">
+          <div style="font-size:12px; font-weight:bold; color:var(--text-main); margin-bottom:6px;">Token Telemetry</div>
+          ${renderTokenTelemetry()}
+        </div>
       </div>
     </div>
 
@@ -877,6 +1014,37 @@ function renderRuntimeInspector() {
     </div>
   `;
   document.getElementById('detailBody').innerHTML = detailBodyHtml;
+}
+
+function renderTokenTelemetry() {
+  const log = typeof getTokenTelemetryLog === 'function' ? getTokenTelemetryLog().slice(0, 12) : [];
+  if (!log.length) {
+    return `<div style="text-align:center; color: var(--text-sub); padding: 10px 0; font-size:11px;">No token telemetry yet.</div>`;
+  }
+  return `
+    <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 11px;">
+      <thead>
+        <tr style="border-bottom: 1px solid var(--border); color: var(--text-sub);">
+          <th style="padding: 4px; font-weight: normal;">Caller</th>
+          <th style="padding: 4px; font-weight: normal;">Model</th>
+          <th style="padding: 4px; font-weight: normal; text-align:right;">Input</th>
+          <th style="padding: 4px; font-weight: normal; text-align:right;">Output</th>
+          <th style="padding: 4px; font-weight: normal; text-align:right;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${log.map(e => `
+          <tr style="border-bottom: 1px solid rgba(0,0,0,0.02);">
+            <td style="padding: 6px 4px; font-family: monospace; color: var(--text-main);">${e.caller}</td>
+            <td style="padding: 6px 4px; color: var(--text-sub);">${e.model || e.provider || '-'}</td>
+            <td style="padding: 6px 4px; text-align:right;">${e.inputTokens || 0}</td>
+            <td style="padding: 6px 4px; text-align:right;">${e.outputTokens || 0}</td>
+            <td style="padding: 6px 4px; text-align:right; font-weight:bold;">${e.totalTokens || 0}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 function renderProviderMetrics(cache) {

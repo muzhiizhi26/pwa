@@ -1,4 +1,8 @@
 /* ===== 生图 ===== */
+const OPENAI_IMAGE_DEFAULT_MODEL = 'gpt-image-2';
+const LEGACY_OPENAI_IMAGE_MODELS = ['Kwai-Kolors/Kolors', 'black-forest-labs/FLUX.1-schnell', 'dall-e-3'];
+const OPENAI_IMAGE_DEFAULT_MODELS = [OPENAI_IMAGE_DEFAULT_MODEL, ...LEGACY_OPENAI_IMAGE_MODELS];
+
 function getImgInterfaces(){
   let l=null;
   try{
@@ -8,7 +12,7 @@ function getImgInterfaces(){
     l=[
       {id:'free', name:'免费 · Pollinations（无需Key）', type:'free', url:'', key:'', models:['pollinations-default'], selectedModel:'pollinations-default'},
       {id:'gemini', name:'收费 · Gemini 原生(:generateContent)', type:'gemini', url:'https://api.vectorengine.cn', key:'', models:['gemini-3.1-flash-image-preview', 'imagen-3.0-generate-002'], selectedModel:'gemini-3.1-flash-image-preview'},
-      {id:'openai', name:'收费 · OpenAI(/v1/images/generations)', type:'openai', url:'https://api.vectorengine.cn', key:'', models:['Kwai-Kolors/Kolors', 'black-forest-labs/FLUX.1-schnell', 'dall-e-3'], selectedModel:'Kwai-Kolors/Kolors'},
+      {id:'openai', name:'收费 · OpenAI(/v1/images/generations)', type:'openai', url:'https://api.vectorengine.cn/v1', key:'', models:OPENAI_IMAGE_DEFAULT_MODELS.slice(), selectedModel:OPENAI_IMAGE_DEFAULT_MODEL},
       {id:'chat', name:'收费 · Chat 多模态(/v1/chat/completions)', type:'chat', url:'https://api.vectorengine.cn', key:'', models:['gemini-1.5-flash', 'gpt-4o'], selectedModel:'gemini-1.5-flash'}
     ];
     localStorage.setItem('img_interfaces_list',JSON.stringify(l));
@@ -21,13 +25,33 @@ function getImgInterfaces(){
       } else if (item.type === 'gemini') {
         item.models = ['gemini-3.1-flash-image-preview', 'imagen-3.0-generate-002'];
       } else if (item.type === 'openai') {
-        item.models = ['Kwai-Kolors/Kolors', 'black-forest-labs/FLUX.1-schnell', 'dall-e-3'];
+        item.models = OPENAI_IMAGE_DEFAULT_MODELS.slice();
       } else if (item.type === 'chat') {
         item.models = ['gemini-1.5-flash', 'gpt-4o'];
       } else {
         item.models = ['Kwai-Kolors/Kolors'];
       }
       updated = true;
+    }
+    if (item.type === 'openai') {
+      const seededKey = 'img_openai_default_models_seeded_v2';
+      if (!localStorage.getItem(seededKey)) {
+        OPENAI_IMAGE_DEFAULT_MODELS.slice().reverse().forEach(model => {
+          if (!item.models.includes(model)) {
+            item.models.unshift(model);
+            updated = true;
+          }
+        });
+      }
+      const storedModel = localStorage.getItem('img_model') || '';
+      if (storedModel && item.models.includes(storedModel)) {
+        item.selectedModel = storedModel;
+        updated = true;
+      }
+      if (!item.selectedModel) {
+        item.selectedModel = item.models[0] || OPENAI_IMAGE_DEFAULT_MODEL;
+        updated = true;
+      }
     }
     if (!item.selectedModel) {
       item.selectedModel = item.models[0] || '';
@@ -36,6 +60,15 @@ function getImgInterfaces(){
   });
   if (updated) {
     localStorage.setItem('img_interfaces_list', JSON.stringify(l));
+  }
+  if (!localStorage.getItem('img_openai_default_models_seeded_v2')) {
+    localStorage.setItem('img_openai_default_models_seeded_v2', 'true');
+  }
+  const activeId = localStorage.getItem('img_interface_id') || 'free';
+  const activeItem = l.find(item => item.id === activeId);
+  if (activeItem && activeItem.type === 'openai') {
+    localStorage.setItem('img_gen_mode', 'openai');
+    localStorage.setItem('img_model', activeItem.selectedModel || OPENAI_IMAGE_DEFAULT_MODEL);
   }
   return l;
 }
@@ -57,19 +90,19 @@ function addImgInterfaceRow(){
     id: newId,
     name: '自定义生图接口 ' + (list.length - 3),
     type: 'openai',
-    url: 'https://api.vectorengine.cn',
+    url: 'https://api.vectorengine.cn/v1',
     key: '',
-    models: ['Kwai-Kolors/Kolors', 'black-forest-labs/FLUX.1-schnell', 'dall-e-3'],
-    selectedModel: 'Kwai-Kolors/Kolors'
+    models: OPENAI_IMAGE_DEFAULT_MODELS.slice(),
+    selectedModel: OPENAI_IMAGE_DEFAULT_MODEL
   };
   list.push(newItem);
   saveImgInterfaces(list);
   
   localStorage.setItem('img_interface_id', newId);
   localStorage.setItem('img_gen_mode', 'openai');
-  localStorage.setItem('img_url', 'https://api.vectorengine.cn');
+  localStorage.setItem('img_url', 'https://api.vectorengine.cn/v1');
   localStorage.setItem('img_key', '');
-  localStorage.setItem('img_model', 'Kwai-Kolors/Kolors');
+  localStorage.setItem('img_model', OPENAI_IMAGE_DEFAULT_MODEL);
   
   renderImageSettings();
   showToast('✅ 已成功添加自定义接口，请在下方直接配置名称、类型、地址、Key 和自定义模型！');
@@ -117,7 +150,7 @@ function editImgInterfaceType(id, val){
     if (val === 'gemini') {
       item.models = ['gemini-3.1-flash-image-preview', 'imagen-3.0-generate-002'];
     } else if (val === 'openai') {
-      item.models = ['Kwai-Kolors/Kolors', 'black-forest-labs/FLUX.1-schnell', 'dall-e-3'];
+      item.models = OPENAI_IMAGE_DEFAULT_MODELS.slice();
     } else if (val === 'chat') {
       item.models = ['gemini-1.5-flash', 'gpt-4o'];
     } else if (val === 'free') {
@@ -230,9 +263,86 @@ function addImgResRow(){const v=prompt('输入分辨率长边像素（如 1024=1
 function toggleImgEnabled(on){setBool('img_enabled',on);renderGenImgMenu();}
 function renderGenImgMenu(){document.getElementById('genImgMenuBtn').style.display=imgEnabled()?'block':'none';}
 
-function openImgGen(){document.getElementById('actionMenu').classList.remove('show');if(!imgEnabled()){showToast('🎨 生图已关闭，请在生图设置开启');return;}const curr=getActiveImgInterface();const hint=`当前：${curr.name}`;document.getElementById('imgGenModeHint').textContent=hint;clearGenInit();document.getElementById('imgGenPrompt').value='';document.getElementById('imgGenPanel').classList.add('show');}
+function getEffectiveImageEndpoint(iface) {
+  if (!iface) return '';
+  const type = iface.type || '';
+  const model = (iface.selectedModel || (iface.models && iface.models[0]) || '').trim();
+  const base = String(iface.url || '').trim().replace(/\/+$/, '');
+  if (type === 'openai') return buildOpenAIImagesGenerationUrl(base);
+  if (type === 'gemini') return base.includes(':generateContent') || base.includes('/v1beta/') ? base : `${base}/v1beta/models/${model}:generateContent`;
+  if (type === 'chat') return base.includes('/chat/completions') || base.includes('/v1/chat/completions') ? base : `${base}/v1/chat/completions`;
+  return 'Pollinations direct image URL';
+}
+function openImgGen(){document.getElementById('actionMenu').classList.remove('show');if(!imgEnabled()){showToast('🎨 生图已关闭，请在生图设置开启');return;}const curr=getActiveImgInterface();const model=(curr.selectedModel||(curr.models&&curr.models[0])||'').trim();const hint=`当前：${curr.name}${model?' · '+model:''} · ${getEffectiveImageEndpoint(curr)}`;document.getElementById('imgGenModeHint').textContent=hint;clearGenInit();document.getElementById('imgGenPrompt').value='';document.getElementById('imgGenPanel').classList.add('show');}
 function handleGenInit(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=e=>{pendingGenInit=e.target.result;document.getElementById('imgInitThumb').src=pendingGenInit;document.getElementById('imgInitPrev').classList.add('show');};r.readAsDataURL(f);input.value='';}
 function clearGenInit(){pendingGenInit=null;document.getElementById('imgInitPrev').classList.remove('show');document.getElementById('imgInitThumb').src='';}
+
+function isDirectImageCommand(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  if (/^(生成|画|绘制|做|发|来|给我|帮我|想看|看看|show me|generate|draw|create|make)/i.test(raw) && /(图|图片|照片|插画|壁纸|海报|头像|自拍|人像|风景|食物|动物|猫|狗|狐狸|蛋糕|咖啡|下午茶|海边|日落|星空|landscape|image|picture|photo|portrait|selfie|wallpaper|poster)/i.test(raw)) return true;
+  if (/(生成|画|绘制|做|发|来|给我|帮我|想看|看看).{0,12}(一张|个|幅|些)?(图|图片|照片|插画|壁纸|海报|头像)/i.test(raw)) return true;
+  if (/(风景图|食物图|动物图|头像图|海边图|日落图|猫咪图|照片)$/i.test(raw)) return true;
+  return false;
+}
+
+function normalizeDirectImagePrompt(text) {
+  let prompt = String(text || '').trim();
+  prompt = prompt.replace(/^(请|麻烦|可以)?(帮我|给我)?(生成|画|绘制|做|发|来|看看|想看)\s*(一张|一个|一幅|些)?/i, '');
+  prompt = prompt.replace(/^(show me|generate|draw|create|make)\s+(a|an|some)?\s*/i, '');
+  return prompt.trim() || String(text || '').trim();
+}
+
+function extractImagePromptFromActionText(text) {
+  const raw = String(text || '').trim();
+  if (!/dalle\.text2im|text2im|image-generation/i.test(raw)) return '';
+  const cleaned = raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  try {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const obj = JSON.parse(cleaned.slice(start, end + 1));
+      const input = obj.action_input;
+      if (typeof input === 'string') {
+        const parsedInput = JSON.parse(input);
+        if (parsedInput && parsedInput.prompt) return String(parsedInput.prompt).trim();
+      } else if (input && input.prompt) {
+        return String(input.prompt).trim();
+      }
+    }
+  } catch(e) {}
+  const m = cleaned.match(/\\?"prompt\\?"\s*:\s*\\?"([^"\\]+(?:\\.[^"\\]*)*)/i);
+  if (m && m[1]) {
+    try { return JSON.parse('"' + m[1].replace(/"/g, '\\"') + '"').trim(); } catch(e) { return m[1].trim(); }
+  }
+  return '';
+}
+
+async function handleDirectImageCommand(text, initImg = null, options = {}) {
+  if (!isDirectImageCommand(text)) return false;
+  if (typeof imgEnabled === 'function' && !imgEnabled()) {
+    addMessage('assistant', '🎨 生图已关闭，请先在生图设置里开启。', genUid());
+    return true;
+  }
+  const promptText = normalizeDirectImagePrompt(text);
+  const loading = addLoadingDOM();
+  try {
+    const activeAi = (typeof currentPrivateAiId === 'function') ? currentPrivateAiId() : 'main';
+    const { imgUrl } = await generateImageWithFailover(promptText, initImg, activeAi, { source: 'chat-direct-image-command' });
+    loading.remove();
+    const uid = genUid();
+    const ts = Date.now();
+    conversationHistory.push({ role:'assistant', content:'[图片] ' + promptText, image:imgUrl, uid, ts });
+    renderImageMessage('assistant', imgUrl, uid, ts);
+    saveHistory();
+    return true;
+  } catch(e) {
+    loading.remove();
+    addMessage('assistant', '❌ 生图失败: ' + formatImageGenerationError(e), genUid());
+    return true;
+  }
+}
+
 async function runImgGen(){
   const promptText=document.getElementById('imgGenPrompt').value.trim();
   if(!promptText){
@@ -262,7 +372,7 @@ async function runImgGen(){
     clearGenInit();
   }catch(e){
     loading.remove();
-    addMessage('assistant','❌ 生图失败: '+e.message,genUid());
+    addMessage('assistant','❌ 生图失败: '+formatImageGenerationError(e),genUid());
   }
 }
 
@@ -430,6 +540,131 @@ if (typeof window !== 'undefined') {
   window.LovestoryCharacterDB.init();
 }
 
+window.VisualIdentityDB = {
+  DB_NAME: 'LovestoryVisualIdentityDB',
+  VERSION: 1,
+  STORES: ['characters'],
+  _db: null,
+  _cache: { characters: {} },
+
+  async init() {
+    return new Promise((resolve) => {
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        this._loadLegacyFallback();
+        resolve();
+        return;
+      }
+      try {
+        const req = window.indexedDB.open(this.DB_NAME, this.VERSION);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          this.STORES.forEach(store => {
+            if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: 'id' });
+          });
+        };
+        req.onsuccess = async (e) => {
+          this._db = e.target.result;
+          await this._loadAll();
+          this._loadLegacyFallback();
+          await this._migrateCharacters();
+          resolve();
+        };
+        req.onerror = () => {
+          this._loadLegacyFallback();
+          resolve();
+        };
+      } catch(e) {
+        this._loadLegacyFallback();
+        resolve();
+      }
+    });
+  },
+
+  _loadLegacyFallback() {
+    try {
+      const raw = localStorage.getItem('character_identities');
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (parsed && typeof parsed === 'object') {
+        this._cache.characters = { ...this._cache.characters, ...parsed };
+      }
+    } catch(e) {}
+  },
+
+  async _loadAll() {
+    if (!this._db) return;
+    await Promise.all(this.STORES.map(store => new Promise(resolve => {
+      try {
+        const tx = this._db.transaction(store, 'readonly');
+        const req = tx.objectStore(store).getAll();
+        req.onsuccess = () => {
+          const map = {};
+          (req.result || []).forEach(item => { if (item && item.id) map[item.id] = item; });
+          this._cache[store] = map;
+          resolve();
+        };
+        req.onerror = () => resolve();
+      } catch(e) {
+        resolve();
+      }
+    })));
+  },
+
+  async _migrateCharacters() {
+    const legacy = this._cache.characters || {};
+    for (const id of Object.keys(legacy)) {
+      await this.put('characters', legacy[id]);
+    }
+  },
+
+  get(store, id) {
+    return (this._cache[store] || {})[id] || null;
+  },
+
+  getAll(store) {
+    return this._cache[store] || {};
+  },
+
+  async put(store, item) {
+    if (!this.STORES.includes(store) || !item || !item.id) return false;
+    if (!this._cache[store]) this._cache[store] = {};
+    this._cache[store][item.id] = item;
+    if (store === 'characters') {
+      try { localStorage.setItem('character_identities', JSON.stringify(this._cache.characters)); } catch(e) {}
+    }
+    if (!this._db) return true;
+    return new Promise(resolve => {
+      try {
+        const tx = this._db.transaction(store, 'readwrite');
+        tx.objectStore(store).put(item);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch(e) {
+        resolve(false);
+      }
+    });
+  },
+
+  async remove(store, id) {
+    if (!this.STORES.includes(store) || !id) return false;
+    if (this._cache[store]) delete this._cache[store][id];
+    if (!this._db) return true;
+    return new Promise(resolve => {
+      try {
+        const tx = this._db.transaction(store, 'readwrite');
+        tx.objectStore(store).delete(id);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch(e) {
+        resolve(false);
+      }
+    });
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.VisualIdentityDB.init();
+}
+
 window.LovestoryImageDB = {
   DB_NAME: 'LovestoryImagesDB',
   STORE_NAME: 'images',
@@ -556,59 +791,346 @@ async function downloadAndStoreImage(url, id) {
 }
 window.downloadAndStoreImage = downloadAndStoreImage;
 
-async function generateImageWithFailover(promptText, initImg = null, memberId = 'main', intentType = 'character') {
-  const interfaces = getImgInterfaces();
-  const active = getActiveImgInterface();
-  const tryQueue = [];
-
-  // 1. Try active first
-  tryQueue.push(active);
-
-  // 2. Add other paid providers if configured (i.e. have a key)
-  interfaces.forEach(it => {
-    if (it.id !== active.id && it.type !== 'free' && it.key && it.key.trim()) {
-      tryQueue.push(it);
-    }
-  });
-
-  // 3. Add free Pollinations as final backup if not tried
-  const freeProv = interfaces.find(it => it.type === 'free') || { id: 'free', type: 'free', name: '免费 · Pollinations' };
-  if (!tryQueue.some(it => it.id === freeProv.id)) {
-    tryQueue.push(freeProv);
+function normalizeGeneratedImageValue(value, fallbackMime = 'image/png') {
+  if (!value || typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^data:image\/[^;]+;base64,/i.test(trimmed)) return trimmed;
+  if (/^https?:\/\//i.test(trimmed) || /^blob:/i.test(trimmed)) return trimmed;
+  const compact = trimmed.replace(/\s+/g, '');
+  if (compact.length > 200 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
+    return `data:${fallbackMime};base64,${compact}`;
   }
+  return '';
+}
+
+function formatImageGenerationError(err) {
+  const msg = String(err && err.message ? err.message : err || '');
+  if (/429|负载|限流|quota|rate limit|too many requests/i.test(msg)) {
+    return '接口返回 429/上游负载或限流，不是 PWA 浏览器拦截。请稍后重试，或在生图设置里切换其它可用上游。原始错误：' + msg;
+  }
+  if (/Failed to fetch|CORS|image URL cannot be rendered|image load timeout|image fetch/i.test(msg)) {
+    return '图片请求已返回，但浏览器无法直接加载图片资源，通常是临时 URL 不允许跨域/外链访问。纯前端 PWA 无法代替服务端取图，请优先使用返回 base64 的生图接口。原始错误：' + msg;
+  }
+  return msg || '未知错误';
+}
+
+function extractGeneratedImageFromText(text) {
+  if (!text || typeof text !== 'string') return '';
+  const markdownMatch = text.match(/!\[[^\]]*]\(([^)\s]+)\)/);
+  if (markdownMatch) return normalizeGeneratedImageValue(markdownMatch[1]);
+  const dataMatch = text.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=\s]+/i);
+  if (dataMatch) return normalizeGeneratedImageValue(dataMatch[0]);
+  const urlMatch = text.match(/https?:\/\/[^\s"'<>）)]+/i);
+  if (urlMatch) return normalizeGeneratedImageValue(urlMatch[0]);
+  return normalizeGeneratedImageValue(text);
+}
+
+function extractGeneratedImageFromResponse(payload) {
+  if (!payload) return '';
+  if (typeof payload === 'string') return extractGeneratedImageFromText(payload);
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const extracted = extractGeneratedImageFromResponse(item);
+      if (extracted) return extracted;
+    }
+    return '';
+  }
+  if (typeof payload !== 'object') return '';
+
+  const directCandidates = [
+    payload.url,
+    payload.output_url,
+    payload.image_url?.url,
+    payload.image_url,
+    payload.image,
+    payload.b64_json,
+    payload.base64,
+    payload.data_url,
+    payload.inlineData?.data,
+    payload.inline_data?.data,
+    payload.source?.url
+  ];
+  for (const candidate of directCandidates) {
+    const mimeType = payload.mimeType || payload.mime_type || payload.inlineData?.mimeType || payload.inline_data?.mime_type || 'image/png';
+    const normalized = normalizeGeneratedImageValue(candidate, mimeType);
+    if (normalized) return normalized;
+  }
+
+  const nestedCandidates = [
+    payload.data,
+    payload.images,
+    payload.artifacts,
+    payload.output,
+    payload.outputs,
+    payload.result,
+    payload.results,
+    payload.candidates,
+    payload.choices,
+    payload.message,
+    payload.content,
+    payload.parts
+  ];
+  for (const nested of nestedCandidates) {
+    const extracted = extractGeneratedImageFromResponse(nested);
+    if (extracted) return extracted;
+  }
+  return '';
+}
+
+function imageUrlToDataUrl(url, key) {
+  return fetch(url, {
+    headers: {
+      Accept: 'image/*',
+      ...(key ? { Authorization: `Bearer ${key}` } : {})
+    }
+  }).then(response => {
+    if (!response.ok) throw new Error(`image fetch ${response.status}`);
+    return response.blob();
+  }).then(blob => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  }));
+}
+
+function waitForRenderableImage(src, timeoutMs = 12000) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const timer = setTimeout(() => {
+      image.onload = null;
+      image.onerror = null;
+      reject(new Error('image load timeout'));
+    }, timeoutMs);
+    image.onload = () => {
+      clearTimeout(timer);
+      resolve(src);
+    };
+    image.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error('image URL cannot be rendered by <img>'));
+    };
+    image.referrerPolicy = 'no-referrer';
+    image.src = src;
+  });
+}
+
+async function ensureRenderableGeneratedImage(imgUrl, key = '') {
+  const normalized = normalizeGeneratedImageValue(imgUrl);
+  if (!normalized) return '';
+  if (normalized.startsWith('data:') || normalized.startsWith('blob:')) return normalized;
+  if (!/^https?:\/\//i.test(normalized)) return normalized;
+
+  try {
+    await waitForRenderableImage(normalized);
+    return normalized;
+  } catch (loadError) {
+    if (!key) throw loadError;
+    return imageUrlToDataUrl(normalized, key);
+  }
+}
+
+const IMAGE_INTENT_CACHE = new Map();
+
+function normalizeIntentText(text) {
+  return String(text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+function createImageIntent(type, overrides = {}) {
+  const normalizedType = type === 'pet' ? 'animal' : type;
+  const noReference = ['food', 'scene', 'object', 'animal'].includes(normalizedType);
+  return {
+    type: normalizedType,
+    needReference: noReference ? false : !!overrides.needReference,
+    anchorKind: noReference ? null : (overrides.anchorKind || (normalizedType === 'character' ? 'character' : null)),
+    subjectId: overrides.subjectId || null,
+    reason: overrides.reason || 'rule'
+  };
+}
+
+function promptMentionsUserFace(promptText) {
+  return /(我的自拍|我的照片|我自己|用户照片|给我拍|画我|把我|user photo|my selfie|my portrait|photo of me|portrait of me)/i.test(String(promptText || ''));
+}
+
+function promptMentionsUserTogether(promptText) {
+  return /(和我|我们|一起|合照|with me|together|couple)/i.test(String(promptText || ''));
+}
+
+function analyzeImageIntentByRules(promptText, context = {}) {
+  const raw = String(promptText || '');
+  const text = normalizeIntentText(raw);
+  const hasOwnPet = /(我的|my|our|咱家|家里).{0,8}(猫|猫咪|狗|狗狗|宠物|pet|cat|dog)/i.test(raw);
+  const hasCharacter = /(自拍|合照|人像|伴侣|小艾|小暖|阿灿|AI|ai|女孩|男孩|女生|男生|woman|man|girl|boy|portrait|selfie|together|couple|with me|和我|我们|一起)/i.test(raw);
+  const hasFood = /(蛋糕|下午茶|咖啡|奶茶|甜点|餐|饭|面包|寿司|披萨|茶|cake|tea|coffee|latte|food|dessert|meal|bread|pizza|sushi)/i.test(raw);
+  const hasScene = /(海边|日落|风景|山|森林|街道|城市|夜空|星空|房间|海|湖|花园|公园|beach|sunset|landscape|forest|mountain|city|street|sky|room|garden|park)/i.test(raw);
+  const hasAnimal = /(狐狸|猫|猫咪|狗|狗狗|兔|鸟|动物|fox|cat|dog|rabbit|bird|animal)/i.test(raw);
+  const hasObject = /(杯子|包|书|手机|戒指|车|衣服|裙子|物品|收藏|cup|bag|book|phone|ring|car|dress|object|product)/i.test(raw);
+  const hasFantasy = /(幻想|梦境|魔法|赛博|精灵|异世界|fantasy|dream|magic|cyberpunk|fairy)/i.test(raw);
+
+  const hasUserFace = promptMentionsUserFace(raw);
+  const hasTogether = promptMentionsUserTogether(raw);
+
+  if (hasFood && !hasCharacter && !hasUserFace) return createImageIntent('food', { reason: 'food keyword' });
+  if (hasOwnPet) return createImageIntent('animal', { reason: 'own pet keyword, no face anchor' });
+  if (hasAnimal && !hasCharacter) return createImageIntent('animal', { reason: 'generic animal keyword' });
+  if (hasScene && !hasCharacter && !hasOwnPet) return createImageIntent('scene', { reason: 'scene keyword' });
+  if (hasObject && !hasCharacter && !hasOwnPet) return createImageIntent('object', { reason: 'object keyword' });
+  if (hasCharacter || hasUserFace) return createImageIntent('character', { needReference: true, anchorKind: 'character', subjectId: (hasUserFace && !hasTogether) ? 'user' : (context.memberId || 'main'), reason: hasUserFace ? 'user face keyword' : 'character keyword' });
+  if (hasFantasy) return createImageIntent('fantasy', { needReference: false, anchorKind: null, reason: 'fantasy keyword' });
+  return createImageIntent('scene', { reason: 'default safe scene' });
+}
+
+async function analyzeImageIntent(promptText, context = {}) {
+  const key = normalizeIntentText(promptText) + '|' + (context.memberId || '') + '|' + (context.source || '');
+  if (IMAGE_INTENT_CACHE.has(key)) return IMAGE_INTENT_CACHE.get(key);
+  let intent = analyzeImageIntentByRules(promptText, context);
+
+  if (context.allowLLM && context.ambiguous && typeof llmComplete === 'function') {
+    try {
+      const prompt = `Classify this image request. Return compact JSON only with type, needReference, anchorKind, reason. Types: character, animal, food, scene, object, fantasy. Use character only for main AI, sub AI, user, portraits, selfies, or group photos. Pets and all animals must be animal with needReference false.\nRequest: ${String(promptText || '').slice(0, 500)}`;
+      const response = await llmComplete([{ role: 'user', content: prompt }], { temperature: 0, callerId: 'image-intent-classification', priority: 1 });
+      let jsonText = String(response || '').trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+      const parsed = JSON.parse(jsonText);
+      if (parsed && parsed.type) {
+        intent = createImageIntent(parsed.type, {
+          needReference: !!parsed.needReference,
+          anchorKind: parsed.anchorKind || null,
+          subjectId: parsed.subjectId || context.memberId || null,
+          reason: parsed.reason || 'llm'
+        });
+      }
+    } catch(e) {
+      console.warn('[ImageIntent] LLM classification failed, using rule intent:', e);
+    }
+  }
+
+  IMAGE_INTENT_CACHE.set(key, intent);
+  if (window.recordTokenTelemetry) {
+    recordTokenTelemetry({
+      caller: 'image-intent',
+      input: promptText,
+      output: JSON.stringify(intent),
+      meta: { source: context.source || '', rule: intent.reason }
+    });
+  }
+  return intent;
+}
+
+function getDefaultCharacterIdentity(id){
+  const isMain=(id==='main');
+  const isUser=(id==='user');
+  return {
+    id:id,
+    gender:isUser?'': 'female',
+    age:'young adult',
+    style:'digital painting, soft lighting, detailed face, morandi pastel color theme',
+    face_anchor:isUser?'':(isMain?'delicate features, expressive beautiful eyes, warm gentle smile':'cute features, cheerful smile'),
+    hairstyle:isUser?'':(isMain?'long flowing brown ponytail':'short dark neat bob cut'),
+    dress:isUser?'':'comfortable casual sweater',
+    ref_images:[]
+  };
+}
+
+function describeFaceProfile(profile, fallbackLabel) {
+  if (!profile) return fallbackLabel;
+  const parts = [fallbackLabel];
+  if (profile.gender) parts.push(profile.gender);
+  if (profile.age) parts.push(profile.age);
+  if (profile.face_anchor) parts.push(profile.face_anchor);
+  if (profile.hairstyle) parts.push(`with ${profile.hairstyle}`);
+  if (profile.dress) parts.push(`wearing ${profile.dress}`);
+  return parts.filter(Boolean).join(', ');
+}
+
+function buildCharacterPrompt(id, scenePrompt, options = {}) {
+  const profile = getCharacterIdentity(id);
+  const includeUser = !!options.includeUser && id !== 'user';
+  let characterDesc = describeFaceProfile(profile, id === 'user' ? 'user' : 'AI companion');
+  if (includeUser) {
+    const userProfile = getCharacterIdentity('user');
+    characterDesc = `two-person scene, AI companion: ${characterDesc}; user: ${describeFaceProfile(userProfile, 'user')}`;
+  }
+  let finalPrompt = `masterpiece, highly detailed, ${characterDesc}, ${scenePrompt}`;
+  finalPrompt += profile.style ? `, ${profile.style}` : ', digital painting, soft cinematic lighting, warm emotional atmosphere';
+  return finalPrompt;
+}
+
+async function buildVisualGenerationRequest(promptText, initImg = null, memberId = 'main', options = {}) {
+  const intent = options.intent || await analyzeImageIntent(promptText, { memberId, source: options.source, allowLLM: !!options.allowLLM, ambiguous: !!options.ambiguous });
+  let finalPrompt = String(promptText || '').trim();
+  let refImg = initImg || null;
+
+  if (intent.type === 'character' || (intent.type === 'fantasy' && intent.anchorKind === 'character')) {
+    const profile = getCharacterIdentity(intent.subjectId || memberId || 'main') || {};
+    const subjectId = intent.subjectId || memberId || 'main';
+    finalPrompt = buildCharacterPrompt(subjectId, finalPrompt, { includeUser: promptMentionsUserTogether(promptText) });
+    if (!refImg && Array.isArray(profile.ref_images) && profile.ref_images.length > 0) refImg = profile.ref_images[0];
+    if (!refImg && subjectId !== 'user' && promptMentionsUserTogether(promptText)) {
+      const userProfile = getCharacterIdentity('user') || {};
+      if (Array.isArray(userProfile.ref_images) && userProfile.ref_images.length > 0) refImg = userProfile.ref_images[0];
+    }
+  } else if (['food', 'scene', 'object', 'animal', 'pet'].includes(intent.type)) {
+    finalPrompt = `${finalPrompt}, high detail, natural composition, no humans, no person, no portrait, no face anchor`;
+    refImg = null;
+  } else {
+    finalPrompt = `${finalPrompt}, high detail, coherent composition`;
+  }
+
+  return { promptText: finalPrompt, refImg, intent };
+}
+
+const IMAGE_GENERATION_INFLIGHT = new Map();
+
+function imageRequestHash(text) {
+  const s = String(text || '');
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function buildOpenAIImagesGenerationUrl(baseUrl) {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!base) return '/v1/images/generations';
+  if (/\/images\/generations$/i.test(base)) return base;
+  if (/\/v1$/i.test(base)) return `${base}/images/generations`;
+  return `${base}/v1/images/generations`;
+}
+
+async function generateImageWithFailover(promptText, initImg = null, memberId = 'main', options = {}) {
+  const visualRequest = await buildVisualGenerationRequest(promptText, initImg, memberId, options);
+  promptText = visualRequest.promptText;
+  initImg = visualRequest.refImg;
+  const active = getActiveImgInterface();
+  const tryQueue = [active];
 
   let lastError = null;
   const { w, h } = getImgWH();
-  const profile = getCharacterIdentity(memberId) || {};
-  
-  let refImg = initImg;
-  if (!refImg) {
-    if (intentType === 'character') {
-      refImg = (Array.isArray(profile.ref_images) && profile.ref_images.length > 0) ? profile.ref_images[0] : null;
-    } else if (intentType === 'pet') {
-      refImg = (profile.pet_anchor && profile.pet_anchor.originalImage) ? profile.pet_anchor.originalImage : null;
-    } else if (intentType === 'object') {
-      refImg = (profile.object_anchor && profile.object_anchor.originalImage) ? profile.object_anchor.originalImage : null;
-    } else if (intentType === 'scene') {
-      refImg = (profile.place_anchor && profile.place_anchor.originalImage) ? profile.place_anchor.originalImage : null;
-    } else if (intentType === 'food') {
-      refImg = null; // Strictly no reference image for foods to avoid contamination
-    }
+  const refImg = initImg || null;
+  const requestKey = `${active.id || active.name || active.type}|${active.selectedModel || ''}|${w}x${h}|${imageRequestHash(promptText)}|${refImg ? imageRequestHash(refImg.slice(0, 512)) : 'no-ref'}`;
+  if (IMAGE_GENERATION_INFLIGHT.has(requestKey)) {
+    console.warn('[API Dedup] Reusing in-flight image generation request.');
+    return await IMAGE_GENERATION_INFLIGHT.get(requestKey);
   }
+
+  const runPromise = (async () => {
 
   for (const prov of tryQueue) {
     const mode = prov.type;
     console.log(`[ImageFailover] Attempting image generation with provider: ${prov.name || mode}`);
 
     if (mode !== 'free' && (!prov.key || !prov.key.trim())) {
-      console.log(`[ImageFailover] Skipping ${prov.name || mode} (no API Key configured)`);
-      continue;
+      throw new Error(`当前生图接口「${prov.name || mode}」未配置 API Key，已停止请求，不会自动切换到免费模型`);
     }
 
-    const maxRetries = mode === 'free' ? 2 : 1;
+    const maxRetries = 1;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         let imgUrl = null;
+        let authKey = '';
         if (mode === 'free') {
           imgUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=${w}&height=${h}&nologo=true&seed=${Date.now() + attempt}`;
           
@@ -622,6 +1144,7 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
         } else {
           const url = (prov.url || '').trim();
           const key = (prov.key || '').trim();
+          authKey = key;
           const model = (prov.selectedModel || localStorage.getItem('img_model') || (prov.models && prov.models[0]) || '').trim();
           const base = url.replace(/\/+$/, '');
 
@@ -656,20 +1179,21 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
                 break;
               }
             }
+            if (!imgUrl) imgUrl = extractGeneratedImageFromResponse(d);
             if (!imgUrl) throw new Error('Gemini did not return image data');
           } else if (mode === 'openai') {
-            const ourl = base.includes('/images/generations') || base.includes('/v1/images/generations') ? base : base + '/v1/images/generations';
+            const ourl = buildOpenAIImagesGenerationUrl(base);
             const r = await fetch(ourl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-              body: JSON.stringify({ model, prompt: promptText, size: `${w}x${h}`, image_size: `${w}x${h}`, n: 1 })
+              body: JSON.stringify({ model, prompt: promptText, size: `${w}x${h}`, n: 1 })
             });
             if (!r.ok) {
               const t = await r.text();
               throw new Error(`OpenAI Error (${r.status}): ${t.slice(0, 100)}`);
             }
             const d = await r.json();
-            imgUrl = d.data?.[0]?.url || (d.data?.[0]?.b64_json && ('data:image/png;base64,' + d.data[0].b64_json)) || d.images?.[0]?.url;
+            imgUrl = extractGeneratedImageFromResponse(d);
             if (!imgUrl) throw new Error('OpenAI did not return image URL');
           } else if (mode === 'chat') {
             const curl = base.includes('/chat/completions') || base.includes('/v1/chat/completions') ? base : base + '/v1/chat/completions';
@@ -685,101 +1209,86 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
               throw new Error(`Chat Error (${r.status}): ${t.slice(0, 100)}`);
             }
             const d = await r.json();
-            const msg = d.choices?.[0]?.message;
-            imgUrl = msg?.images?.[0]?.url || msg?.images?.[0]?.image_url?.url;
-            if (!imgUrl && msg?.content) {
-              const md = (typeof msg.content === 'string' ? msg.content : '').match(/!\[.*?\]\((.*?)\)|(https?:\/\/\S+\.(?:png|jpg|jpeg|webp))|(data:image\/[^)\s]+)/i);
-              if (md) imgUrl = md[1] || md[2] || md[3];
-            }
+            imgUrl = extractGeneratedImageFromResponse(d);
             if (!imgUrl) throw new Error('Chat model did not return image format');
           }
         }
 
         if (imgUrl) {
+          try {
+            imgUrl = await ensureRenderableGeneratedImage(imgUrl, authKey);
+          } catch (renderError) {
+            renderError.generatedImageReceived = true;
+            throw renderError;
+          }
           console.log(`[ImageFailover] Successfully generated image using: ${prov.name || mode}`);
           return { imgUrl, providerName: prov.name || mode };
         }
       } catch (err) {
         lastError = err;
         console.warn(`[ImageFailover] Attempt ${attempt} failed for provider ${prov.name || mode}: ${err.message}`);
+        if (err && err.generatedImageReceived) {
+          throw err;
+        }
       }
     }
   }
 
-  throw lastError || new Error('All image generation providers failed');
+  throw lastError || new Error('Image generation failed');
+  })();
+
+  IMAGE_GENERATION_INFLIGHT.set(requestKey, runPromise);
+  try {
+    return await runPromise;
+  } finally {
+    IMAGE_GENERATION_INFLIGHT.delete(requestKey);
+  }
 }
 window.generateImageWithFailover = generateImageWithFailover;
+window.analyzeImageIntent = analyzeImageIntent;
+window.buildVisualGenerationRequest = buildVisualGenerationRequest;
+window.buildFinalImgPrompt = buildFinalImgPrompt;
 
 function imgPermissionMode() {
   return localStorage.getItem('img_permission_mode') || 'off';
 }
 
 function getCharacterIdentities(){
+  if (window.VisualIdentityDB) return window.VisualIdentityDB.getAll('characters');
   return window.LovestoryCharacterDB.getAll();
 }
 
 function saveCharacterIdentities(map){
   for (const key of Object.keys(map)) {
-    window.LovestoryCharacterDB.put(map[key]);
+    saveCharacterIdentity(key, map[key]);
   }
 }
 
 function getCharacterIdentity(id){
-  let char = window.LovestoryCharacterDB.get(id);
+  let char = window.VisualIdentityDB ? window.VisualIdentityDB.get('characters', id) : null;
+  if (!char && window.LovestoryCharacterDB) char = window.LovestoryCharacterDB.get(id);
   if(!char){
-    const isMain=(id==='main');
-    char = {
-      id:id,
-      gender:'female',
-      age:'young adult',
-      style:'digital painting, soft lighting, detailed face, morandi pastel color theme',
-      face_anchor:isMain?'delicate features, expressive beautiful eyes, warm gentle smile':'cute features, cheerful smile',
-      hairstyle:isMain?'long flowing brown ponytail':'short dark neat bob cut',
-      dress:'comfortable casual sweater',
-      ref_images:[],
-      appearance_profile:{
-        face_shape:'',
-        eyes:'',
-        hair:'',
-        skin:'',
-        age:'',
-        unique_features:[]
-      },
-      character_anchor:null
-    };
-    window.LovestoryCharacterDB.put(char);
-  } else {
-    let updated = false;
-    if (!char.appearance_profile) {
-      char.appearance_profile = {
-        face_shape:'',
-        eyes:'',
-        hair:'',
-        skin:'',
-        age:'',
-        unique_features:[]
-      };
-      updated = true;
-    }
-    if (char.character_anchor === undefined) {
-      char.character_anchor = null;
-      updated = true;
-    }
-    if (updated) {
-      window.LovestoryCharacterDB.put(char);
-    }
+    char = getDefaultCharacterIdentity(id);
+    saveCharacterIdentity(id, char);
   }
   return char;
 }
 
 function saveCharacterIdentity(id,data){
-  window.LovestoryCharacterDB.put(data);
+  const normalized = { ...data, id: data.id || id };
+  if (window.VisualIdentityDB) window.VisualIdentityDB.put('characters', normalized);
+  if (window.LovestoryCharacterDB) window.LovestoryCharacterDB.put(normalized);
 }
 
 // Check and trigger visual analysis in background after AI responds
 async function triggerVisualEvaluation(userText, aiReply, memberId, assistantMsgUid) {
   const mode = imgPermissionMode();
   if (mode === 'off') return;
+  const lastEvalAt = Number(localStorage.getItem('visual_eval_last_at') || '0');
+  if (Date.now() - lastEvalAt < 45000) {
+    console.log('[VisualEvaluation] Skipped by rate limit.');
+    return;
+  }
   
   // Basic filtering for routine / ultra short chat turns
   if (!userText || !aiReply) return;
@@ -798,8 +1307,7 @@ async function triggerVisualEvaluation(userText, aiReply, memberId, assistantMsg
     '画', '图', '照', '看', '海', '星', '纪念', '拥抱', '抱', '吻', '夕阳', '日落', '日出', '风景', '合照', '自拍',
     '模样', '身穿', '裙子', '衣服', '场景', '背景', '氛围', '穿', '去', '咖啡馆', '公园', '电影', '庆祝', '难过',
     '伤心', '累', '抱抱', '安慰', '留念', '照片', '样子', '长相', '衣服', '海边', '夜空', '星空', '下雨', '飘雪',
-    '雪花', '街道', '沙滩', '森林', '卧室', '沙发', '手拉手', '牵手', '依偎', '肩膀', '眼泪', '哭泣', '笑', '开心',
-    '猫', '狗', '宠物', '小动物', '蛋糕', '下午茶', '咖啡', '甜点', '晚餐', '好吃的'
+    '雪花', '街道', '沙滩', '森林', '卧室', '沙发', '手拉手', '牵手', '依偎', '肩膀', '眼泪', '哭泣', '笑', '开心'
   ];
   
   const hasVisualCue = scenicKeywords.some(kw => uText.includes(kw) || aReply.includes(kw));
@@ -810,32 +1318,20 @@ async function triggerVisualEvaluation(userText, aiReply, memberId, assistantMsg
   
   console.log(`[VisualEvaluation] Evaluating dialogue turn for member: ${memberId}...`);
   try {
+    localStorage.setItem('visual_eval_last_at', String(Date.now()));
     const members = typeof getGroupMembers === 'function' ? getGroupMembers() : [];
     const mem = members.find(m => m.id === memberId);
     const companionName = mem ? mem.name : (localStorage.getItem('ai_name') || 'AI伴侣');
     
-    const sysPrompt = `你是一个聊天视觉场景 analysis 与意图路由专家。请分析用户与AI伴侣 (${companionName}) 的最新对话，判断这是否是一个富有情绪感、画面感、值得用画面纪念/陪伴的场景。
-你必须对该生图意图进行【多类型生图策略路由】（Visual Identity System），将画面类型归入以下五类之一：
-- "character": 含有AI角色、用户、人像，或两人合照、拥抱等有人物在场、有长相外貌特征的场景（默认优先）。
-- "pet": 宠物、猫咪、狗狗、或其他小动物的场景，且人物不作为画面主体（如果有宠物和人一起亲密互动，依然属于 character）。
-- "food": 纯美食、下午茶、蛋糕、咖啡、饮品、丰盛晚餐，不含有AI角色、人脸或任何人物痕迹。
-- "scene": 纯风景、自然环境、星空日落、下雨天、街景、温馨卧室或空旷环境，不含有任何特定人物痕迹。
-- "object": 纯物件，如手写日记本、手作礼物、一束鲜花、纪念饰品，不含有特定人物痕迹。
-
-如果确定要触发生图：
-- trigger: true
-- intentType: "character" | "pet" | "food" | "scene" | "object"
-- scene: 提取出一个非常精美、具有艺术感和故事感的英文生图提示词（不需要包含人物的外貌/服装特征，这些会由系统各层的视觉锚点自动补全）。
-- description: 用温馨的中文描述一句话，说明这是什么图（例如：“下午茶时光的草莓蛋糕纪念图”、“星空下依偎的纪念自拍”）。
-
+    const sysPrompt = `你是一个聊天视觉场景分析师。请分析用户与AI伴侣 (${companionName}) 的最新对话，判断这是否是一个富有情绪感、画面感、值得用画面纪念/陪伴的场景（例如：一起去海边、看流星、悲伤安慰、庆祝完成项目、看日落、温馨拥抱、讨论特色场景等）。
+如果【是】，请提取出一个精美的、高质量的英文生图场景提示词，并在中文里用一句话说明这是什么纪念图（如：一起去海边的纪念图）。
 请严格输出为以下 JSON 格式，不要包含任何 markdown 标记、\`\`\`json 包裹或多余文字：
 {
   "trigger": true,
-  "intentType": "character",
-  "scene": "detailed English prompt describing the environment, atmosphere, and lighting. Do NOT include character physical appearance or clothes here",
+  "scene": "detailed English prompt describing the environment, atmosphere, and lighting of the scene. Do NOT include character physical appearance or clothes here",
   "description": "一起看夕阳的纪念图"
 }
-如果不触发，直接输出：
+如果【不是】或者不需要画面陪伴，直接输出：
 {
   "trigger": false
 }`;
@@ -847,7 +1343,7 @@ AI伴侣："${aiReply}"`;
     const response = await llmComplete([
       { role: 'system', content: sysPrompt },
       { role: 'user', content: userPrompt }
-    ], { temperature: 0.3 });
+    ], { temperature: 0.3, callerId: 'visual-evaluation', priority: 1 });
     
     if (!response) return;
     
@@ -859,12 +1355,11 @@ AI伴侣："${aiReply}"`;
     
     const result = JSON.parse(jsonText);
     if (result && result.trigger && result.scene) {
-      const intentType = result.intentType || 'character';
-      console.log(`[VisualEvaluation] Trigger matched: ${result.description} | Strategy: ${intentType}`);
+      console.log(`[VisualEvaluation] Trigger matched: ${result.description}`);
       if (mode === 'suggest') {
-        showVisualSuggestion(memberId, result.scene, result.description, assistantMsgUid, intentType);
+        showVisualSuggestion(memberId, result.scene, result.description, assistantMsgUid);
       } else if (mode === 'auto') {
-        autoGenerateVisualCompanion(memberId, result.scene, result.description, assistantMsgUid, intentType);
+        autoGenerateVisualCompanion(memberId, result.scene, result.description, assistantMsgUid);
       }
     }
   } catch (e) {
@@ -873,7 +1368,7 @@ AI伴侣："${aiReply}"`;
 }
 
 // Inject visual suggestion button into assistant bubble
-function showVisualSuggestion(memberId, scene, description, assistantMsgUid, intentType = 'character') {
+function showVisualSuggestion(memberId, scene, description, assistantMsgUid) {
   const msgDiv = document.querySelector(`.message[data-uid="${assistantMsgUid}"]`);
   if (!msgDiv) return;
   const bubbles = msgDiv.querySelector('.bubbles');
@@ -882,20 +1377,14 @@ function showVisualSuggestion(memberId, scene, description, assistantMsgUid, int
   // Prevent duplicate suggestions
   if (msgDiv.querySelector('.visual-suggestion')) return;
 
-  let emojiPrefix = '📷';
-  if (intentType === 'pet') emojiPrefix = '🐾';
-  if (intentType === 'food') emojiPrefix = '🍰';
-  if (intentType === 'scene') emojiPrefix = '🏡';
-  if (intentType === 'object') emojiPrefix = '🎁';
-
   const card = document.createElement('div');
   card.className = 'visual-suggestion';
   card.style.cssText = 'margin-top: 10px; border: 1.5px dashed var(--accent); border-radius: 12px; padding: 12px; background-color: var(--bg-hover); text-align: center; font-size: 12px; animation: slideUp 0.3s ease; box-shadow: 0 2px 8px var(--shadow);';
   card.innerHTML = `
     <div style="font-weight: 600; margin-bottom: 8px; color: var(--accent); display: flex; align-items: center; justify-content: center; gap: 4px;">
-      ${emojiPrefix} 氛围感智能建议 (${intentType === 'character' ? '人物' : intentType === 'pet' ? '宠物' : intentType === 'food' ? '美食' : intentType === 'scene' ? '风景' : '物品'})：${description}
+      📷 氛围感画面建议：${description}
     </div>
-    <button class="btn btn-success" style="padding: 4px 14px; font-size: 11px; border-radius: 8px; font-weight: 500;" onclick="generateCompanionImage('${memberId}', '${encodeURIComponent(scene)}', '${encodeURIComponent(description)}', '${assistantMsgUid}', this, '${intentType}')">
+    <button class="btn btn-success" style="padding: 4px 14px; font-size: 11px; border-radius: 8px; font-weight: 500;" onclick="generateCompanionImage('${memberId}', '${encodeURIComponent(scene)}', '${encodeURIComponent(description)}', '${assistantMsgUid}', this)">
       🎨 开启视觉陪伴 (生成纪念图)
     </button>
   `;
@@ -904,7 +1393,7 @@ function showVisualSuggestion(memberId, scene, description, assistantMsgUid, int
 }
 
 // User clicked generate button
-async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded, assistantMsgUid, buttonEl, intentType = 'character') {
+async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded, assistantMsgUid, buttonEl) {
   const scene = decodeURIComponent(sceneDecoded);
   const description = decodeURIComponent(descriptionDecoded);
   
@@ -921,10 +1410,10 @@ async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded
   const loadingDiv = addLoadingDOM();
   
   try {
-    const finalPrompt = buildFinalImgPrompt(memberId, scene, intentType);
+    const intent = await analyzeImageIntent(`${description}\n${scene}`, { memberId, source: 'visual-companion' });
     
     // Call failover image engine
-    const { imgUrl } = await generateImageWithFailover(finalPrompt, null, memberId, intentType);
+    const { imgUrl } = await generateImageWithFailover(scene, null, memberId, { source: 'visual-companion', intent });
     
     loadingDiv.remove();
     const uid = genUid();
@@ -940,19 +1429,19 @@ async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded
     }
   } catch (err) {
     loadingDiv.remove();
-    addMessage('assistant', `❌ 生图失败: ${err.message}`, genUid());
+    addMessage('assistant', `❌ 生图失败: ${formatImageGenerationError(err)}`, genUid());
   }
 }
 
 // Auto generate mode
-async function autoGenerateVisualCompanion(memberId, scene, description, assistantMsgUid, intentType = 'character') {
+async function autoGenerateVisualCompanion(memberId, scene, description, assistantMsgUid) {
   // Append loading status
   const loadingDiv = addLoadingDOM();
   try {
-    const finalPrompt = buildFinalImgPrompt(memberId, scene, intentType);
+    const intent = await analyzeImageIntent(`${description}\n${scene}`, { memberId, source: 'auto-visual-companion' });
     
     // Call failover image engine
-    const { imgUrl } = await generateImageWithFailover(finalPrompt, null, memberId, intentType);
+    const { imgUrl } = await generateImageWithFailover(scene, null, memberId, { source: 'auto-visual-companion', intent });
     
     loadingDiv.remove();
     if (imgUrl) {
@@ -968,288 +1457,19 @@ async function autoGenerateVisualCompanion(memberId, scene, description, assista
       }
     } else {
       // Fallback
-      showVisualSuggestion(memberId, scene, description, assistantMsgUid, intentType);
+      showVisualSuggestion(memberId, scene, description, assistantMsgUid);
     }
   } catch (err) {
     loadingDiv.remove();
     console.error('[AutoVisual] Auto draw failed, falling back to suggestion:', err);
-    showVisualSuggestion(memberId, scene, description, assistantMsgUid, intentType);
+    showVisualSuggestion(memberId, scene, description, assistantMsgUid);
   }
 }
 
-// Build visual prompt combining profile and multi-anchor visual intelligence routing
-function buildFinalImgPrompt(id, scenePrompt, intentType = 'character') {
-  const profile = getCharacterIdentity(id);
-  
-  if (intentType === 'food') {
-    let foodSection = `[Subject Features]
-Subject: beautiful food, high culinary detail, delicious presentation, fresh and appetizing.`;
-
-    let sceneSection = `[Scene & Environment]
-Action & Setting: ${scenePrompt}`;
-
-    let styleSection = `[Style & Lighting]`;
-    if (profile.style) {
-      styleSection += `\nArt Style: ${profile.style}`;
-    } else {
-      styleSection += `\nArt Style: close-up gourmet food photography, soft warm lighting, appetizing mood, morandi pastel color theme`;
-    }
-    return `${foodSection}\n\n${sceneSection}\n\n${styleSection}`;
-  }
-  
-  if (intentType === 'pet') {
-    let petDesc = 'a cute pet';
-    let hasPetRef = false;
-    if (profile.pet_anchor) {
-      hasPetRef = !!profile.pet_anchor.originalImage;
-      if (profile.pet_anchor.anchorPromptEn) {
-        petDesc = profile.pet_anchor.anchorPromptEn;
-      } else if (profile.pet_anchor.visualDescription) {
-        petDesc = profile.pet_anchor.visualDescription;
-      }
-    }
-    
-    let identitySection = '';
-    if (hasPetRef) {
-      identitySection = `[Identity]
-This is the EXACT same pet animal from the reference image. You must strictly preserve its facial structure, fur color, patterns, and look. Match the features with maximum fidelity.
-Priority: Extremely High.`;
-    } else {
-      identitySection = `[Identity]
-Maintain consistent appearance of the described pet animal.`;
-    }
-
-    let petSection = `[Subject Features]
-Subject: ${petDesc}`;
-
-    let sceneSection = `[Scene & Environment]
-Action & Setting: ${scenePrompt}`;
-
-    let styleSection = `[Style & Lighting]`;
-    if (profile.style) {
-      styleSection += `\nArt Style: ${profile.style}`;
-    } else {
-      styleSection += `\nArt Style: digital painting, soft cinematic lighting, warm emotional atmosphere, detailed features, morandi pastel color theme`;
-    }
-    return `${identitySection}\n\n${petSection}\n\n${sceneSection}\n\n${styleSection}`;
-  }
-  
-  if (intentType === 'object') {
-    let objDesc = 'a beautiful item';
-    let hasObjRef = false;
-    if (profile.object_anchor) {
-      hasObjRef = !!profile.object_anchor.originalImage;
-      if (profile.object_anchor.anchorPromptEn) {
-        objDesc = profile.object_anchor.anchorPromptEn;
-      } else if (profile.object_anchor.visualDescription) {
-        objDesc = profile.object_anchor.visualDescription;
-      }
-    }
-    
-    let identitySection = '';
-    if (hasObjRef) {
-      identitySection = `[Identity]
-This is the EXACT same object from the reference image. You must strictly preserve its colors, textures, craftsmanship, and look. Match the object features with maximum fidelity.
-Priority: Extremely High.`;
-    } else {
-      identitySection = `[Identity]
-Maintain consistent appearance of the described object.`;
-    }
-
-    let objSection = `[Subject Features]
-Subject: ${objDesc}`;
-
-    let sceneSection = `[Scene & Environment]
-Action & Setting: ${scenePrompt}`;
-
-    let styleSection = `[Style & Lighting]`;
-    if (profile.style) {
-      styleSection += `\nArt Style: ${profile.style}`;
-    } else {
-      styleSection += `\nArt Style: digital painting, soft cinematic lighting, warm emotional atmosphere, detailed features, morandi pastel color theme`;
-    }
-    return `${identitySection}\n\n${objSection}\n\n${sceneSection}\n\n${styleSection}`;
-  }
-  
-  if (intentType === 'scene') {
-    let placeDesc = 'a beautiful place';
-    let hasPlaceRef = false;
-    if (profile.place_anchor) {
-      hasPlaceRef = !!profile.place_anchor.originalImage;
-      if (profile.place_anchor.anchorPromptEn) {
-        placeDesc = profile.place_anchor.anchorPromptEn;
-      } else if (profile.place_anchor.visualDescription) {
-        placeDesc = profile.place_anchor.visualDescription;
-      }
-    }
-    
-    let identitySection = '';
-    if (hasPlaceRef) {
-      identitySection = `[Identity]
-This is the EXACT same room or setting environment from the reference image. You must strictly preserve its architecture, colors, layout, and look. Match the environment features with maximum fidelity.
-Priority: Extremely High.`;
-    } else {
-      identitySection = `[Identity]
-Maintain consistent appearance of the described scene.`;
-    }
-
-    let placeSection = `[Environment Features]
-Base Environment: ${placeDesc}`;
-
-    let sceneSection = `[Scene & Environment]
-Action & Setting: ${scenePrompt}`;
-
-    let styleSection = `[Style & Lighting]`;
-    if (profile.style) {
-      styleSection += `\nArt Style: ${profile.style}`;
-    } else {
-      styleSection += `\nArt Style: digital painting, soft cinematic lighting, warm emotional atmosphere, detailed environment, morandi pastel color theme`;
-    }
-    return `${identitySection}\n\n${placeSection}\n\n${sceneSection}\n\n${styleSection}`;
-  }
-
-  // Fallback to 'character' mode
-  const hasRefImage = Array.isArray(profile.ref_images) && profile.ref_images.length > 0;
-  
-  let identitySection = '';
-  if (hasRefImage) {
-    identitySection = `[Identity]
-This is the EXACT same person from the reference image. You must strictly preserve their facial identity, structural details, and look. Match the facial features from the provided reference image with maximum fidelity.
-Priority: Extremely High. Do not deviate from the reference face.`;
-  } else {
-    identitySection = `[Identity]
-Maintain consistent appearance of the described character.`;
-  }
-
-  let faceSection = `[Face Features]
-Gender: ${profile.gender || 'female'}, Age: ${profile.age || 'young adult'}.`;
-  if (profile.face_anchor) {
-    faceSection += `\nFacial Details: ${profile.face_anchor}.`;
-  }
-  if (profile.hairstyle) {
-    faceSection += `\nHairstyle: ${profile.hairstyle}.`;
-  }
-
-  let sceneSection = `[Scene & Environment]
-Action & Setting: ${scenePrompt}`;
-  if (profile.dress) {
-    sceneSection += `\nClothing: wearing ${profile.dress}.`;
-  }
-
-  let styleSection = `[Style & Lighting]`;
-  if (profile.style) {
-    styleSection += `\nArt Style: ${profile.style}`;
-  } else {
-    styleSection += `\nArt Style: digital painting, soft cinematic lighting, warm emotional atmosphere, detailed face, morandi pastel color theme`;
-  }
-  
-  // Combine into a structured, highly prioritized prompt
-  const finalPrompt = `${identitySection}
-
-${faceSection}
-
-${sceneSection}
-
-${styleSection}`;
-
-  return finalPrompt;
+// Build visual prompt combining profile
+function buildFinalImgPrompt(id, scenePrompt) {
+  return buildCharacterPrompt(id, scenePrompt);
 }
-
-// AI vision-based character visual profiling analyzer
-async function analyzeAndSetCharacterAnchor(id, base64Image) {
-  showToast('✨ AI 正在深度分析参考图人物五官特征，生成专属人脸一致性锚点档案...');
-  
-  const sysPrompt = `你是一个专业的 AI 视觉人像分析专家。
-请仔细分析用户上传的这张人物参考图（人脸和整体形象），提取出最稳定、最显著、最精准的脸部和外貌特征。
-你必须返回一个符合以下结构的 JSON 字符串。
-不要包含任何 markdown 标记、\`\`\`json 包裹或多余的解释。
-
-{
-  "gender": "英文性别，如 female 或 male",
-  "age": "英文年龄感，如 young adult, teenage, 25 years old 等",
-  "face_shape": "英文脸型描述，如 oval, round, heart-shaped 等",
-  "eyes": "英文眼睛与眼神描述，如 large double-eyelid brown eyes, expressive and gentle",
-  "hair": "英文发型发色与细节，如 long wavy brown hair, styled with ponytail",
-  "skin": "英文皮肤质感与肤色，如 fair smooth skin, warm peach undertone",
-  "unique_features": [
-    "中文描述：五官的独特记号或特征1，例如：左眼角有一颗小泪痣",
-    "中文描述：特征2，例如：高挺的鼻梁",
-    "中文描述：特征3，例如：笑起来有浅浅的酒窝"
-  ],
-  "dress_style": "英文衣服穿搭风格，如 comfortable casual oversized cream sweater",
-  "face_anchor_en": "精炼且特异性极高的英文面部锚点 Prompt（用于生图锁脸）。必须用英语逗号分隔，包含脸型、双眼、嘴唇、五官比例、表情、泪痣/雀斑等独特微小特征，避免 general 词汇如 'beautiful face'。例如: 'oval face, highly detailed big brown eyes, high nose bridge, soft rosy lips, tiny elegant mole near left eye corner, gentle and warm expression'",
-  "visual_description_cn": "一段优美、详尽的中文人物外貌特征描写，用于展示在档案中（150字以内）。"
-}`;
-
-  try {
-    const messages = [
-      { role: 'system', content: sysPrompt },
-      { role: 'user', content: [
-        { type: 'text', text: '请分析这张照片并提取出核心人脸和外貌锚点。' },
-        { type: 'image_url', image_url: { url: base64Image } }
-      ]}
-    ];
-
-    // Force using our highly reliable built-in Gemini proxy provider
-    const response = await llmComplete(messages, {
-      provider: GEMINI_PROVIDER,
-      model: 'gemini-3.5-flash',
-      temperature: 0.1
-    });
-
-    if (!response) {
-      throw new Error('AI 未返回任何分析数据');
-    }
-
-    let cleaned = response.trim();
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
-    }
-
-    const res = JSON.parse(cleaned);
-    
-    // Save to character identity
-    const prof = getCharacterIdentity(id);
-    
-    // Level 2: Human visual description profile
-    prof.appearance_profile = {
-      face_shape: res.face_shape || '',
-      eyes: res.eyes || '',
-      hair: res.hair || '',
-      skin: res.skin || '',
-      age: res.age || '',
-      unique_features: Array.isArray(res.unique_features) ? res.unique_features : []
-    };
-
-    // Level 3: Anchor info
-    prof.character_anchor = {
-      originalImage: base64Image,
-      visualDescription: res.visual_description_cn || '',
-      faceFeatures: prof.appearance_profile,
-      createdTime: Date.now()
-    };
-
-    // Auto-fill standard visual profile properties
-    if (res.gender) prof.gender = res.gender;
-    if (res.age) prof.age = res.age;
-    if (res.face_anchor_en) prof.face_anchor = res.face_anchor_en;
-    if (res.hair) prof.hairstyle = res.hair;
-    if (res.dress_style) prof.dress = res.dress_style;
-
-    saveCharacterIdentity(id, prof);
-    
-    // Trigger render if setting panel is open
-    if (typeof renderCharacterProfileDetails === 'function') {
-      renderCharacterProfileDetails(id);
-    }
-    
-    showToast('✨ AI 深度视觉分析已完成！成功生成高精度人脸一致性锚点特征档案。');
-  } catch (e) {
-    console.error('[VisionAnalysis] Failed to analyze character ref photo:', e);
-    showToast('⚠️ AI 人像特征分析失败（将使用普通模式保存）：' + e.message);
-  }
-}
-window.analyzeAndSetCharacterAnchor = analyzeAndSetCharacterAnchor;
 
 // Memory integration (Phase 1 part)
 function recordVisualMemoryEvent(memberId, description, scene, imgUrl) {
@@ -1310,135 +1530,4 @@ function recordVisualMemoryEvent(memberId, description, scene, imgUrl) {
     console.error('Failed to record visual memory event:', e);
   }
 }
-
-// AI vision-based multi-anchor analyzer for Pets, Objects, and Places
-async function analyzeAndSetOtherAnchor(id, type, base64Image) {
-  let anchorName = '宠物';
-  if (type === 'object') anchorName = '物品';
-  if (type === 'place') anchorName = '空间';
-  
-  showToast(`✨ AI 正在深度分析参考图${anchorName}特征，生成专属一致性锚点档案...`);
-  
-  let sysPrompt = '';
-  if (type === 'pet') {
-    sysPrompt = `你是一个专业的 AI 宠物/动物形象分析专家。
-请仔细分析用户上传的这张宠物参考图，提取出最稳定、最显著、最精准的动物品种、毛发颜色、面部花纹、眼睛颜色和独特外貌特征。
-你必须返回一个符合以下结构的 JSON 字符串。
-不要包含任何 markdown 标记、\`\`\`json 包裹或多余的解释。
-
-{
-  "species": "英文品种或物种，例如 orange tabby cat, golden retriever puppy, cute red fox 等",
-  "fur": "英文毛发细节，例如 fluffy thick ginger fur, white patch on the chest",
-  "eyes": "英文眼睛描述，例如 round green sparkling eyes",
-  "unique_features": [
-    "中文描述：品种与毛色特征，例如：橘黄色条纹，胸口有一块白色爱心花纹",
-    "中文描述：耳朵与尾巴特征，例如：耳朵尖是白色的，尾巴蓬松"
-  ],
-  "visual_description_cn": "一段优美的、100字以内的中文宠物形象描述，用于展示在档案中。",
-  "anchor_prompt_en": "精炼且特异性极高的英文宠物锚点 Prompt。例如: 'fluffy ginger tabby cat, green sparkling eyes, white chest patch, highly detailed fur texture'"
-}`;
-  } else if (type === 'object') {
-    sysPrompt = `你是一个专业的 3D 物品/静态物件分析专家。
-请仔细分析用户上传的这张物品参考图，提取出材质、颜色、纹理、结构和独特细节。
-你必须返回一个符合以下结构的 JSON 字符串。
-不要包含任何 markdown 标记、\`\`\`json 包裹或多余的解释。
-
-{
-  "name": "英文物品名称，例如 leatherbound vintage diary, handmade ceramic tea cup",
-  "material": "英文材质与质感，例如 worn brown leather, polished gold accents, glossy ceramic glaze",
-  "color": "英文色彩搭配，例如 deep cognac brown, aged golden bronze",
-  "unique_features": [
-    "中文描述：外观纹理，例如：封面上雕刻着一片精美的枫叶纹路",
-    "中文描述：配件细节，例如：带有一条铜质的书签带"
-  ],
-  "visual_description_cn": "一段优美的、100字以内的中文物品细节描述，用于展示在档案中。",
-  "anchor_prompt_en": "精炼且特异性极高的英文物品锚点 Prompt。例如: 'vintage cognac leather notebook, embossed maple leaf pattern, brass clasp, aged paper edges, warm lighting'"
-}`;
-  } else if (type === 'place') {
-    sysPrompt = `你是一个专业的 室内设计/场景环境分析专家。
-请仔细分析用户上传的这张场景空间参考图，提取出空间布局、家具风格、主色调、光影氛围和标志性摆设。
-你必须返回一个符合以下结构的 JSON 字符串。
-不要包含任何 markdown 标记、\`\`\`json 包裹或多余的解释。
-
-{
-  "name": "英文空间名称，例如 cozy warm-toned reading cabin, minimalist modern study corner",
-  "style": "英文装修风格与氛围，例如 rustic warm cabin, minimalist modern, vintage retro, soft warm light",
-  "layout": "英文布局摆设，例如 wooden bookshelf filled with books, leather armchair near fireplace",
-  "unique_features": [
-    "中文描述：空间特质，例如：背景中有一面巨大的落地窗，透出暖黄色的落日余晖",
-    "中文描述：装饰细节，例如：墙壁上挂着一幅复古油画，桌面上点着一盏香薰蜡烛"
-  ],
-  "visual_description_cn": "一段优美的、100字以内的中文空间氛围描述，用于展示在档案中。",
-  "anchor_prompt_en": "精炼且特异性极高的英文空间锚点 Prompt。例如: 'cozy warm reading room, floor-to-ceiling bookshelf, fireplace glowing, soft leather armchair, amber cinematic lighting'"
-}`;
-  }
-
-  try {
-    const messages = [
-      { role: 'system', content: sysPrompt },
-      { role: 'user', content: [
-        { type: 'text', text: `请分析这张照片并提取出核心${anchorName}锚点。` },
-        { type: 'image_url', image_url: { url: base64Image } }
-      ]}
-    ];
-
-    const response = await llmComplete(messages, {
-      provider: typeof GEMINI_PROVIDER !== 'undefined' ? GEMINI_PROVIDER : 'gemini',
-      model: 'gemini-3.5-flash',
-      temperature: 0.1
-    });
-
-    if (!response) {
-      throw new Error('AI 未返回任何分析数据');
-    }
-
-    let cleaned = response.trim();
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
-    }
-
-    const res = JSON.parse(cleaned);
-    
-    const prof = getCharacterIdentity(id);
-    const anchorKey = `${type}_anchor`;
-    
-    prof[anchorKey] = {
-      originalImage: base64Image,
-      visualDescription: res.visual_description_cn || '',
-      anchorPromptEn: res.anchor_prompt_en || '',
-      features: res,
-      createdTime: Date.now()
-    };
-
-    saveCharacterIdentity(id, prof);
-    
-    if (typeof renderCharacterProfileDetails === 'function') {
-      renderCharacterProfileDetails(id);
-    }
-    
-    showToast(`✨ AI 深度视觉分析已完成！成功生成高精度${anchorName}一致性锚点特征档案。`);
-  } catch (e) {
-    console.error('[VisionAnalysis] Failed to analyze reference photo:', e);
-    
-    // Direct save fallback
-    const prof = getCharacterIdentity(id);
-    const anchorKey = `${type}_anchor`;
-    prof[anchorKey] = {
-      originalImage: base64Image,
-      visualDescription: '已保存参考图',
-      anchorPromptEn: type === 'pet' ? 'cute fluffy pet' : type === 'object' ? 'beautiful object' : 'cozy room',
-      features: {},
-      createdTime: Date.now()
-    };
-    saveCharacterIdentity(id, prof);
-    
-    if (typeof renderCharacterProfileDetails === 'function') {
-      renderCharacterProfileDetails(id);
-    }
-    
-    showToast(`⚠️ AI 特征分析失败（已使用普通模式保存）：` + e.message);
-  }
-}
-window.analyzeAndSetOtherAnchor = analyzeAndSetOtherAnchor;
-
 

@@ -4,36 +4,67 @@ const LAUNCHER_DEFAULT=[
   // 网格 第一行
   {id:'worldbook',label:'世界书',icon:'📖',action:'worldbook'},
   {id:'theater',label:'小剧场',icon:'🎭',action:'group'},
-  {id:'clear',label:'清空上下文',icon:'🧹',action:'clear'},
-  {id:'settings',label:'设置',icon:'⚙️',action:'settings'},
+  {id:'modelsettings',label:'模型设置',icon:'🧠',action:'model'},
+  {id:'create',label:'创造',icon:'🎨',action:'create'},
   // 网格 第二行
-  {id:'image',label:'生成图片',icon:'🎨',action:'image'},
+  {id:'imagesettings',label:'生图设置',icon:'🎨',action:'imagesettings'},
   {id:'video',label:'生成视频',icon:'🎬',action:'video'},
-  {id:'song',label:'生成歌曲',icon:'🎼',action:'song'},
-  {id:'export',label:'导出记录',icon:'📤',action:'backup'},
-  {id:'codeanalyzer',label:'代码分析',icon:'📦',action:'codeanalyzer'},
-  // 网格 第三行
-  {id:'reading',label:'陪伴阅读',icon:'📚',action:'ebook'},
   {id:'netease',label:'网易云',icon:'🎧',action:'music'},
-  {id:'diarybook',label:'日记',icon:'📔',action:'diary'},
-  {id:'moments',label:'朋友圈',icon:'🌸',action:'moments'},
+  {id:'export',label:'导出记录',icon:'📤',action:'backup'},
+  {id:'voicesettings',label:'语音设置',icon:'🔊',action:'voice'},
+  // 网格 第三行
+  {id:'memory',label:'记忆',icon:'🧠',action:'memory'},
   // 底部 Dock
   {id:'chat',label:'聊天',icon:'💬',action:'chat'},
   {id:'group',label:'群聊',icon:'👥',action:'group'},
-  {id:'create',label:'创造',icon:'🎨',action:'create'},
-  {id:'memory',label:'记忆',icon:'🧠',action:'memory'}
+  {id:'moments',label:'朋友圈',icon:'🌸',action:'moments'},
+  {id:'settings',label:'设置',icon:'⚙️',action:'settings'}
 ];
 function getLauncherIcons(){
   try{
     let l=JSON.parse(localStorage.getItem('launcher_icons'));
     if(Array.isArray(l)&&l.length) {
-      l = l.filter(i=>i.id!=='memo');
+      const createDuplicateIds = new Set(['image', 'song', 'diarybook', 'reading', 'codeanalyzer']);
+      l = l.filter(i=>i.id!=='memo' && !createDuplicateIds.has(i.id)).map(it => {
+        if (it.id === 'clear' || it.action === 'clear') {
+          return {...it, id:'modelsettings', label:'模型设置', icon:'🧠', action:'model'};
+        }
+        return it;
+      }).filter((it, idx, arr) => arr.findIndex(x => x.id === it.id) === idx);
       const hasCreate = l.some(i => i.id === 'create');
       const hasMemory = l.some(i => i.id === 'memory');
       const hasMoments = l.some(i => i.id === 'moments');
+      const hasModelSettings = l.some(i => i.id === 'modelsettings' || i.action === 'model');
+      const hasVoiceSettings = l.some(i => i.id === 'voicesettings' || i.action === 'voice');
+      const hasImageSettings = l.some(i => i.id === 'imagesettings' || i.action === 'imagesettings');
       if (!hasCreate || !hasMemory || !hasMoments) {
         localStorage.removeItem('launcher_icons');
         return JSON.parse(JSON.stringify(LAUNCHER_DEFAULT));
+      }
+      if (!hasModelSettings) {
+        const settingIdx = l.findIndex(i => i.id === 'settings');
+        const modelIcon = {id:'modelsettings',label:'模型设置',icon:'🧠',action:'model'};
+        if (settingIdx >= 0) l.splice(settingIdx, 0, modelIcon);
+        else l.unshift(modelIcon);
+      }
+      if (!hasImageSettings) {
+        const createIdx = l.findIndex(i => i.id === 'create');
+        const imageSettingsIcon = {id:'imagesettings',label:'生图设置',icon:'🎨',action:'imagesettings'};
+        if (createIdx >= 0) l.splice(createIdx + 1, 0, imageSettingsIcon);
+        else l.push(imageSettingsIcon);
+      }
+      if (!hasVoiceSettings) {
+        const voiceIcon = {id:'voicesettings',label:'语音设置',icon:'🔊',action:'voice'};
+        const videoIdx = l.findIndex(i => i.id === 'video');
+        if (videoIdx >= 0) l.splice(videoIdx + 1, 0, voiceIcon);
+        else l.push(voiceIcon);
+      }
+      const voiceIdx = l.findIndex(i => i.id === 'voicesettings');
+      const neteaseIdx = l.findIndex(i => i.id === 'netease');
+      if (voiceIdx >= 0 && neteaseIdx >= 0 && voiceIdx < neteaseIdx) {
+        const tmp = l[voiceIdx];
+        l[voiceIdx] = l[neteaseIdx];
+        l[neteaseIdx] = tmp;
       }
       l.forEach(it => {
         if (it.id === 'worldbook' && it.action === 'memory') {
@@ -58,7 +89,7 @@ function buildLauncher(){
   const wd=['日','一','二','三','四','五','六'][now.getDay()];
   const date=`${now.getMonth()+1}月${now.getDate()}日 星期${wd}`;
   const icons=getLauncherIcons();
-  const dockIds=['chat','group','create','memory'];
+  const dockIds=['chat','group','moments','settings'];
   const grid=icons.filter(i=>!dockIds.includes(i.id));
   const dock=dockIds.map(id=>icons.find(i=>i.id===id)).filter(Boolean);
   
@@ -66,10 +97,13 @@ function buildLauncher(){
     worldbook: 'linear-gradient(135deg, #F5EBE6, #E4D5C9)', // Morandi sand
     theater: 'linear-gradient(135deg, #F2E4EC, #DEC5D4)', // Morandi mauve
     clear: 'linear-gradient(135deg, #E4EFE9, #B9D1C4)', // Morandi soft mint
+    modelsettings: 'linear-gradient(135deg, #F4EDFA, #CCB9DE)', // Morandi iris violet
     settings: 'linear-gradient(135deg, #ECEFF1, #CFD8DC)', // Morandi blue grey
+    imagesettings: 'linear-gradient(135deg, #FDECE6, #F1CDBE)', // Morandi peach
     image: 'linear-gradient(135deg, #FDECE6, #F1CDBE)', // Morandi peach
     video: 'linear-gradient(135deg, #FDE8E8, #E2B6B6)', // Morandi coral pink
     song: 'linear-gradient(135deg, #EBF3F9, #C1D5E5)', // Morandi powder blue
+    voicesettings: 'linear-gradient(135deg, #E4EFE9, #B9D1C4)', // Morandi soft mint
     export: 'linear-gradient(135deg, #FAF2E3, #E6D0B0)', // Morandi warm beige
     reading: 'linear-gradient(135deg, #EFF4EF, #C3D5C0)', // Morandi pale green
     netease: 'linear-gradient(135deg, #FAECEC, #DEB8B8)', // Morandi red
@@ -195,6 +229,8 @@ function launcherOpen(action){
       break;
     case 'video':showToast('生成视频功能暂未开放');break;
     case 'model':openSettings();settingsMode='provider';selectProvider(currentProviderId);break;
+    case 'imagesettings':openSettings();settingsMode='image';renderProviderList();renderImageSettings();break;
+    case 'voice':openSettings();settingsMode='voice';renderProviderList();renderVoiceSettings();break;
     case 'memo':openMemo();break;
     case 'image':
       if(imgEnabled()) {
@@ -246,7 +282,7 @@ function launcherOpen(action){
       }).catch(err => showToast('加载世界书失败', 'error'));
       break;
     case 'backup':exportChat();break;
-    case 'clear':clearChat();break;
+    case 'clear':openSettings();settingsMode='provider';selectProvider(currentProviderId);break;
     case 'settings':openSettings();break;
     case 'codeanalyzer':
       if(typeof openCodeAnalyzer==='function') {
