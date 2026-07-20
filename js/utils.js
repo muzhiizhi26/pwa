@@ -85,7 +85,12 @@ function showToast(msg, hapticType = 'light'){
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 function togglePwd(id){const el=document.getElementById(id);el.type=el.type==='password'?'text':'password';}
-function setBool(k,v){localStorage.setItem(k,v?'true':'false');}
+function setBool(k,v){
+  localStorage.setItem(k,v?'true':'false');
+  if(k==='auto_speak' && typeof renderAutoSpeakToggle === 'function'){
+    renderAutoSpeakToggle();
+  }
+}
 function setNum(k,v){localStorage.setItem(k,v);}
 function openImageViewer(src){document.getElementById('viewerImg').src=src;document.getElementById('imageViewer').classList.add('show');}
 function closeImageViewer(){document.getElementById('imageViewer').classList.remove('show');}
