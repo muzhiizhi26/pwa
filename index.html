@@ -21,6 +21,7 @@
 <div class="chat-app">
 <header class="chat-header">
     <div class="header-left">
+        <button class="icon-btn" id="autoSpeakToggleBtn" onclick="toggleAutoSpeakFromHeader()" title="自动朗读 AI 回复">🔕</button>
         <div class="brand-avatar" id="brandAvatar" onclick="showAiEmotionBurst()" title="点击查看 AI 情绪"><span>🤖</span></div>
         <div class="header-title-area" id="headerTitleArea" style="cursor: pointer; display: flex; align-items: center; gap: 4px;" onclick="toggleAiSwitcher(event)">
             <span class="header-ai-name" id="headerAiName">主AI</span>
@@ -109,7 +110,7 @@
     <div class="memo-container" style="max-width:380px;">
         <div class="memo-header"><h3>📊 Token 使用量估算</h3><button class="icon-btn" style="width:30px;height:30px;font-size:14px;" onclick="document.getElementById('tokenPanel').classList.remove('show')">✕</button></div>
         <div class="memo-body" id="tokenBody"></div>
-        <div class="memo-footer"><label class="switch-label" style="display:flex;align-items:center;gap:6px;">自动压缩 (本会话)<label class="switch"><input type="checkbox" id="autoCompressChk" onchange="setBool('auto_compress',this.checked)"><span class="switch-slider"></span></label></label><button class="footer-btn footer-btn-primary" onclick="openCompressDialog()">压缩对话</button></div>
+        <div class="memo-footer"><label class="switch-label" style="display:flex;align-items:center;gap:6px;">按上下文条数自动压缩<label class="switch"><input type="checkbox" id="autoCompressChk" onchange="setBool('auto_compress',this.checked)"><span class="switch-slider"></span></label></label><button class="footer-btn footer-btn-primary" onclick="openCompressDialog()">压缩对话</button></div>
     </div>
 </div>
 
@@ -280,8 +281,8 @@
 
 <script src="js/config.js?v=20260708"></script>
 <script src="js/utils.js?v=20260708"></script>
-<script src="js/memory.js?v=20260719"></script>
-<script src="js/memory-tiers.js?v=20260708"></script>
+<script src="js/memory.js?v=20260720-singleapi"></script>
+<script src="js/memory-tiers.js?v=20260720-leanprompt"></script>
 <script src="js/attention-manager.js?v=20260714"></script>
 <script src="js/rhythm-engine.js?v=20260714"></script>
 <script src="js/narrative.js?v=20260714"></script>
@@ -294,16 +295,16 @@
 <script src="js/runtime/models/user-model.js?v=20260716"></script>
 <script src="js/runtime/models/relationship-model.js?v=20260716"></script>
 <script src="js/emotion.js?v=20260708"></script>
-<script src="js/voice.js?v=20260708"></script>
-<script src="js/call.js?v=20260708"></script>
+<script src="js/voice.js?v=20260720-voiceui"></script>
+<script src="js/call.js?v=20260720-bargein"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="js/proactive.js?v=20260708"></script>
-<script src="js/imagegen.js?v=20260719"></script>
-<script src="js/launcher.js?v=20260708"></script>
-<script src="js/settings.js?v=20260708"></script>
+<script src="js/imagegen.js?v=20260720-pwa-image-errors"></script>
+<script src="js/launcher.js?v=20260720-model-voice"></script>
+<script src="js/settings.js?v=20260720-voiceui"></script>
 <script src="js/orchestrator.js?v=20260718"></script>
-<script src="js/chat.js?v=20260708"></script>
-<script src="js/moments.js?v=20260717"></script>
+<script src="js/chat.js?v=20260720-directimg"></script>
+<script src="js/moments.js?v=20260720"></script>
 <script src="js/tabs.js?v=20260717"></script>
 <script src="js/main.js?v=20260708"></script>
 <input type="file" id="aiAvatarInput" accept="image/*" class="hidden" onchange="handleAvatar(this, 'ai')">
