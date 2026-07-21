@@ -227,12 +227,16 @@ async function writeDedupedMemory(rec) {
     duplicate.window_id = rec.window_id;
     duplicate.emotion = duplicate.emotion || rec.emotion;
     duplicate.tier = Math.max(duplicate.tier || 1, rec.tier || 1);
-    duplicate.importance_score = Math.max(duplicate.importance_score || 0, rec.importance_score || 0);
+    // Mention frequency increases importance score
+    duplicate.importance_score = Math.min(100, Math.max(duplicate.importance_score || 0, rec.importance_score || 0) + 10);
     duplicate.expiry_ts = Math.max(duplicate.expiry_ts || 0, rec.expiry_ts || 0) || rec.expiry_ts;
+    duplicate.topicTags = rec.topicTags || duplicate.topicTags;
+    duplicate.timeWindowTag = rec.timeWindowTag || duplicate.timeWindowTag;
     await VDB.put(duplicate);
     return duplicate;
   }
   rec.vector = await embed(rec.text);
+  rec.relatedIds = await linkRelatedMemories(rec);
   await VDB.put(rec);
   return rec;
 }
@@ -307,6 +311,15 @@ function evaluateMemory(content, role, emotion) {
     score += 25;
   }
   
+  // 节日/纪念日/特殊节点加成 (+30)
+  const celebrationKeywords = ['纪念日', '生日', '情人节', '圣诞', '元旦', '春节', '跨年', '初见', '相遇', '第一次'];
+  for (const word of celebrationKeywords) {
+    if (text.includes(word)) {
+      score += 30;
+      break;
+    }
+  }
+  
   if (isNoise) {
     score = Math.max(2, score - 20);
   }
@@ -323,20 +336,109 @@ function evaluateMemory(content, role, emotion) {
   return { score, tier };
 }
 
+/* Topic tag extractor helper */
+function extractTopicTags(content) {
+  const text = (content || '').toLowerCase();
+  const tags = [];
+  
+  const rules = [
+    { tag: '喜好习惯', keywords: ['喜欢', '讨厌', '爱吃', '习惯', '经常', '嗜好', '最爱', '甜食', '喝咖啡', '奶茶'] },
+    { tag: '情感羁绊', keywords: ['爱', '暗恋', '心动', '表白', '想你', '难过', '伤心', '陪伴', '永远', '纪念日', '感情', '喜欢你'] },
+    { tag: '日常生活', keywords: ['睡觉', '吃饭', '做饭', '散步', '逛街', '洗澡', '天气', '下雨', '日常', '宠物', '猫', '狗', '晚安', '早安'] },
+    { tag: '工作学业', keywords: ['加班', '项目', '代码', '辞职', '入职', '考试', '面试', '学习', '专业', '论文', '毕业', '工作', '上班', '学校'] },
+    { tag: '休闲娱乐', keywords: ['游戏', '电影', '小说', '动漫', '音乐', '旅行', '旅游', '看书', '科幻', '运动', '健身', '听歌', '视频'] },
+    { tag: '未来期许', keywords: ['梦想', '未来', '目标', '打算', '计划', '以后', '希望', '憧憬', '想去'] }
+  ];
+  
+  for (const rule of rules) {
+    for (const kw of rule.keywords) {
+      if (text.includes(kw)) {
+        tags.push(rule.tag);
+        break;
+      }
+    }
+  }
+  
+  if (tags.length === 0) {
+    tags.push('日常杂记');
+  }
+  
+  return tags;
+}
+
+/* Time window formatter helper */
+function formatTimeWindow(ts) {
+  const date = new Date(ts);
+  const hour = date.getHours();
+  let timeStr = '';
+  if (hour >= 5 && hour < 12) timeStr = '清晨';
+  else if (hour >= 12 && hour < 14) timeStr = '中午';
+  else if (hour >= 14 && hour < 18) timeStr = '下午';
+  else if (hour >= 18 && hour < 22) timeStr = '夜晚';
+  else timeStr = '深夜';
+  
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 · ${timeStr}`;
+}
+
+/* Bidirectional relational linking helper */
+async function linkRelatedMemories(newRec) {
+  try {
+    const allRecords = await VDB.all();
+    const relatedIds = [];
+    const newTags = newRec.topicTags || [];
+    
+    for (const old of allRecords) {
+      if (old.id === newRec.id) continue;
+      
+      let isRelated = false;
+      const oldTags = old.topicTags || (old.metadata && old.metadata.topicTags) || [];
+      const hasSharedTag = newTags.some(t => oldTags.includes(t));
+      const isCloseInTime = Math.abs((old.ts || 0) - (newRec.ts || 0)) <= 4 * 3600 * 1000;
+      
+      if (hasSharedTag || isCloseInTime) {
+        isRelated = true;
+      }
+      
+      if (isRelated) {
+        relatedIds.push(old.id);
+        
+        // Ensure bidirectional reference in old node
+        if (old.metadata) {
+          if (!old.metadata.relatedIds) old.metadata.relatedIds = [];
+          if (!old.metadata.relatedIds.includes(newRec.id)) {
+            old.metadata.relatedIds.push(newRec.id);
+            old.relatedIds = old.metadata.relatedIds;
+            await VDB.put(old);
+          }
+        }
+      }
+      
+      if (relatedIds.length >= 5) break;
+    }
+    
+    return relatedIds;
+  } catch (err) {
+    console.warn('[Memory Graph 2.0] Link related memories failed:', err);
+    return [];
+  }
+}
+
 async function memorize(role,content,emotion,aiId){
   if(!content||content.length<4)return;
   if(localStorage.getItem('rag_enabled')==='false')return;
   
   const { score, tier } = evaluateMemory(content, role, emotion);
   if (score < 15) {
-    // 低重要度日常对话（例如哈哈、嗯嗯、无实体信息短句）不作为长期或中期向量索引，节省不必要的嵌入 API 消耗
     return;
   }
-  const ts=Date.now();
+  const ts = Date.now();
   const expiry_ts = tier === 1 
     ? ts + 24 * 3600 * 1000 
     : (tier === 2 ? ts + 90 * 24 * 3600 * 1000 : Infinity);
   const activeAi=aiId||(typeof currentPrivateAiId==='function'?currentPrivateAiId():'main');
+
+  const topicTags = extractTopicTags(content);
+  const timeWindowTag = formatTimeWindow(ts);
 
   const rec = {
     id:'v_'+ts+'_'+Math.random().toString(36).slice(2,7),
@@ -350,10 +452,13 @@ async function memorize(role,content,emotion,aiId){
     ai_id:activeAi,
     tier,
     importance_score:score,
-    expiry_ts
+    expiry_ts,
+    // Graph 2.0 properties
+    topicTags,
+    timeWindowTag,
+    relatedIds: []
   };
 
-  // 使用统一的 MemoryLockQueue 串行入队执行，彻底消除写入与裁剪并发时的 Race Condition
   if (window.MemoryLockQueue) {
     return window.MemoryLockQueue.enqueue(async () => {
       try {
@@ -369,7 +474,7 @@ async function memorize(role,content,emotion,aiId){
   }
 }
 
-/* 优化6：相似度×时间衰减×boost；优化12：召回后连带同一时间窗口的记忆 */
+/* Memory Graph 2.0: Relational Memory Recall with Memory Packages */
 async function recall(query,aiId){
   if(!ragEnabled())return[];
   let store;try{store=await VDB.all();}catch(e){return[];}
@@ -379,29 +484,23 @@ async function recall(query,aiId){
     const recordAi=r.ai_id||'main';
     let vis=r.visibility||'relationship';
 
-    // 统一将旧版 'group' 记忆无缝桥接到新的 'world' 能见度，实现“共享世界状态”
     if (vis === 'group') {
       vis = 'world';
     }
 
     if(vis==='private'){
-      // 专属私有：仅当初创制该记忆的 AI 角色在私聊该用户时可检索到
       return recordAi===activeAi;
     }
     if(vis==='relationship'){
-      // 关系共享：该特定 AI 角色与其和用户的交互记录。由于主AI协调一切关系，因此主AI或对应角色皆可见
       if(activeAi==='main'){
         return true;
       }
       return recordAi===activeAi||recordAi==='main';
     }
     if(vis==='world' || vis==='chronicle' || vis==='archive'){
-      // 🌍 共同世界、📅 共同岁月年鉴、📦 长期归档：全员无条件共享！
-      // 无论哪一个伴侣在哪种聊天中触发事件，所有成员直接共享这个世界的事实，不复有隔离
       return true;
     }
 
-    // 兜底后备兼容
     if(activeAi==='main'){
       return true;
     }
@@ -423,38 +522,98 @@ async function recall(query,aiId){
       
       if (isNight) {
         if (imp < 70) {
-          keepRecall = false; // 普通记忆在凌晨不调用
+          keepRecall = false;
         }
       } else {
         if (imp < 70) {
-          boost *= 0.5; // 普通事件降低权重
+          boost *= 0.5;
         }
       }
     }
     
     return {...r,sim,score:sim*decay*boost,keepRecall};
   }).filter(r=>r.sim>=ragThreshold() && r.keepRecall !== false).sort((a,b)=>b.score-a.score);
+  
   const top=scored.slice(0,ragTopK());
-  const chosen=new Set(top.map(t=>t.id));const assoc=[];const cap=ragTopK()+3;
-  for(const t of top){for(const r of filtered){if(chosen.has(r.id))continue;if(r.window_id===t.window_id&&Math.abs((r.ts||0)-(t.ts||0))<=30*60*1000){r.assoc=true;assoc.push(r);chosen.add(r.id);if(top.length+assoc.length>=cap)break;}}if(top.length+assoc.length>=cap)break;}
+  const chosen=new Set(top.map(t=>t.id));
+  const assoc=[];
+  const cap=ragTopK()+4; // Bring up to 4 associated memories in the package
+  
+  for(const t of top){
+    const tTags = t.topicTags || (t.metadata && t.metadata.topicTags) || [];
+    const tRelated = t.relatedIds || (t.metadata && t.metadata.relatedIds) || [];
+    
+    for(const r of filtered){
+      if(chosen.has(r.id))continue;
+      
+      const rTags = r.topicTags || (r.metadata && r.metadata.topicTags) || [];
+      const rRelated = r.relatedIds || (r.metadata && r.metadata.relatedIds) || [];
+      
+      const isDirectlyLinked = tRelated.includes(r.id) || rRelated.includes(t.id);
+      const sharesTopic = tTags.length > 0 && rTags.some(tag => tTags.includes(tag));
+      const isCloseInTime = r.window_id === t.window_id && Math.abs((r.ts||0)-(t.ts||0)) <= 4 * 3600 * 1000;
+      
+      if (isDirectlyLinked || sharesTopic || isCloseInTime) {
+        r.assoc = true;
+        if (isDirectlyLinked) r.assocReason = '关联网络';
+        else if (sharesTopic) r.assocReason = `同类话题(${rTags.join('/')})`;
+        else r.assocReason = '邻近时刻';
+        
+        assoc.push(r);
+        chosen.add(r.id);
+        if(top.length+assoc.length>=cap)break;
+      }
+    }
+    if(top.length+assoc.length>=cap)break;
+  }
   return top.concat(assoc);
 }
 
-/* 优化1：召回渲染情绪标签 + 关联记忆分组 */
+/* 召回渲染：将情绪标签、时间窗口和关联链完美融入 */
 function emotionLabelOf(key){try{return (EMOTION_LEXICON[key]||{}).label||'';}catch(e){return '';}}
+
 function formatRecall(items){
   if(!items||!items.length)return'';
   const main=items.filter(i=>!i.assoc),rel=items.filter(i=>i.assoc);
-  let out='\n【召回的长期记忆】\n';
-  out+=main.map(it=>{const who=it.role==='user'?'用户曾说':'AI曾说';const emo=it.emotion?emotionLabelOf(it.emotion):'';const emoStr=emo?`，当时情绪：${emo}`:'';const relv=(it.sim!=null?it.sim:it.score);return `· (${who}，相关度${(relv*100).toFixed(0)}%${emoStr}) ${it.text.slice(0,120)}`;}).join('\n');
-  if(rel.length)out+='\n【同一时段还聊到】\n'+rel.map(it=>`· ${it.text.slice(0,80)}`).join('\n');
+  let out='\n【记忆网络核心召回（Memory Package 2.0）】\n';
+  out+=main.map(it=>{
+    const who=it.role==='user'?'用户曾说':'AI曾说';
+    const emo=it.emotion?emotionLabelOf(it.emotion):'';
+    const emoStr=emo?`，情绪：${emo}`:'';
+    const tags = it.topicTags || (it.metadata && it.metadata.topicTags) || [];
+    const tagStr = tags.length ? `，话题：[${tags.join(',')}]` : '';
+    const timeWin = it.timeWindowTag || (it.metadata && it.metadata.timeWindowTag) || '';
+    const timeStr = timeWin ? `，时间：${timeWin}` : '';
+    const relv=(it.sim!=null?it.sim:it.score);
+    return `· (${who}，检索共鸣${(relv*100).toFixed(0)}%${emoStr}${tagStr}${timeStr}) ${it.text}`;
+  }).join('\n');
+  
+  if(rel.length) {
+    out+='\n【关联扩散记忆节点】\n'+rel.map(it=>{
+      const tags = it.topicTags || (it.metadata && it.metadata.topicTags) || [];
+      const reason = it.assocReason || '网络关联';
+      const tagStr = tags.length ? ` [${tags.join(',')}]` : '';
+      return `· (${reason}${tagStr}) ${it.text}`;
+    }).join('\n');
+  }
   return out;
 }
 
-/* 优化4：主动回忆计数器（每次 AI 回复 +1，AI 用 [[recall]] 后清零；累积到阈值才强提示回忆） */
+/* 主动回忆计数器（每次 AI 回复 +1，AI 用 [[recall]] 后清零；累积到阈值才强提示回忆） */
 function recallCounterGet(){return parseInt(localStorage.getItem('recall_counter')||'0');}
 function recallCounterBump(reset){if(reset){localStorage.setItem('recall_counter','0');return;}localStorage.setItem('recall_counter',String(recallCounterGet()+1));}
 function shouldTriggerRecall(){return recallCounterGet()>=8;}
 
-/* 优化6/8联动：用户确认/复习时提升该记忆权重，抵消遗忘 */
-async function boostMemoryByText(text){try{if(!text)return;const store=await VDB.all();const key=text.slice(0,20);const t=store.find(r=>r.text&&r.text.includes(key));if(t){t.boost=Math.min((t.boost||1)+0.5,3);await VDB.put(t);}}catch(e){}}
+/* 关联复习权重提升机制 */
+async function boostMemoryByText(text){
+  try {
+    if(!text) return;
+    const store = await VDB.all();
+    const key = text.slice(0,20);
+    const t = store.find(r => r.text && r.text.includes(key));
+    if (t) {
+      t.boost = Math.min((t.boost || 1) + 0.5, 3);
+      await VDB.put(t);
+    }
+  } catch(e) {}
+}

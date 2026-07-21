@@ -88,18 +88,26 @@ const MomentsEngine = {
     if (!hero) return;
     const id = localStorage.getItem('moments_bg_image_id');
     const legacy = localStorage.getItem('moments_bg_image');
+    
+    const applyBg = (url) => {
+      hero.style.backgroundImage = `url(${url})`;
+      hero.style.backgroundSize = 'cover';
+      hero.style.backgroundPosition = 'center';
+      hero.style.backgroundRepeat = 'no-repeat';
+    };
+
     if (id && window.LovestoryImageDB) {
       window.LovestoryImageDB.get(id).then(data => {
         if (data) {
-          hero.style.backgroundImage = `url(${data})`;
+          applyBg(data);
         } else if (legacy) {
-          hero.style.backgroundImage = `url(${legacy})`;
+          applyBg(legacy);
         }
       }).catch(() => {
-        if (legacy) hero.style.backgroundImage = `url(${legacy})`;
+        if (legacy) applyBg(legacy);
       });
     } else if (legacy) {
-      hero.style.backgroundImage = `url(${legacy})`;
+      applyBg(legacy);
     }
   },
 
@@ -986,7 +994,7 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
   closePublishDialog() {
     const el = document.getElementById('moments-publish-dialog');
     if (el) el.style.display = 'none';
-    this.clearUploadedImage();
+    MomentsEngine.clearUploadedImage();
     const txt = document.getElementById('moments-publish-text');
     if (txt) txt.value = '';
   },
@@ -1005,7 +1013,7 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
       } catch (err) {
         console.warn('[Moments] Compress uploaded image failed, using raw:', err);
       }
-      this._uploadedImageBase64 = compressed;
+      MomentsEngine._uploadedImageBase64 = compressed;
       const thumb = document.getElementById('moments-uploaded-thumb');
       const img = document.getElementById('moments-thumb-img');
       if (thumb && img) {
@@ -1018,7 +1026,7 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
   },
 
   clearUploadedImage() {
-    this._uploadedImageBase64 = null;
+    MomentsEngine._uploadedImageBase64 = null;
     const thumb = document.getElementById('moments-uploaded-thumb');
     if (thumb) thumb.style.display = 'none';
   },
@@ -1033,8 +1041,8 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
     const btn = document.getElementById('momentsPublishBtn');
     if (btn) btn.disabled = true;
     try {
-      await this.userPublishMoment(txt, this._uploadedImageBase64);
-      this.closePublishDialog();
+      await MomentsEngine.userPublishMoment(txt, MomentsEngine._uploadedImageBase64);
+      MomentsEngine.closePublishDialog();
     } catch(e) {
       console.error('[Moments] Publish failed:', e);
       showToast('朋友圈发布失败，请稍后重试');

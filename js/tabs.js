@@ -301,6 +301,229 @@ async function renderMemoryTab() {
         </div>
       </div>
     `;
+  } else if (_currentMemorySubTab === 'timeline') {
+    // 渲染 D: Memory Graph 2.0 关系时间轴
+    let allNodes = [];
+    try {
+      if (typeof VDB !== 'undefined' && typeof VDB.all === 'function') {
+        allNodes = (await VDB.all()) || [];
+      }
+    } catch (e) {
+      console.warn('Error fetching all VDB nodes:', e);
+    }
+
+    // Sort by timestamp descending
+    allNodes.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+    // Get active tag filter (default to 'all')
+    const activeFilter = localStorage.getItem('m_timeline_filter') || 'all';
+    
+    // Topic tags we support:
+    const filterTags = ['all', '喜好习惯', '情感羁绊', '日常生活', '工作学业', '休闲娱乐', '未来期许', '日常杂记'];
+    const filterLabels = {
+      'all': '✨ 全部节点',
+      '喜好习惯': '🍳 喜好习惯',
+      '情感羁绊': '💖 情感羁绊',
+      '日常生活': '🍃 日常生活',
+      '工作学业': '💻 工作学业',
+      '休闲娱乐': '🎮 休闲娱乐',
+      '未来期许': '🚀 未来期许',
+      '日常杂记': '📝 日常杂记'
+    };
+
+    const filteredNodes = allNodes.filter(node => {
+      if (activeFilter === 'all') return true;
+      const tags = node.topicTags || (node.metadata && node.metadata.topicTags) || [];
+      if (tags.length === 0 && activeFilter === '日常杂记') return true;
+      return tags.includes(activeFilter);
+    });
+
+    // Generate Filter Bar
+    let filterBarHtml = `
+      <div class="m-timeline-filters" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;">
+    `;
+    for (const tag of filterTags) {
+      const activeClass = activeFilter === tag ? 'active' : '';
+      filterBarHtml += `
+        <button class="m-filter-btn ${activeClass}" onclick="setMemoryTimelineFilter('${tag}')" style="font-size: 11px; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-color); background: ${activeFilter === tag ? 'var(--btn-bg-info)' : 'transparent'}; color: ${activeFilter === tag ? '#fff' : 'inherit'}; cursor: pointer;">
+          ${filterLabels[tag]}
+        </button>
+      `;
+    }
+    filterBarHtml += `</div>`;
+
+    // Render interactive SVG Relation Map (limited to top 16 latest nodes to keep it clean and interactive)
+    let svgGraphHtml = '';
+    const mapNodes = allNodes.slice(0, 16); // Top 16 latest records
+    if (mapNodes.length > 1) {
+      const width = 600;
+      const height = 150;
+      const cx = width / 2;
+      const cy = height / 2;
+      const rx = width * 0.42;
+      const ry = height * 0.35;
+      
+      const nodePos = {};
+      mapNodes.forEach((node, idx) => {
+        const angle = (idx / mapNodes.length) * 2 * Math.PI - Math.PI / 2;
+        nodePos[node.id] = {
+          x: cx + rx * Math.cos(angle),
+          y: cy + ry * Math.sin(angle),
+          node
+        };
+      });
+
+      let svgLines = '';
+      let svgCircles = '';
+      
+      // Draw relationship lines
+      mapNodes.forEach(node => {
+        const p1 = nodePos[node.id];
+        if (!p1) return;
+        const related = node.relatedIds || (node.metadata && node.metadata.relatedIds) || [];
+        related.forEach(rId => {
+          const p2 = nodePos[rId];
+          if (p2) {
+            svgLines += `
+              <line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#BA68C8" stroke-width="1.2" stroke-dasharray="3,3" opacity="0.6" />
+            `;
+          }
+        });
+      });
+
+      // Draw node circles
+      mapNodes.forEach((node, idx) => {
+        const pos = nodePos[node.id];
+        const tags = node.topicTags || (node.metadata && node.metadata.topicTags) || [];
+        const imp = node.importance_score || node.importance || 50;
+        
+        const colors = {
+          '喜好习惯': '#FFB74D',
+          '情感羁绊': '#F06292',
+          '日常生活': '#81C784',
+          '工作学业': '#64B5F6',
+          '休闲娱乐': '#BA68C8',
+          '未来期许': '#4DB6AC',
+          '日常杂记': '#A1887F'
+        };
+        const color = colors[tags[0]] || '#90A4AE';
+        const r = 10 + (imp / 100) * 8; // Size proportional to importance score!
+
+        svgCircles += `
+          <g class="m-svg-node" cursor="pointer" onclick="scrollToMemoryNode('${node.id}')" style="transition: transform 0.2s;">
+            <circle cx="${pos.x}" cy="${pos.y}" r="${r}" fill="${color}" stroke="#fff" stroke-width="1.5" opacity="0.9" />
+            <text x="${pos.x}" y="${pos.y + 3}" font-size="9" text-anchor="middle" fill="#fff" style="pointer-events: none; font-weight: bold;">${idx + 1}</text>
+            <title>${idx + 1}. [${tags.join(',')}] ${node.text.slice(0, 30)}... (重要度: ${imp})</title>
+          </g>
+        `;
+      });
+
+      svgGraphHtml = `
+        <div class="m-graph-panel" style="background: rgba(0,0,0,0.02); border-radius: 12px; padding: 12px; margin-bottom: 16px; border: 1px solid var(--border-color);">
+          <div class="m-section-header-title" style="font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span>🌌 意识共鸣网络图谱 (Associative Web)</span>
+            <span style="font-size: 10px; opacity: 0.6;">数字1为最新，虚线代表关联共鸣</span>
+          </div>
+          <div style="overflow-x: auto; width: 100%; text-align: center; margin-top: 8px;">
+            <svg width="100%" height="150" viewBox="0 0 600 150" style="max-width: 600px; display: inline-block;">
+              ${svgLines}
+              ${svgCircles}
+            </svg>
+          </div>
+        </div>
+      `;
+    }
+
+    // Generate list of timeline cards
+    let timelineListHtml = '';
+    if (filteredNodes.length === 0) {
+      timelineListHtml = `
+        <div class="m-empty-nodes">
+          🍂 当前分类下暂时没有记忆节点。<br>
+          与伙伴正常开始聊天，伙伴便会自动在此编织关系网络！
+        </div>
+      `;
+    } else {
+      timelineListHtml = filteredNodes.map((node) => {
+        const dateStr = new Date(node.ts || Date.now()).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const importance = node.importance_score || node.importance || 50;
+        const emoMap = { happy: '😊', sad: '😢', excited: '⚡', love: '💖', angry: '娇嗔', gentle: '🌸', calm: '🍃', tired: '🥱', anxious: '😟', thinking: '💭' };
+        const emoIcon = emoMap[node.emotion] || '🍃';
+        const tierLabels = { 1: '即时', 2: '事件', 3: '核心' };
+        const tierClass = `tier-${node.tier || 1}`;
+        const tags = node.topicTags || (node.metadata && node.metadata.topicTags) || [];
+        const timeWin = node.timeWindowTag || (node.metadata && node.metadata.timeWindowTag) || '未知时刻';
+        const related = node.relatedIds || (node.metadata && node.metadata.relatedIds) || [];
+        
+        // Colors for tags
+        const tagBadges = tags.map(t => {
+          const colors = {
+            '喜好习惯': 'background: rgba(255,183,77,0.12); color: #E65100; border: 1px solid rgba(255,183,77,0.25);',
+            '情感羁绊': 'background: rgba(240,98,146,0.12); color: #C2185B; border: 1px solid rgba(240,98,146,0.25);',
+            '日常生活': 'background: rgba(129,199,132,0.12); color: #2E7D32; border: 1px solid rgba(129,199,132,0.25);',
+            '工作学业': 'background: rgba(100,181,246,0.12); color: #1565C0; border: 1px solid rgba(100,181,246,0.25);',
+            '休闲娱乐': 'background: rgba(186,104,200,0.12); color: #6A1B9A; border: 1px solid rgba(186,104,200,0.25);',
+            '未来期许': 'background: rgba(77,182,172,0.12); color: #00695C; border: 1px solid rgba(77,182,172,0.25);'
+          };
+          const style = colors[t] || 'background: rgba(0,0,0,0.04); color: #666; border: 1px solid rgba(0,0,0,0.08);';
+          return `<span style="font-size: 10px; padding: 2px 6px; border-radius: 10px; margin-right: 4px; ${style}">${t}</span>`;
+        }).join('');
+
+        // Generate related nodes markup
+        let relatedHtml = '';
+        if (related.length > 0) {
+          const relatedItems = allNodes.filter(n => related.includes(n.id));
+          if (relatedItems.length > 0) {
+            relatedHtml = `
+              <div class="m-node-relations" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color); display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 10px; opacity: 0.6; display: flex; align-items: center; gap: 4px;">🔗 意识连通网络:</span>
+                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                  ${relatedItems.map(item => `
+                    <button onclick="scrollToMemoryNode('${item.id}')" style="font-size: 10px; padding: 2px 6px; background: rgba(186,104,200,0.06); border: 1px solid rgba(186,104,200,0.15); color: #6A1B9A; border-radius: 4px; cursor: pointer; text-align: left; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                      🔮 ${item.text.slice(0, 18)}...
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            `;
+          }
+        }
+
+        return `
+          <div class="m-node-card" id="node-card-${node.id}" style="border-left: 4px solid var(--btn-bg-info); transition: all 0.3s; margin-bottom: 4px;">
+            <div class="m-node-header">
+              <span class="m-node-tag ${tierClass}">${tierLabels[node.tier || 1]}记忆</span>
+              <span class="m-node-emo" title="触发情绪">${emoIcon}</span>
+              <span class="m-node-time">${timeWin}</span>
+              <button class="m-node-delete" onclick="deleteMemoryNode('${node.id}')" title="让AI遗忘这件小事">✕</button>
+            </div>
+            <div class="m-node-text" style="font-size: 12.5px; line-height: 1.6; color: var(--text-color);">${node.text || ''}</div>
+            <div style="margin-top: 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+              ${tagBadges}
+            </div>
+            <div class="m-node-footer" style="margin-top: 8px; font-size: 10px; display: flex; justify-content: space-between; opacity: 0.8;">
+              <span>重要度: <b>${importance}</b></span>
+              <span>检索热度: <b>${node.recall_count || 0}</b></span>
+            </div>
+            ${relatedHtml}
+          </div>
+        `;
+      }).join('');
+    }
+
+    subTabContentHtml = `
+      <div class="m-timeline-section">
+        <div class="m-section-header-title">🗓️ 共同岁月编织 (Memory Timeline & Graph)</div>
+        <p class="m-section-desc">每个深刻的相处时刻都会自动生成独特的话题标签，并在时空中与相似或邻近的事物形成自组织的关系网。</p>
+        
+        ${svgGraphHtml}
+        ${filterBarHtml}
+        
+        <div class="m-nodes-grid" style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px;">
+          ${timelineListHtml}
+        </div>
+      </div>
+    `;
   }
 
   const isRag = typeof ragEnabled === 'function' ? ragEnabled() : true;
@@ -343,6 +566,7 @@ async function renderMemoryTab() {
       <button class="rel-tab-btn ${_currentMemorySubTab === 'profile' ? 'active' : ''}" onclick="switchMemorySubTab('profile')">📋 长期核心档案</button>
       <button class="rel-tab-btn ${_currentMemorySubTab === 'midterm' ? 'active' : ''}" onclick="switchMemorySubTab('midterm')">🗓️ 共同岁月摘要</button>
       <button class="rel-tab-btn ${_currentMemorySubTab === 'vectors' ? 'active' : ''}" onclick="switchMemorySubTab('vectors')">🌸 闪回记忆碎片</button>
+      <button class="rel-tab-btn ${_currentMemorySubTab === 'timeline' ? 'active' : ''}" onclick="switchMemorySubTab('timeline')">🗓️ 共同岁月编织</button>
     </div>
 
     <!-- Active Sub-tab Content -->
@@ -382,6 +606,41 @@ async function deleteMemoryNode(nodeId) {
     await VDB.del(nodeId);
     showToast('🍃 伙伴已将此片段轻轻松开，悄然遗忘');
     renderMemoryTab();
+  }
+}
+
+function setMemoryTimelineFilter(tag) {
+  localStorage.setItem('m_timeline_filter', tag);
+  renderMemoryTab();
+}
+
+function scrollToMemoryNode(nodeId) {
+  const el = document.getElementById('node-card-' + nodeId);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.boxShadow = '0 0 12px rgba(186, 104, 200, 0.4)';
+    el.style.transform = 'scale(1.02)';
+    setTimeout(() => {
+      el.style.boxShadow = '';
+      el.style.transform = '';
+    }, 1500);
+  } else {
+    showToast('🔍 对应的记忆节点在当前过滤条件下未显示，已切换至全部节点');
+    localStorage.setItem('m_timeline_filter', 'all');
+    renderMemoryTab().then(() => {
+      setTimeout(() => {
+        const targetEl = document.getElementById('node-card-' + nodeId);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          targetEl.style.boxShadow = '0 0 12px rgba(186, 104, 200, 0.4)';
+          targetEl.style.transform = 'scale(1.02)';
+          setTimeout(() => {
+            targetEl.style.boxShadow = '';
+            targetEl.style.transform = '';
+          }, 1500);
+        }
+      }, 100);
+    });
   }
 }
 

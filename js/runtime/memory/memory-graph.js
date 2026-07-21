@@ -514,7 +514,11 @@ const MemoryGraph = {
       importance: rec.importance,
       tier: rec.tier !== undefined ? rec.tier : (rec.metadata && rec.metadata.tier),
       importance_score: rec.importance_score !== undefined ? rec.importance_score : (rec.metadata && rec.metadata.importance_score),
-      expiry_ts: rec.expiry_ts !== undefined ? rec.expiry_ts : (rec.metadata && rec.metadata.expiry_ts)
+      expiry_ts: rec.expiry_ts !== undefined ? rec.expiry_ts : (rec.metadata && rec.metadata.expiry_ts),
+      // Graph 2.0 fields
+      topicTags: rec.topicTags || (rec.metadata && rec.metadata.topicTags) || [],
+      relatedIds: rec.relatedIds || (rec.metadata && rec.metadata.relatedIds) || [],
+      timeWindowTag: rec.timeWindowTag || (rec.metadata && rec.metadata.timeWindowTag) || ''
     };
 
     return new MemoryNode({
@@ -555,7 +559,12 @@ const MemoryGraph = {
       propagation_path: meta.propagation_path || null,
       tier: meta.tier !== undefined ? meta.tier : 1,
       importance_score: meta.importance_score !== undefined ? meta.importance_score : 50,
-      expiry_ts: meta.expiry_ts !== undefined ? meta.expiry_ts : Infinity
+      expiry_ts: meta.expiry_ts !== undefined ? meta.expiry_ts : Infinity,
+      // Graph 2.0 fields
+      topicTags: meta.topicTags || [],
+      relatedIds: meta.relatedIds || [],
+      timeWindowTag: meta.timeWindowTag || '',
+      metadata: meta
     };
   }
 };

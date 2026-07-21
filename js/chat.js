@@ -196,9 +196,69 @@ function toggleMsgActions(uid){
 }
 function speakerHTML(uid){return `<span class="inline-speak" onclick="event.stopPropagation();msgSpeak('${uid}')" title="朗读">🔊</span>`;}
 /* 文本消息：换行拆成多个气泡；朗读按钮挂在最后一个气泡 */
-function renderTextMessage(role,content,uid,reasoning,recallNote,proactive,ts){const {div,bubbles}=createMessageSkeleton(role,uid,ts);if(recallNote&&role!=='user'){const c=document.createElement('div');c.className='recall-chip';c.textContent='🔎 '+recallNote;bubbles.parentNode.insertBefore(c,bubbles);}if(reasoning&&role!=='user'&&showThinkingEnabled()){const tb=document.createElement('div');tb.className='thinking-block';tb.innerText='💭 '+reasoning;bubbles.parentNode.insertBefore(tb,bubbles);}const display=(role!=='user'&&typeof stripMusicTags==='function')?stripMusicTags(content):content;const lines=splitToBubbles(display);lines.forEach((line,i)=>{const b=document.createElement('div');b.className='bubble';if(proactive)b.classList.add('proactive');if(content&&content.includes('已压缩'))b.classList.add('compressed');b.onclick=(e)=>{toggleRecallChip(uid);toggleMsgActions(uid);e.stopPropagation();};b.innerText=(proactive&&i===0?'💌 ':'')+line;bubbles.appendChild(b);});const last=bubbles.lastElementChild;if(last)last.insertAdjacentHTML('beforeend',speakerHTML(uid));if(role!=='user'&&typeof decorateMusic==='function')decorateMusic(bubbles,content);document.getElementById('chatMessages').appendChild(div);scrollBottom();}
+function renderTextMessage(role,content,uid,reasoning,recallItems,proactive,ts){
+  const {div,bubbles}=createMessageSkeleton(role,uid,ts);
+  if(recallItems&&role!=='user'){
+    const c=document.createElement('div');
+    c.className='recall-chip';
+    if(Array.isArray(recallItems) && recallItems.length > 0){
+      const itemsHtml = recallItems.map(it => {
+        const emoMap = { happy: '😊', sad: '😢', excited: '⚡', love: '💖', angry: '娇嗔', gentle: '🌸', calm: '🍃', tired: '🥱', anxious: '😟', thinking: '💭' };
+        const emoIcon = emoMap[it.emotion] || '';
+        const tags = it.topicTags || [];
+        const tagStr = tags.length ? tags.join('/') : '通用';
+        const timeWin = it.timeWindowTag || '未知时刻';
+        const assocText = it.assoc ? `🔗 [关联扩散: ${it.assocReason || '网络'}]` : `🎯 [精确检索共鸣]`;
+        return `
+          <div class="recall-item" style="font-size: 10.5px; line-height: 1.4; color: var(--text-color); padding: 4px 8px; border-left: 2.5px solid ${it.assoc ? '#BA68C8' : 'var(--accent)'}; background: rgba(255,255,255,0.45); border-radius: 0 6px 6px 0; margin-top: 4px; max-width: 100%; box-shadow: 0 0.5px 1px rgba(0,0,0,0.03);">
+            <div style="font-size: 8.5px; opacity: 0.7; font-weight: bold; margin-bottom: 2px; display: flex; justify-content: space-between;">
+              <span>${assocText} · ${timeWin} [${tagStr}]</span>
+              <span>${emoIcon}</span>
+            </div>
+            <div style="word-break: break-all; white-space: pre-wrap;">${it.text || it.summary || ''}</div>
+          </div>
+        `;
+      }).join('');
+      c.innerHTML = `
+        <div style="font-weight: 600; font-size: 10.5px; display: flex; align-items: center; gap: 4px; color: var(--text-sub);">
+          <span>🧠 意识共鸣与关联记忆库 (${recallItems.length}个节点)</span>
+        </div>
+        <div class="recall-items-list" style="display: flex; flex-direction: column; gap: 4px; width: 100%; margin-top: 4px;">
+          ${itemsHtml}
+        </div>
+      `;
+    } else if(typeof recallItems === 'string'){
+      c.textContent='🔎 '+recallItems;
+    } else {
+      c.textContent='🔎 召回相关记忆';
+    }
+    bubbles.parentNode.insertBefore(c,bubbles);
+  }
+  if(reasoning&&role!=='user'&&showThinkingEnabled()){
+    const tb=document.createElement('div');
+    tb.className='thinking-block';
+    tb.innerText='💭 '+reasoning;
+    bubbles.parentNode.insertBefore(tb,bubbles);
+  }
+  const display=(role!=='user'&&typeof stripMusicTags==='function')?stripMusicTags(content):content;
+  const lines=splitToBubbles(display);
+  lines.forEach((line,i)=>{
+    const b=document.createElement('div');
+    b.className='bubble';
+    if(proactive)b.classList.add('proactive');
+    if(content&&content.includes('已压缩'))b.classList.add('compressed');
+    b.onclick=(e)=>{toggleRecallChip(uid);toggleMsgActions(uid);e.stopPropagation();};
+    b.innerText=(proactive&&i===0?'💌 ':'')+line;
+    bubbles.appendChild(b);
+  });
+  const last=bubbles.lastElementChild;
+  if(last)last.insertAdjacentHTML('beforeend',speakerHTML(uid));
+  if(role!=='user'&&typeof decorateMusic==='function')decorateMusic(bubbles,content);
+  document.getElementById('chatMessages').appendChild(div);
+  scrollBottom();
+}
 function renderImageMessage(role,src,uid,ts){const div=document.createElement('div');div.className=`message ${role==='user'?'user-message':'ai-message'}`;div.id='msg-'+uid;div.dataset.uid=uid;div.dataset.role=role;div.innerHTML=`<input type="checkbox" class="msg-check" onchange="onCheck('${uid}',this.checked)">${avatarHTML(role)}<div class="msg-content"><div class="bubbles"><div class="bubble image-bubble" onclick="toggleMsgActions('${uid}'); event.stopPropagation();"><img id="img-el-${uid}" src="${src}" onclick="event.stopPropagation(); openImageViewer(this.src)"></div></div><div class="msg-time">${nowTime(ts)}</div><div class="msg-actions"><button onclick="copyAnchor('${uid}')" title="复制锚点">🔗</button><button onclick="msgDelete('${uid}')">🗑️</button></div></div>`;document.getElementById('chatMessages').appendChild(div);if(uid&&window.LovestoryImageDB){window.LovestoryImageDB.get(uid).then(storedData=>{if(storedData){const imgEl=document.getElementById(`img-el-${uid}`);if(imgEl)imgEl.src=storedData;}else if(src&&typeof downloadAndStoreImage==='function'){downloadAndStoreImage(src,uid).then(storedUrl=>{const imgEl=document.getElementById(`img-el-${uid}`);if(imgEl&&storedUrl)imgEl.src=storedUrl;}).catch(e=>console.warn('[ImagePersistence] Fail to cache rendered image:',e));}}).catch(e=>console.warn('[ImagePersistence] Failed to fetch image from IndexedDB:',e));}scrollBottom();}
-function rerenderAll(){const c=document.getElementById('chatMessages');c.innerHTML='';conversationHistory.forEach(m=>{if(m.image)renderImageMessage(m.role==='user'?'user':'assistant',m.image,m.uid,m.ts);else renderTextMessage(m.role==='imported'?'assistant':m.role,m.content,m.uid,m.reasoning,null,m.proactive,m.ts);});}
+function rerenderAll(){const c=document.getElementById('chatMessages');c.innerHTML='';conversationHistory.forEach(m=>{if(m.image)renderImageMessage(m.role==='user'?'user':'assistant',m.image,m.uid,m.ts);else renderTextMessage(m.role==='imported'?'assistant':m.role,m.content,m.uid,m.reasoning,m.recallItems,m.proactive,m.ts);});}
 function addMessage(role,content,uid){uid=uid||genUid();const ts=Date.now();conversationHistory.push({role,content,uid,ts});renderTextMessage(role,content,uid,null,null,false,ts);saveHistory();}
 function addLoadingDOM(){const {div,bubbles}=createMessageSkeleton('assistant','loading_'+Date.now());const b=document.createElement('div');b.className='bubble';b.innerHTML='<div class="loading-dots"><span></span><span></span><span></span></div>';bubbles.appendChild(b);div.querySelector('.msg-time')?.remove();div.querySelector('.msg-actions')?.remove();document.getElementById('chatMessages').appendChild(div);scrollBottom();return div;}
 function addLoadingWithIntroDOM(introText) {
@@ -277,10 +337,19 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
         const reasoning=m?.reasoning_content||'';
         const uid=genUid();
         const ts=Date.now();
-        conversationHistory.push({role:'assistant',content:reply,uid,reasoning,ts});
+        const savedRecallItems = recallItems.map(it => ({
+          text: it.text,
+          sim: it.sim,
+          topicTags: it.topicTags,
+          timeWindowTag: it.timeWindowTag,
+          emotion: it.emotion,
+          assoc: it.assoc,
+          assocReason: it.assocReason
+        }));
+        conversationHistory.push({role:'assistant',content:reply,uid,reasoning,ts,recallItems:savedRecallItems});
         const clean=(typeof cleanAiText==='function')?cleanAiText(reply):reply;
         if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-output',provider:provider.id||provider.name||'',model:useModel,inputTokens:0,output:clean,meta:{stream:false}});
-        renderTextMessage('assistant',clean,uid,reasoning,recallNote,false,ts);
+        renderTextMessage('assistant',clean,uid,reasoning,recallItems,false,ts);
         conversationHistory[conversationHistory.length-1].content=clean;
         saveHistory();
         memorize('assistant',clean,'');
@@ -304,10 +373,34 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
       slowLoading.remove();
     }
     const {div,bubbles}=createMessageSkeleton('assistant',uid,ts);
-    if(recallNote){
+    if(recallItems && recallItems.length > 0){
       const c=document.createElement('div');
       c.className='recall-chip';
-      c.textContent='🔎 '+recallNote;
+      const itemsHtml = recallItems.map(it => {
+        const emoMap = { happy: '😊', sad: '😢', excited: '⚡', love: '💖', angry: '娇嗔', gentle: '🌸', calm: '🍃', tired: '🥱', anxious: '😟', thinking: '💭' };
+        const emoIcon = emoMap[it.emotion] || '';
+        const tags = it.topicTags || [];
+        const tagStr = tags.length ? tags.join('/') : '通用';
+        const timeWin = it.timeWindowTag || '未知时刻';
+        const assocText = it.assoc ? `🔗 [关联扩散: ${it.assocReason || '网络'}]` : `🎯 [精确检索共鸣]`;
+        return `
+          <div class="recall-item" style="font-size: 10.5px; line-height: 1.4; color: var(--text-color); padding: 4px 8px; border-left: 2.5px solid ${it.assoc ? '#BA68C8' : 'var(--accent)'}; background: rgba(255,255,255,0.45); border-radius: 0 6px 6px 0; margin-top: 4px; max-width: 100%; box-shadow: 0 0.5px 1px rgba(0,0,0,0.03);">
+            <div style="font-size: 8.5px; opacity: 0.7; font-weight: bold; margin-bottom: 2px; display: flex; justify-content: space-between;">
+              <span>${assocText} · ${timeWin} [${tagStr}]</span>
+              <span>${emoIcon}</span>
+            </div>
+            <div style="word-break: break-all; white-space: pre-wrap;">${it.text || it.summary || ''}</div>
+          </div>
+        `;
+      }).join('');
+      c.innerHTML = `
+        <div style="font-weight: 600; font-size: 10.5px; display: flex; align-items: center; gap: 4px; color: var(--text-sub);">
+          <span>🧠 意识共鸣与关联记忆库 (${recallItems.length}个节点)</span>
+        </div>
+        <div class="recall-items-list" style="display: flex; flex-direction: column; gap: 4px; width: 100%; margin-top: 4px;">
+          ${itemsHtml}
+        </div>
+      `;
       bubbles.parentNode.insertBefore(c,bubbles);
     }
     if (rhythm.slow && rhythm.introText) {
@@ -381,7 +474,16 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
       const last=bubbles.lastElementChild;
       if(last)last.insertAdjacentHTML('beforeend',speakerHTML(uid));
       if(typeof decorateMusic==='function')decorateMusic(bubbles,full);
-      conversationHistory.push({role:'assistant',content:finalDisplay||'无响应',uid,reasoning,ts});
+      const savedRecallItems = recallItems.map(it => ({
+        text: it.text,
+        sim: it.sim,
+        topicTags: it.topicTags,
+        timeWindowTag: it.timeWindowTag,
+        emotion: it.emotion,
+        assoc: it.assoc,
+        assocReason: it.assocReason
+      }));
+      conversationHistory.push({role:'assistant',content:finalDisplay||'无响应',uid,reasoning,ts,recallItems:savedRecallItems});
       saveHistory();
       memorize('assistant',display,'');
       updateAiEmotion(display);
@@ -476,7 +578,7 @@ async function loadHistory(){
       if(!m.uid)m.uid=genUid();
       if(!m.ts){m.ts=Date.now();migrated=true;}
       if(m.image)renderImageMessage(m.role==='user'?'user':'assistant',m.image,m.uid,m.ts);
-      else renderTextMessage(m.role==='imported'?'assistant':m.role,m.content,m.uid,m.reasoning,null,m.proactive,m.ts);
+      else renderTextMessage(m.role==='imported'?'assistant':m.role,m.content,m.uid,m.reasoning,m.recallItems,m.proactive,m.ts);
     });
   };
 
