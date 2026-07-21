@@ -1,7 +1,7 @@
 {
-  "name": "莫兰迪 AI 陪伴",
-  "short_name": "莫兰迪 AI",
-  "description": "莫兰迪风格的 AI 情绪伴侣与聊天对话应用",
+  "name": " AI 陪伴",
+  "short_name": "AI",
+  "description": "AI 情绪伴侣与聊天对话应用",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

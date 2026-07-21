@@ -1056,10 +1056,42 @@ function buildCharacterPrompt(id, scenePrompt, options = {}) {
   return finalPrompt;
 }
 
+async function optimizePromptIfChineseOrShort(promptText) {
+  if (typeof llmComplete !== 'function') return promptText;
+  try {
+    const systemInstruction = `You are a professional stable diffusion prompt engineer and translator. 
+Your task is to translate any Chinese input into English, and then enrich and expand the prompt into a high-quality, vivid, detailed English prompt for image generation models (like DALL-E 3, Flux, SDXL).
+Rules:
+1. If the input is in Chinese, translate it to English first.
+2. Enrich the prompt by adding details about lighting (e.g. volumetric lighting, soft warm light, golden hour, cinematic lighting), environment details, texture, and style (e.g. masterpiece, highly detailed, cinematic composition, digital painting, soft warm colors if applicable).
+3. Do NOT include any physical description of characters if they are represented as placeholders like "AI companion", "user", "girl", "boy", "young adult" etc., as we will attach character profiles later. Keep character descriptions generic (e.g. "a girl", "a couple") so they can be post-processed.
+4. Output ONLY the polished English prompt. Do not output any explanation, intro, or markdown formatting (no quotes, no "Prompt:", no backticks).`;
+
+    const userMsg = `Prompt to optimize: ${promptText}`;
+    const response = await llmComplete([
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: userMsg }
+    ], { temperature: 0.7, callerId: 'prompt-optimization', priority: 1 });
+
+    if (response && response.trim()) {
+      let cleaned = response.trim();
+      cleaned = cleaned.replace(/^"|"$/g, '').replace(/^(optimized prompt|prompt):\s*/i, '').trim();
+      console.log(`[PromptOptimization] Original: "${promptText}" -> Optimized: "${cleaned}"`);
+      return cleaned;
+    }
+  } catch (e) {
+    console.warn('[PromptOptimization] Failed to optimize prompt:', e);
+  }
+  return promptText;
+}
+
 async function buildVisualGenerationRequest(promptText, initImg = null, memberId = 'main', options = {}) {
   const intent = options.intent || await analyzeImageIntent(promptText, { memberId, source: options.source, allowLLM: !!options.allowLLM, ambiguous: !!options.ambiguous });
   let finalPrompt = String(promptText || '').trim();
   let refImg = initImg || null;
+
+  // 自动将中文或简短生图提示词交由大模型进行生图优化与英语高维转写
+  finalPrompt = await optimizePromptIfChineseOrShort(finalPrompt);
 
   if (intent.type === 'character' || (intent.type === 'fantasy' && intent.anchorKind === 'character')) {
     const profile = getCharacterIdentity(intent.subjectId || memberId || 'main') || {};
@@ -1183,10 +1215,21 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
             if (!imgUrl) throw new Error('Gemini did not return image data');
           } else if (mode === 'openai') {
             const ourl = buildOpenAIImagesGenerationUrl(base);
+            let sizeStr = `${w}x${h}`;
+            if (model.includes('dall-e-3')) {
+              const ratioVal = w / h;
+              if (ratioVal > 1.2) {
+                sizeStr = '1792x1024';
+              } else if (ratioVal < 0.8) {
+                sizeStr = '1024x1792';
+              } else {
+                sizeStr = '1024x1024';
+              }
+            }
             const r = await fetch(ourl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-              body: JSON.stringify({ model, prompt: promptText, size: `${w}x${h}`, n: 1 })
+              body: JSON.stringify({ model, prompt: promptText, size: sizeStr, n: 1 })
             });
             if (!r.ok) {
               const t = await r.text();

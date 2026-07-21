@@ -1,7 +1,7 @@
 {
   "name": "morandi-ai-companion",
   "version": "1.0.0",
-  "description": "莫兰迪风格的 AI 情绪伴侣与聊天对话应用",
+  "description": "AI 情绪伴侣与聊天对话应用",
   "main": "server.js",
   "type": "module",
   "scripts": {

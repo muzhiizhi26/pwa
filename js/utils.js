@@ -37,7 +37,23 @@ function getImageCompressDim(){
 function compressImage(dataUrl,maxDim=768,quality=0.7){
   if(maxDim === 99999 || maxDim === 'raw') return Promise.resolve(dataUrl);
   return new Promise(res=>{const img=new Image();img.onload=()=>{let{width,height}=img;const scale=Math.min(1,maxDim/Math.max(width,height));const w=Math.round(width*scale),h=Math.round(height*scale);const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);try{res(cv.toDataURL('image/jpeg',quality));}catch(e){res(dataUrl);}};img.onerror=()=>res(dataUrl);img.src=dataUrl;});}
-function getImgWH(){const base=parseInt(localStorage.getItem('img_res')||getImgResList()[0]||'1024');const ratio=localStorage.getItem('img_ratio')||'1:1';const[rw,rh]=ratio.split(':').map(Number);if(rw>=rh)return{w:base,h:Math.round(base*rh/rw)};return{w:Math.round(base*rw/rh),h:base};}
+function getImgWH(){
+  const base=parseInt(localStorage.getItem('img_res')||(typeof getImgResList==='function'?getImgResList()[0]:'1024')||'1024');
+  const ratio=localStorage.getItem('img_ratio')||'1:1';
+  const[rw,rh]=ratio.split(':').map(Number);
+  let w, h;
+  if(rw>=rh) {
+    w = base;
+    h = Math.round(base*rh/rw);
+  } else {
+    w = Math.round(base*rw/rh);
+    h = base;
+  }
+  // 向上或舍入到最接近的 16 像素倍数，兼容绝大多数主流 AI 生图算法模型 (Flux, SD, Kolors 等)
+  w = Math.round(w / 16) * 16;
+  h = Math.round(h / 16) * 16;
+  return { w, h };
+}
 
 /* 上下文裁剪 */
 function getContextLimit(){const v=localStorage.getItem('context_limit');if(v==null)return 12;if(v==='unlimited')return Infinity;const n=parseInt(v);return isNaN(n)?12:n;}

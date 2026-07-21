@@ -3,7 +3,70 @@ let callActive=false,callMuted=false,callStream=null,callMime='';
 let callAudioCtx=null,micSource=null,vadNode=null,analyserFallback=null,fallbackRAF=null;
 let callRecorder=null,callChunks=[],recStopReason='';
 let ttsSource=null,callStartTime=0,callTimerInt=null;
-let callState='idle'; // idle | listening | processing | speaking
+
+/* Voice Runtime 状态机 */
+const VoiceSession = {
+  state: 'IDLE', // IDLE | LISTENING | PROCESSING | SPEAKING | INTERRUPTED | RECOVERING
+  transitionTo(newState, reason = '') {
+    console.log(`[VoiceSession] Transition: ${this.state} -> ${newState} (${reason})`);
+    this.state = newState;
+    callState = newState.toLowerCase();
+    
+    // 同步视觉状态
+    const av = document.getElementById('callAvatar');
+    if (newState === 'SPEAKING') {
+      av?.classList.add('speaking');
+    } else {
+      av?.classList.remove('speaking');
+    }
+    
+    // 同步状态栏和文字提示
+    switch(newState) {
+      case 'IDLE':
+        setCallStatus('通话结束', '');
+        break;
+      case 'LISTENING':
+        setCallStatus('正在聆听...', '');
+        break;
+      case 'PROCESSING':
+        setCallStatus('识别与思考中...', '');
+        break;
+      case 'SPEAKING':
+        setCallStatus('AI 正在说话...', '');
+        break;
+      case 'INTERRUPTED':
+        setCallStatus('已打断，重置中...', '');
+        break;
+      case 'RECOVERING':
+        setCallStatus('正在恢复聆听...', '');
+        break;
+    }
+  },
+  
+  bargeIn() {
+    if (this.state !== 'SPEAKING') return;
+    this.transitionTo('INTERRUPTED', 'user barge-in');
+    
+    // 停止语音播放
+    if (ttsSource) {
+      try { ttsSource.stop(); } catch(e) {}
+      ttsSource = null;
+    }
+    
+    showToast('🎙️ 已打断');
+    
+    // 无缝恢复监听，不销毁 session，保留 conversation_id，直接无缝继续
+    this.transitionTo('LISTENING', 'seamless recovery');
+    
+    // 初始化 VAD 聆听态运行参数，保证能正常检测随后的静音
+    vad.spoke = true;
+    vad.voiceMs = vad.bargeMs;
+    vad.silentMs = 0;
+    vad.utterMs = vad.bargeMs;
+  }
+};
+
+let callState='idle'; // idle | listening | processing | speaking (legacy map)
 
 /* VAD 调参 */
 const VAD_CFG={
@@ -38,7 +101,7 @@ function startCall(){
 
   // 支持在说话状态下点击头像手动打断
   av.onclick=()=>{
-    if(callActive && callState==='speaking'){
+    if(callActive && VoiceSession.state==='SPEAKING'){
       triggerBargeIn();
     }
   };
@@ -117,7 +180,7 @@ async function acquireMicAndStartVAD() {
     micSource.connect(analyserFallback);
     const data = new Uint8Array(analyserFallback.frequencyBinCount);
     const loop = () => {
-      if (!callActive || (callState !== 'listening' && callState !== 'speaking')) return;
+      if (!callActive || (VoiceSession.state !== 'LISTENING' && VoiceSession.state !== 'SPEAKING')) return;
       analyserFallback.getByteTimeDomainData(data);
       let s = 0;
       for (let i = 0; i < data.length; i++) {
@@ -181,7 +244,9 @@ function toggleCallMute(){
 
 function endCall(){
   const wasActive=callActive&&callStartTime>0;const dur=wasActive?fmtDur(Date.now()-callStartTime):'';
-  callActive=false;callState='idle';stopCallTimer();
+  callActive=false;
+  VoiceSession.transitionTo('IDLE', 'endCall');
+  stopCallTimer();
   document.getElementById('callOverlay').classList.remove('show');document.getElementById('callGate').classList.remove('show');document.getElementById('callAvatar').classList.remove('speaking');
   if(callRecorder&&callRecorder.state!=='inactive'){recStopReason='end';try{callRecorder.stop();}catch(e){}}
   if(ttsSource){try{ttsSource.stop();}catch(e){}ttsSource=null;}
@@ -195,7 +260,7 @@ function endCall(){
 /* 进入聆听：立即开录（含说话前预录），VAD 决定何时截断 */
 async function enterListening(){
   if(!callActive||callMuted)return;
-  callState='listening';setCallStatus('正在聆听...','');
+  VoiceSession.transitionTo('LISTENING', 'enterListening');
   resetVad();
   try {
     await acquireMicAndStartVAD();
@@ -219,8 +284,8 @@ function startRecorder(){
 }
 
 function finalizeUtterance(){
-  if(callState!=='listening')return;
-  callState='processing';
+  if(VoiceSession.state!=='LISTENING')return;
+  VoiceSession.transitionTo('PROCESSING', 'finalizeUtterance');
   if(callRecorder&&callRecorder.state==='recording'){recStopReason='utterance';try{callRecorder.stop();}catch(e){}}
 }
 
@@ -242,7 +307,7 @@ async function onRecorderStop(){
   // 🎙️ 录制已结束，立即停止并释放麦克风，确保播放 AI 语音时 iOS 扬声器通道不被占用
   releaseMicAndStopVAD();
 
-  if(blob.size<2200){enterListening();return;}
+  if(blob.size<1000 && recStopReason!=='utterance'){enterListening();return;}
   setCallStatus('识别中...','');
   try{
     const text=await sttTranscribe(blob);
@@ -278,11 +343,11 @@ async function onRecorderStop(){
         
         if(!callActive)return;
         setCallStatus(`${mem.name} 回复：`,reply);
-        callState='speaking';
+        VoiceSession.transitionTo('SPEAKING', 'group tts play');
         vad.bargeMs=0;vad.last=performance.now();
         await prepareBargeInVAD();
         await playTTSCall(reply, mem.voice || localStorage.getItem('tts_voice_ai'));
-        if(callState!=='speaking'){
+        if(VoiceSession.state!=='SPEAKING'){
           document.querySelectorAll('.group-call-member').forEach(el=>el.classList.remove('active-speaker'));
           return;
         }
@@ -302,14 +367,13 @@ async function onRecorderStop(){
     if(!callActive)return;
     setCallStatus('AI 回复：',reply);
     // 进入说话态，开启打断监听
-    callState='speaking';
-    document.getElementById('callAvatar').classList.add('speaking');
+    VoiceSession.transitionTo('SPEAKING', 'tts play');
     vad.bargeMs=0;vad.last=performance.now();
     await prepareBargeInVAD();
     await playTTSCall(reply);
     document.getElementById('callAvatar').classList.remove('speaking');
     if(callAudioCtx&&callAudioCtx.state==='suspended')await callAudioCtx.resume();
-    if(callActive&&callState==='speaking')enterListening(); // 未被打断则回到聆听
+    if(callActive&&VoiceSession.state==='SPEAKING')enterListening(); // 未被打断则回到聆听
   }catch(e){setCallStatus('出错：',e.message);if(callActive)setTimeout(()=>{if(callActive)enterListening();},1200);}
 }
 
@@ -318,25 +382,35 @@ function handleVad(rms){
   if(!callActive)return;
   const now=performance.now();let dt=now-vad.last;vad.last=now;if(dt<=0||dt>200)dt=25;
   vad.smooth=vad.smooth*0.85+rms*0.15;
-  if(callState==='listening'){
+  if(VoiceSession.state==='LISTENING'){
     if(!vad.spoke)vad.noiseFloor=vad.noiseFloor*0.97+rms*0.03;
     const thr=Math.max(VAD_CFG.minThresh,vad.noiseFloor*VAD_CFG.noiseFactor);
     vad.utterMs+=dt;
     if(vad.smooth>thr){vad.voiceMs+=dt;if(vad.voiceMs>VAD_CFG.minSpeechMs)vad.spoke=true;vad.silentMs=0;}
     else{if(vad.spoke)vad.silentMs+=dt;else vad.voiceMs=Math.max(0,vad.voiceMs-dt);}
     if((vad.spoke&&vad.silentMs>VAD_CFG.silenceHangMs)||vad.utterMs>VAD_CFG.maxUtterMs)finalizeUtterance();
-  }else if(callState==='speaking'&&bargeInEnabled()){
+  }else if(VoiceSession.state==='SPEAKING'&&bargeInEnabled()){
     const thr=Math.max(VAD_CFG.bargeMin,vad.noiseFloor*VAD_CFG.bargeFactor);
-    if(vad.smooth>thr){vad.bargeMs+=dt;if(vad.bargeMs>VAD_CFG.bargeHoldMs)triggerBargeIn();}
-    else vad.bargeMs=Math.max(0,vad.bargeMs-dt*1.5);
+    if(vad.smooth>thr){
+      vad.bargeMs+=dt;
+      // 说话态下，用户一开口即刻拉起 Recorder，避免漏掉打断判定期间的字词
+      if(!callRecorder || callRecorder.state==='inactive'){
+        startRecorder();
+      }
+      if(vad.bargeMs>VAD_CFG.bargeHoldMs)triggerBargeIn();
+    }
+    else {
+      vad.bargeMs=Math.max(0,vad.bargeMs-dt*1.5);
+      // 如果仅是微弱环境噪声/瞬时叹气，未达到打断时限，则默默销毁该次短音频
+      if(vad.bargeMs===0 && callRecorder && callRecorder.state==='recording' && VoiceSession.state==='SPEAKING'){
+        recStopReason='mute';
+        try{callRecorder.stop();}catch(e){}
+      }
+    }
   }
 }
 function triggerBargeIn(){
-  if(callState!=='speaking')return;
-  if(ttsSource){try{ttsSource.stop();}catch(e){}ttsSource=null;}
-  document.getElementById('callAvatar').classList.remove('speaking');
-  showToast('🎙️ 已打断');
-  enterListening();
+  VoiceSession.bargeIn();
 }
 async function playTTSCall(text, voice){
   try{
