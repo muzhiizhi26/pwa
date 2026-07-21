@@ -2159,7 +2159,8 @@ function getRelationshipState() {
     intimacy: 50,
     trust: 50,
     emotionalTemperature: 50,
-    interactionFrequency: 50
+    interactionFrequency: 50,
+    lastInteractionTime: Date.now()
   };
   try {
     const raw = localStorage.getItem('relationshipState');
@@ -2240,6 +2241,7 @@ function updateRelationshipState(signals) {
   state.trust = Math.max(10, Math.min(95, state.trust + clampDelta(deltaTrust)));
   state.emotionalTemperature = Math.max(20, Math.min(80, state.emotionalTemperature + clampDelta(deltaTemperature)));
   state.interactionFrequency = Math.max(10, Math.min(95, state.interactionFrequency + clampDelta(deltaFrequency)));
+  state.lastInteractionTime = Date.now();
 
   saveRelationshipState(state);
   console.log('[Relationship State Engine] State updated:', {
@@ -2299,11 +2301,48 @@ function determineResponseIntent(userText, userEmotion, recentTopics, timeOfDay)
   return null;
 }
 
+function applyRelationshipDecay() {
+  const state = getRelationshipState();
+  const now = Date.now();
+  
+  if (!state.lastInteractionTime) {
+    state.lastInteractionTime = now;
+    saveRelationshipState(state);
+    return;
+  }
+  
+  const elapsedMs = now - state.lastInteractionTime;
+  const daysSinceLastInteraction = elapsedMs / (1000 * 60 * 60 * 24);
+  
+  if (daysSinceLastInteraction >= 1) {
+    const days = Math.floor(daysSinceLastInteraction);
+    const oldState = { ...state };
+    
+    // Decay values:
+    // interactionFrequency: -5% per day.
+    state.interactionFrequency = Math.max(10, Math.min(95, state.interactionFrequency - (days * 5)));
+    // emotionalTemperature: -3% per day (originally clamped to 20-80, so let's keep that clamp range).
+    state.emotionalTemperature = Math.max(20, Math.min(80, state.emotionalTemperature - (days * 3)));
+    // intimacy: -1% per day.
+    state.intimacy = Math.max(10, Math.min(95, state.intimacy - (days * 1)));
+    
+    // Adjust lastInteractionTime by the whole days decayed
+    state.lastInteractionTime = state.lastInteractionTime + (days * 24 * 60 * 60 * 1000);
+    
+    saveRelationshipState(state);
+    console.log('[Relationship State Engine] Applied relationship decay for', days, 'days:', {
+      before: oldState,
+      after: state
+    });
+  }
+}
+
 // Make globally available
 window.getRelationshipState = getRelationshipState;
 window.saveRelationshipState = saveRelationshipState;
 window.updateRelationshipState = updateRelationshipState;
 window.injectRelationshipContext = injectRelationshipContext;
 window.determineResponseIntent = determineResponseIntent;
+window.applyRelationshipDecay = applyRelationshipDecay;
 
 

@@ -73,6 +73,94 @@ function enqueueProactiveActions(events) {
   }
 }
 
+function isProactiveTypeSuspended(type) {
+  try {
+    const feedbackStr = localStorage.getItem('proactiveFeedback');
+    if (!feedbackStr) return false;
+    const feedback = JSON.parse(feedbackStr);
+    const data = feedback[type];
+    if (data && data.total > 3) {
+      const negativeRate = (data.negative || 0) / data.total;
+      if (negativeRate > 0.5) {
+        if (data.suspendedUntil && Date.now() < data.suspendedUntil) {
+          console.log(`[Proactive System] Type "${type}" is currently suspended until ${new Date(data.suspendedUntil).toLocaleString()}`);
+          return true;
+        } else if (data.suspendedUntil && Date.now() >= data.suspendedUntil) {
+          // Suspension expired! Reset counts to give it a fresh start
+          data.positive = 0;
+          data.negative = 0;
+          data.total = 0;
+          delete data.suspendedUntil;
+          feedback[type] = data;
+          localStorage.setItem('proactiveFeedback', JSON.stringify(feedback));
+          console.log(`[Proactive System] Suspension expired for type "${type}". Resetting stats.`);
+          return false;
+        } else {
+          // Suspend now for 7 days
+          data.suspendedUntil = Date.now() + 7 * 24 * 60 * 60 * 1000;
+          feedback[type] = data;
+          localStorage.setItem('proactiveFeedback', JSON.stringify(feedback));
+          console.log(`[Proactive System] Suspending type "${type}" for 7 days due to negative rate ${negativeRate.toFixed(2)}`);
+          return true;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[Proactive System] Error checking suspension:', e);
+  }
+  return false;
+}
+
+function processProactiveFeedback(userText) {
+  const type = localStorage.getItem('lastProactiveType');
+  const timeStr = localStorage.getItem('lastProactiveTime');
+  if (!type || !timeStr) return;
+  
+  const sentTime = parseInt(timeStr);
+  const now = Date.now();
+  const text = (userText || '').trim();
+  if (!text) return;
+  
+  // Clean up lastProactiveType so we don't process the same proactive message twice
+  localStorage.removeItem('lastProactiveType');
+  localStorage.removeItem('lastProactiveTime');
+  
+  let feedback = {};
+  try {
+    feedback = JSON.parse(localStorage.getItem('proactiveFeedback') || '{}');
+  } catch (e) {
+    console.error('[Feedback Loop] Error parsing proactiveFeedback:', e);
+  }
+  
+  if (!feedback[type]) {
+    feedback[type] = { positive: 0, negative: 0, total: 0 };
+  }
+  
+  const elapsedMs = now - sentTime;
+  const minutesPassed = elapsedMs / (1000 * 60);
+  
+  const positiveKeywords = ['谢谢', '好的', '知道了', '哈哈', '开心', '摸摸', '抱抱', '乖', '真好', '暖心', '感动', '爱', '喜欢', '太好', '嘻嘻', '哒', '谢'];
+  const hasPositiveKeyword = positiveKeywords.some(kw => text.includes(kw));
+  
+  let isPositive = true;
+  if (minutesPassed > 30) {
+    isPositive = false;
+  } else if (text.length < 5 && !hasPositiveKeyword) {
+    isPositive = false;
+  }
+  
+  if (isPositive) {
+    feedback[type].positive = (feedback[type].positive || 0) + 1;
+    console.log(`[Feedback Loop] Positive feedback recorded for "${type}": "${text}"`);
+  } else {
+    feedback[type].negative = (feedback[type].negative || 0) + 1;
+    console.log(`[Feedback Loop] Negative feedback recorded for "${type}" (elapsed: ${minutesPassed.toFixed(1)}m, text: "${text}")`);
+  }
+  feedback[type].total = (feedback[type].total || 0) + 1;
+  
+  localStorage.setItem('proactiveFeedback', JSON.stringify(feedback));
+}
+
 /* ========================================================================= */
 /* ============= LOVESTORY COMPANION OS: PROACTIVE EVENT DETECTOR ========== */
 /* ========================================================================= */
@@ -107,7 +195,7 @@ function detectProactiveEvents() {
           shouldTrigger = true;
         }
         
-        if (shouldTrigger) {
+        if (shouldTrigger && !isProactiveTypeSuspended('reminder')) {
           handledReminders.push(msg.uid);
           localStorage.setItem('handled_reminders', JSON.stringify(handledReminders));
           events.push({
@@ -125,7 +213,7 @@ function detectProactiveEvents() {
     const userMsgs = history.filter(m => m.role === 'user');
     const recentUserMsgs = userMsgs.slice(-10);
     const sadAnxiousMsgs = recentUserMsgs.filter(m => m.emotion === 'sad' || m.emotion === 'anxious');
-    if (sadAnxiousMsgs.length >= 3) {
+    if (sadAnxiousMsgs.length >= 3 && !isProactiveTypeSuspended('emotion_care')) {
       localStorage.setItem('last_emotion_care_date', todayKey);
       events.push({
         type: 'emotion_care',
@@ -143,7 +231,7 @@ function detectProactiveEvents() {
       return h >= 23 || h < 5;
     });
     const lateNightDates = new Set(lateNightMsgs.map(m => new Date(m.ts).toDateString()));
-    if (lateNightDates.size >= 4) {
+    if (lateNightDates.size >= 4 && !isProactiveTypeSuspended('sleep_care')) {
       localStorage.setItem('last_sleep_care_date', todayKey);
       events.push({
         type: 'sleep_care',
@@ -158,7 +246,7 @@ function detectProactiveEvents() {
     const firstMsg = history[0];
     if (firstMsg && firstMsg.ts) {
       const elapsedDays = (now - firstMsg.ts) / (1000 * 60 * 60 * 24);
-      if (elapsedDays >= 3) {
+      if (elapsedDays >= 3 && !isProactiveTypeSuspended('memory_reminder')) {
         localStorage.setItem('last_memory_reminder_date', todayKey);
         events.push({
           type: 'memory_reminder',
@@ -229,6 +317,28 @@ async function triggerProactive(extraInstruction){
       }
     }
 
+    let proactiveType = 'general';
+    if (extraInstruction) {
+      if (extraInstruction.includes('每日回忆')) {
+        proactiveType = 'daily_review';
+      } else {
+        proactiveType = 'manual';
+      }
+    } else if (isPendingAction && pendingActions.length > 0) {
+      proactiveType = pendingActions[0].type;
+    }
+
+    // Check if this type is suspended before executing
+    if (isProactiveTypeSuspended(proactiveType)) {
+      console.log(`[Proactive System] Type "${proactiveType}" is suspended. Aborting trigger.`);
+      if (isPendingAction) {
+        // Remove it from pending list anyway to not get stuck
+        pendingActions.shift();
+        localStorage.setItem('pendingProactiveActions', JSON.stringify(pendingActions));
+      }
+      return;
+    }
+
     let recallItems=[];
     const lastUser=conversationHistory.filter(m=>m.role==='user').pop()?.content||'';
     if(ragEnabled()&&lastUser){try{recallItems=await recall(lastUser);}catch(e){}}
@@ -287,6 +397,10 @@ async function triggerProactive(extraInstruction){
       localStorage.setItem('pendingProactiveActions', JSON.stringify(pendingActions));
     }
     localStorage.setItem(proactiveCountKey, String(proactiveCount + 1));
+    
+    // Record for feedback loop
+    localStorage.setItem('lastProactiveType', proactiveType);
+    localStorage.setItem('lastProactiveTime', String(Date.now()));
     
     showToast('💌 AI 主动发来一条消息');
     if(autoSpeakEnabled()&&voiceEnabled())playTTS(reply,localStorage.getItem('tts_voice_ai'));
@@ -404,3 +518,5 @@ async function manualProactive(){
 window.onProactiveLevelChange = onProactiveLevelChange;
 window.detectProactiveEvents = detectProactiveEvents;
 window.enqueueProactiveActions = enqueueProactiveActions;
+window.processProactiveFeedback = processProactiveFeedback;
+window.isProactiveTypeSuspended = isProactiveTypeSuspended;

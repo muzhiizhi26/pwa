@@ -19,6 +19,7 @@ window.onload=async()=>{
   try { initTheme(); } catch (e) { console.error('initTheme failed', e); }
   try { setupAppIcon(); } catch (e) { console.error('setupAppIcon failed', e); }
   try { applyFontSize(); } catch (e) { console.error('applyFontSize failed', e); }
+  try { if (typeof applyRelationshipDecay === 'function') applyRelationshipDecay(); } catch (e) { console.error('applyRelationshipDecay failed', e); }
   try { loadProviders(); } catch (e) { console.error('loadProviders failed', e); }
   try { loadSettings(); } catch (e) { console.error('loadSettings failed', e); }
   try { applyBackground(); } catch (e) { console.error('applyBackground failed', e); }

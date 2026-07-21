@@ -129,6 +129,13 @@ function isStrictSingleApiChatMode() {
 
 async function sendMessage(){
   if(chatReplying) return;
+  if (typeof applyRelationshipDecay === 'function') {
+    try {
+      applyRelationshipDecay();
+    } catch (e) {
+      console.error('[sendMessage] applyRelationshipDecay failed:', e);
+    }
+  }
   markActivity();
   if (typeof triggerHaptic === 'function') triggerHaptic('medium');
   const input=document.getElementById('messageInput');
@@ -150,6 +157,13 @@ async function sendMessage(){
       memorize('user',text,emotion);
       if (typeof updateRelationshipState === 'function') {
         updateRelationshipState({ userEmotion: emotion, text: text });
+      }
+      if (typeof processProactiveFeedback === 'function') {
+        try {
+          processProactiveFeedback(text);
+        } catch (e) {
+          console.error('[sendMessage] processProactiveFeedback failed:', e);
+        }
       }
       bumpMsgCounter();
       if(!isStrictSingleApiChatMode()&&typeof maybeUpdateLongTerm==='function')maybeUpdateLongTerm(text);
