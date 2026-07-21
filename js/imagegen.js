@@ -703,6 +703,9 @@ window.LovestoryImageDB = {
   },
 
   async put(id, dataUrlOrBlob) {
+    if (!this._db) {
+      await this.init();
+    }
     if (!this._db) return false;
     return new Promise((resolve) => {
       try {
@@ -722,6 +725,9 @@ window.LovestoryImageDB = {
   },
 
   async get(id) {
+    if (!this._db) {
+      await this.init();
+    }
     if (!this._db) return null;
     return new Promise((resolve) => {
       try {
@@ -741,6 +747,9 @@ window.LovestoryImageDB = {
   },
 
   async remove(id) {
+    if (!this._db) {
+      await this.init();
+    }
     if (!this._db) return false;
     return new Promise((resolve) => {
       try {
