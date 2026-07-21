@@ -573,7 +573,7 @@ function renderGroupSettings(){settingsMode='group';document.getElementById('det
   const provOpts=(sel)=>providers.map(p=>p.models.map(mo=>`<option value="${p.id}||${mo.name}" ${sel===p.id+'||'+mo.name?'selected':''}>${p.icon} ${mo.name}</option>`).join('')).join('');
   const cl = getGroupContextLimit();
   const groupCtxValText = cl === Infinity ? '不限制' : cl + ' 条';
-  const groupCtxSliderVal = cl === Infinity ? 60 : Math.min(cl, 60);
+  const groupCtxSliderVal = cl === Infinity ? 200 : Math.min(cl, 200);
 
   const rows=members.map((m,i)=>`
     <div class="model-card" style="flex-direction:column;align-items:stretch;gap:6px;padding:12px;background:var(--bg-card);">
@@ -613,7 +613,7 @@ function renderGroupSettings(){settingsMode='group';document.getElementById('det
               </span>
               <span class="slider-value" id="gpCtxLimitVal-${i}" style="font-size: 11px; font-weight: bold; color: var(--text-main);">${m.contextLimitEnabled ? (m.contextLimit === 'unlimited' ? '不限制' : (m.contextLimit || 18) + ' 条') : '跟随群聊默认'}</span>
             </div>
-            <input type="range" id="gpCtxLimitSlider-${i}" min="1" max="60" step="1" value="${m.contextLimit === 'unlimited' ? 60 : (m.contextLimit || 18)}" ${m.contextLimitEnabled ? '' : 'disabled'} oninput="setMemberCtxLimit(${i}, this.value)" style="height: 4px; padding: 0; margin: 4px 0;">
+            <input type="range" id="gpCtxLimitSlider-${i}" min="1" max="200" step="1" value="${m.contextLimit === 'unlimited' ? 200 : (m.contextLimit || 18)}" ${m.contextLimitEnabled ? '' : 'disabled'} oninput="setMemberCtxLimit(${i}, this.value)" style="height: 4px; padding: 0; margin: 4px 0;">
           </div>
           <!-- 温度 -->
           <div class="slider-row" style="margin: 4px 0 0 0; padding: 0; border: none; background: transparent; box-shadow: none;">
@@ -681,7 +681,7 @@ function renderGroupSettings(){settingsMode='group';document.getElementById('det
         <span class="slider-label" style="font-weight: 500;">💬 群聊上下文消息数量上限</span>
         <span class="slider-value" id="groupCtxLimitVal" style="font-weight: bold; color: var(--text-main);">${groupCtxValText}</span>
       </div>
-      <input type="range" min="1" max="60" step="1" value="${groupCtxSliderVal}" oninput="setGroupContextLimit(this.value)">
+      <input type="range" min="1" max="200" step="1" value="${groupCtxSliderVal}" oninput="setGroupContextLimit(this.value)">
       <div class="form-hint" style="margin-top:4px; font-size:11px; color:var(--text-sub);">拉到最右 = 不限制。控制发送给群聊 AI 的最近记录条数，支持本地和云端备份独立持久化。</div>
     </div>
 
@@ -804,7 +804,7 @@ function getGroupContextLimit() {
 
 function setGroupContextLimit(v) {
   const n = parseInt(v);
-  if (n >= 60) {
+  if (n >= 200) {
     localStorage.setItem('group_context_limit', 'unlimited');
     const el = document.getElementById('groupCtxLimitVal');
     if (el) el.textContent = '不限制';
@@ -837,7 +837,7 @@ function setMemberCtxLimit(i, val) {
   const l = getGroupMembers();
   if (!l[i]) return;
   const n = parseInt(val);
-  if (n >= 60) {
+  if (n >= 200) {
     l[i].contextLimit = 'unlimited';
     const valEl = document.getElementById(`gpCtxLimitVal-${i}`);
     if (valEl) valEl.textContent = '不限制';

@@ -73,7 +73,7 @@ const fn=map[m];
 if(typeof fn==='function')fn();
 else document.getElementById('detailBody').innerHTML='<div class="form-hint">该模块未加载，请检查对应 JS 文件是否报错。</div>';
 };list.appendChild(d);});providers.forEach(p=>{const item=document.createElement('div');item.className=`sidebar-item ${settingsMode==='provider'&&p.id===currentProviderId?'active':''}`;const del=p.locked?'<span class="sidebar-item-lock">🔒</span>':`<button class="sidebar-item-del" onclick="deleteProvider(event,'${p.id}')">✕</button>`;item.innerHTML=`<span class="sidebar-item-icon">${p.icon}</span><span class="sidebar-item-name">${p.name}</span>${del}`;item.onclick=(e)=>{if(!e.target.closest('.sidebar-item-del'))selectProvider(p.id);};list.appendChild(item);});}
-function renderGeneralSettings(){settingsMode='general';document.getElementById('detailTitle').innerHTML='⚙️ 通用设置';const fs=localStorage.getItem('font_size')||'15';const te=localStorage.getItem('temp_enabled')==='true',tv=localStorage.getItem('temperature')||'1';const pe=localStorage.getItem('top_p_enabled')==='true',pv=localStorage.getItem('top_p')||'1';const bg=localStorage.getItem('chat_bg');const cl=getContextLimit();const clTxt=cl===Infinity?'不限制':cl+' 条';const clSliderVal=cl===Infinity?60:Math.min(cl,60);document.getElementById('detailBody').innerHTML=`
+function renderGeneralSettings(){settingsMode='general';document.getElementById('detailTitle').innerHTML='⚙️ 通用设置';const fs=localStorage.getItem('font_size')||'15';const te=localStorage.getItem('temp_enabled')==='true',tv=localStorage.getItem('temperature')||'1';const pe=localStorage.getItem('top_p_enabled')==='true',pv=localStorage.getItem('top_p')||'1';const bg=localStorage.getItem('chat_bg');const cl=getContextLimit();const clTxt=cl===Infinity?'不限制':cl+' 条';const clSliderVal=cl===Infinity?200:Math.min(cl,200);document.getElementById('detailBody').innerHTML=`
     <div class="form-hint" style="margin-bottom: 14px; padding: 10px; border-radius: 8px; border: 1px dashed var(--border); background: var(--bg-hover); color: var(--text-sub); font-size: 11.5px; line-height: 1.5;">💡 <b>提示：</b>AI 昵称、我的昵称、双方头像、长期档案及世界书设定，已统一合并至左侧 <b>🎭 人格与设定</b> 入口中进行一站式管理。</div>
     <div class="form-group" style="margin-top:12px;">
       <label class="form-label">🎨 莫兰迪主题色系</label>
@@ -100,7 +100,7 @@ function renderGeneralSettings(){settingsMode='general';document.getElementById(
     <div class="switch-row"><div class="switch-info"><div class="switch-label">📔 AI 主动写日记</div><div class="switch-desc">默认关闭。开启后每晚 AI 会主动写一篇（当天有聊天时）</div></div><label class="switch"><input type="checkbox" ${localStorage.getItem('diary_auto')==='true'?'checked':''} onchange="setBool('diary_auto',this.checked)"><span class="switch-slider"></span></label></div>
     <div class="switch-row"><div class="switch-info"><div class="switch-label">🔄 每日自动备份</div><div class="switch-desc">默认关闭</div></div><label class="switch"><input type="checkbox" ${autoBackupEnabled()?'checked':''} onchange="setBool('auto_backup',this.checked)"><span class="switch-slider"></span></label></div>
 
-    <div class="slider-row"><div class="slider-head"><span class="slider-label">💬 上下文消息数量上限</span><span class="slider-value" id="ctxLimitVal">${clTxt}</span></div><input type="range" min="2" max="60" step="1" value="${clSliderVal}" oninput="setContextLimit(this.value)"><div class="form-hint">拉到最右 = 不限制。聊天记录本地保存不受此限制。</div></div>
+    <div class="slider-row"><div class="slider-head"><span class="slider-label">💬 上下文消息数量上限</span><span class="slider-value" id="ctxLimitVal">${clTxt}</span></div><input type="range" min="2" max="200" step="1" value="${clSliderVal}" oninput="setContextLimit(this.value)"><div class="form-hint">拉到最右 = 不限制。聊天记录本地保存不受此限制。</div></div>
     <div class="slider-row"><div class="slider-head"><span class="slider-label">🔤 字号</span><span class="slider-value" id="fontVal">${fs}px</span></div><input type="range" min="12" max="22" step="1" value="${fs}" oninput="setFontSize(this.value)"></div>
     <div class="slider-row"><div class="slider-head"><span class="slider-label"><label class="switch" style="width:34px;height:18px;"><input type="checkbox" ${te?'checked':''} onchange="toggleTemp(this.checked)"><span class="switch-slider"></span></label> 🌡️ 温度</span><span class="slider-value" id="tempVal">${te?tv:'未设置'}</span></div><input type="range" id="tempSlider" min="0" max="2" step="0.1" value="${tv}" ${te?'':'disabled'} oninput="setTemp(this.value)"></div>
     <div class="slider-row"><div class="slider-head"><span class="slider-label"><label class="switch" style="width:34px;height:18px;"><input type="checkbox" ${pe?'checked':''} onchange="toggleTopP(this.checked)"><span class="switch-slider"></span></label> 🎯 Top P</span><span class="slider-value" id="topPVal">${pe?pv:'未设置'}</span></div><input type="range" id="topPSlider" min="0" max="1" step="0.05" value="${pv}" ${pe?'':'disabled'} oninput="setTopP(this.value)"></div>
@@ -122,7 +122,7 @@ function renderGeneralSettings(){settingsMode='general';document.getElementById(
     </div>`;
 }
 
-function setContextLimit(v){const n=parseInt(v);if(n>=60){localStorage.setItem('context_limit','unlimited');document.getElementById('ctxLimitVal').textContent='不限制';}else{localStorage.setItem('context_limit',String(n));document.getElementById('ctxLimitVal').textContent=n+' 条';}}
+function setContextLimit(v){const n=parseInt(v);if(n>=200){localStorage.setItem('context_limit','unlimited');document.getElementById('ctxLimitVal').textContent='不限制';}else{localStorage.setItem('context_limit',String(n));document.getElementById('ctxLimitVal').textContent=n+' 条';}}
 
 function renderPersonaSettings() {
   settingsMode = 'persona';
@@ -262,7 +262,7 @@ function renderPersonaSettings() {
                 </span>
                 <span class="slider-value" id="gpCtxLimitVal-p-${i}" style="font-size: 11px; font-weight: bold;">${m.contextLimitEnabled ? (m.contextLimit === 'unlimited' ? '不限制' : (m.contextLimit || 18) + ' 条') : '跟随群聊默认'}</span>
               </div>
-              <input type="range" min="1" max="60" step="1" value="${m.contextLimit === 'unlimited' ? 60 : (m.contextLimit || 18)}" ${m.contextLimitEnabled ? '' : 'disabled'} oninput="setMemberCtxLimitFromPersona(${i}, this.value)" style="height: 4px; padding: 0; margin: 2px 0;">
+              <input type="range" min="1" max="200" step="1" value="${m.contextLimit === 'unlimited' ? 200 : (m.contextLimit || 18)}" ${m.contextLimitEnabled ? '' : 'disabled'} oninput="setMemberCtxLimitFromPersona(${i}, this.value)" style="height: 4px; padding: 0; margin: 2px 0;">
             </div>
             <div class="slider-row" style="margin: 2px 0; padding: 0; border: none; background: transparent; box-shadow: none;">
               <div class="slider-head" style="display: flex; justify-content: space-between; align-items: center;">
@@ -372,7 +372,7 @@ function setMemberCtxLimitFromPersona(i, val) {
   const l = getGroupMembers();
   if (!l[i]) return;
   const n = parseInt(val);
-  if (n >= 60) {
+  if (n >= 200) {
     l[i].contextLimit = 'unlimited';
     const valEl = document.getElementById(`gpCtxLimitVal-p-${i}`);
     if (valEl) valEl.textContent = '不限制';
