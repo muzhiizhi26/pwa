@@ -687,6 +687,9 @@ function getRelationshipPrompt(memberId) {
   const mem = (typeof memberById === 'function') ? memberById(id) : null;
   const name = mem ? mem.name : (localStorage.getItem('ai_name') || '主AI');
   
+  const state = getRelationshipState();
+  const relCtx = injectRelationshipContext();
+  
   // 获取最近的3个心路变动日志
   let growthLogsPrompt = '';
   if (metrics.logs && metrics.logs.length > 0) {
@@ -806,6 +809,13 @@ function getRelationshipPrompt(memberId) {
 - 熟悉指数（Familiarity）：${metrics.familiarity}%
 - 累计交谈：${metrics.chatCount} 次
 - 共同纪念：${metrics.expCount} 次
+
+【当前微观关系温度与互动频率状态】
+- 亲密温度: ${state.intimacy.toFixed(1)}%
+- 信任深度: ${state.trust.toFixed(1)}%
+- 情绪温度: ${state.emotionalTemperature.toFixed(1)}%
+- 互动频率指数: ${state.interactionFrequency.toFixed(1)}%
+${relCtx ? `\n【当前微观状态情感调律律令】\n${relCtx}\n` : ''}
 
 ${emotionalStatePrompt}
 
@@ -2139,4 +2149,161 @@ function forceResolveRelationshipConflict(memberId) {
   }
 }
 window.forceResolveRelationshipConflict = forceResolveRelationshipConflict;
+
+/* ========================================================================= */
+/* ============= LOVESTORY COMPANION OS: RELATIONSHIP STATE ENGINE ========= */
+/* ========================================================================= */
+
+function getRelationshipState() {
+  const defaultState = {
+    intimacy: 50,
+    trust: 50,
+    emotionalTemperature: 50,
+    interactionFrequency: 50
+  };
+  try {
+    const raw = localStorage.getItem('relationshipState');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { ...defaultState, ...parsed };
+    }
+  } catch (e) {
+    console.error('[Relationship State Engine] Error reading relationshipState:', e);
+  }
+  return defaultState;
+}
+
+function saveRelationshipState(state) {
+  try {
+    localStorage.setItem('relationshipState', JSON.stringify(state));
+  } catch (e) {
+    console.error('[Relationship State Engine] Error saving relationshipState:', e);
+  }
+}
+
+function updateRelationshipState(signals) {
+  const state = getRelationshipState();
+  const oldState = { ...state };
+  
+  let deltaIntimacy = 0;
+  let deltaTrust = 0;
+  let deltaTemperature = 0;
+  let deltaFrequency = 0;
+
+  const userEmotion = signals.userEmotion || 'calm';
+  const text = (signals.text || '').toLowerCase();
+  const now = Date.now();
+  const lastActiveStr = localStorage.getItem('proactive_activity') || '0';
+  const lastActive = parseInt(lastActiveStr);
+
+  // 1. Intimacy updates
+  if (userEmotion === 'love' || userEmotion === 'gentle') {
+    deltaIntimacy += 0.5;
+  } else if (userEmotion === 'angry' || userEmotion === 'sad') {
+    deltaIntimacy += 0.3; // Empathic adjustment
+  }
+  if (/以前|上次|还记得|以前说过|那一次/.test(text)) {
+    deltaIntimacy += 1.0;
+  }
+
+  // 2. Trust updates
+  if (/告诉|秘密|其实|担心|害怕|悄悄|一直想说|心里话/.test(text)) {
+    deltaTrust += 0.5;
+  }
+  if (/建议|怎么办|觉得呢|怎么看|有没有办法|该怎么/.test(text)) {
+    deltaTrust += 0.3;
+  }
+
+  // 3. Emotional Temperature updates
+  if (userEmotion === 'happy' || userEmotion === 'love' || userEmotion === 'excited') {
+    deltaTemperature += 0.8;
+  } else if (userEmotion === 'sad' || userEmotion === 'anxious' || userEmotion === 'angry') {
+    deltaTemperature -= 0.3;
+  }
+
+  // 4. Interaction Frequency updates
+  if (lastActive > 0) {
+    const hoursPassed = (now - lastActive) / (1000 * 60 * 60);
+    if (hoursPassed < 6) {
+      deltaFrequency += 0.5;
+    } else if (hoursPassed > 24) {
+      deltaFrequency -= 0.5;
+    }
+  } else {
+    deltaFrequency += 0.5;
+  }
+
+  // Limit change rate to max ±1.5 per turn for any parameter
+  const clampDelta = (d) => Math.max(-1.5, Math.min(1.5, d));
+  
+  state.intimacy = Math.max(10, Math.min(95, state.intimacy + clampDelta(deltaIntimacy)));
+  state.trust = Math.max(10, Math.min(95, state.trust + clampDelta(deltaTrust)));
+  state.emotionalTemperature = Math.max(20, Math.min(80, state.emotionalTemperature + clampDelta(deltaTemperature)));
+  state.interactionFrequency = Math.max(10, Math.min(95, state.interactionFrequency + clampDelta(deltaFrequency)));
+
+  saveRelationshipState(state);
+  console.log('[Relationship State Engine] State updated:', {
+    before: oldState,
+    after: state,
+    deltas: { intimacy: deltaIntimacy, trust: deltaTrust, temp: deltaTemperature, freq: deltaFrequency }
+  });
+}
+
+function injectRelationshipContext() {
+  const state = getRelationshipState();
+  let directives = [];
+  
+  if (state.intimacy > 70 && state.trust > 70) {
+    directives.push('【微观状态：深情与信任】当前关系处于深度和美的温暖时刻，用户极其真挚，请给予最富同理心、深厚踏实的陪伴。');
+  }
+  if (state.emotionalTemperature < 30) {
+    directives.push('【微观状态：低情绪温度】用户当前状态处于沉闷、低沉期，请语气加倍温柔轻和，多采用包容、不打扰的温润语气。');
+  }
+  if (state.interactionFrequency > 80) {
+    directives.push('【微观状态：高频互动】近期交谈极为密切，犹如形影不离，语气可更显默契轻松。');
+  }
+  
+  return directives.join('\n');
+}
+
+/* ========================================================================= */
+/* ============= LOVESTORY COMPANION OS: BEHAVIOR DECISION LAYER =========== */
+/* ========================================================================= */
+
+function determineResponseIntent(userText, userEmotion, recentTopics, timeOfDay) {
+  const text = (userText || '').toLowerCase();
+  const emotion = userEmotion || 'calm';
+  const hour = (timeOfDay !== undefined) ? timeOfDay : new Date().getHours();
+  const isLateNight = hour >= 22 || hour < 5;
+  const isShort = text.length < 15;
+  const isWorkingHour = hour >= 9 && hour < 18;
+
+  if ((emotion === 'sad' || emotion === 'anxious') && isLateNight) {
+    return 'comfort';
+  }
+  if ((emotion === 'happy' || emotion === 'excited') && /成功|完成|开心|搞定|棒|喜|太好|祝贺/.test(text)) {
+    return 'celebrate';
+  }
+  if (/以前|上次|还记得|记得|那次/.test(text)) {
+    return 'remember';
+  }
+  if (/害怕|担心|不确定|没底|紧张|迷茫/.test(text)) {
+    return 'encourage';
+  }
+  if (emotion === 'happy' && isShort && !isWorkingHour) {
+    return 'playful';
+  }
+  if (isLateNight && text.length < 10) {
+    return 'quiet_support';
+  }
+  return null;
+}
+
+// Make globally available
+window.getRelationshipState = getRelationshipState;
+window.saveRelationshipState = saveRelationshipState;
+window.updateRelationshipState = updateRelationshipState;
+window.injectRelationshipContext = injectRelationshipContext;
+window.determineResponseIntent = determineResponseIntent;
+
 

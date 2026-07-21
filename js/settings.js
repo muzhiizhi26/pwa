@@ -489,6 +489,15 @@ function renderMemorySettings(){
   if (typeof renderMemoryBridgeDashboard === 'function') {
     document.getElementById('detailBody').appendChild(renderMemoryBridgeDashboard());
   }
+
+  // Lovestory Companion OS: Append Growth and Experience Dashboard
+  const container = document.createElement('div');
+  container.id = 'companion-dashboard';
+  container.style.marginTop = '24px';
+  document.getElementById('detailBody').appendChild(container);
+  if (typeof renderCompanionDashboard === 'function') {
+    renderCompanionDashboard(container);
+  }
 }
 async function applyMemTrim(){if(document.getElementById('memMaxLocal'))localStorage.setItem('mem_max_local',document.getElementById('memMaxLocal').value||'10000');if(document.getElementById('memMaxRemote'))localStorage.setItem('mem_max_remote',document.getElementById('memMaxRemote').value||'5000');await trimVectorStore();showToast('✅ 已按上限清理');renderMemorySettings();}
 function renderVoiceSettings(){settingsMode='voice';document.getElementById('detailTitle').innerHTML='🔊 语音设置';const key=localStorage.getItem('voice_key')||'';const sel=localStorage.getItem('tts_model')||getTtsModels()[0]||'';const sttModel=localStorage.getItem('stt_model')||'FunAudioLLM/SenseVoiceSmall';const vlist=JSON.parse(localStorage.getItem('voice_list')||'[]');const aiV=localStorage.getItem('tts_voice_ai')||'';const userV=localStorage.getItem('tts_voice_user')||'';const opt=(cur)=>`<option value="">默认音色</option>`+vlist.map(v=>`<option value="${v}" ${cur===v?'selected':''}>${v}</option>`).join('');const models=getTtsModels();const rows=models.map((m,i)=>`<div class="list-row"><input type="radio" name="ttsSel" class="sel-radio" ${m===sel?'checked':''} onclick="selectTts('${m.replace(/'/g,"\\'")}')"><input type="text" value="${m}" onchange="editTtsModel(${i},this.value)"><button class="del-x" onclick="delTtsModel(${i})">✕</button></div>`).join('');document.getElementById('detailBody').innerHTML=`
@@ -993,3 +1002,243 @@ function onCustomAccentChange(val){
   localStorage.setItem('theme_custom_accent', val);
   applyTheme('custom');
 }
+
+/* ========================================================================= */
+/* ============= LOVESTORY COMPANION OS: COMPONENT DASHBOARDS ============= */
+/* ========================================================================= */
+
+async function renderCompanionDashboard(container) {
+  const currentAi = localStorage.getItem('current_private_ai') || 'main';
+  const p = window.getAiPersonality ? window.getAiPersonality(currentAi) : { gentleness: 80, initiative: 60, humor: 70, attachment: 50 };
+  const state = window.getRelationshipState ? window.getRelationshipState() : { intimacy: 50, trust: 50, emotionalTemperature: 50, interactionFrequency: 50 };
+  
+  // 0. Relationship State Engine Grid
+  let html = `
+    <div class="model-section-header" style="margin-top:12px;"><span>🌡️ Lovestory OS 关系状态引擎 (Relationship Vibe)</span></div>
+    <div style="font-size:11px; color:var(--text-sub); margin-bottom:8px; line-height:1.4;">基于微观情绪、近期交互深度与互动频率，多维测算出的深层情感调律指数。</div>
+    <div class="relationship-state-grid" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px; margin-top:8px; margin-bottom:16px;">
+      <div class="stat-box" style="flex-direction:column; align-items:flex-start; padding:10px 14px; background:rgba(240, 98, 146, 0.05); border:1px solid rgba(240, 98, 146, 0.1); border-radius:12px; width:100%;">
+        <span style="font-size:11px; color:var(--text-sub);">💖 亲密温度 (Intimacy)</span>
+        <b style="font-size:18px; color:#F06292; margin-top:4px;">${state.intimacy.toFixed(1)}%</b>
+      </div>
+      <div class="stat-box" style="flex-direction:column; align-items:flex-start; padding:10px 14px; background:rgba(79, 195, 247, 0.05); border:1px solid rgba(79, 195, 247, 0.1); border-radius:12px; width:100%;">
+        <span style="font-size:11px; color:var(--text-sub);">🤝 信任深度 (Trust)</span>
+        <b style="font-size:18px; color:#4FC3F7; margin-top:4px;">${state.trust.toFixed(1)}%</b>
+      </div>
+      <div class="stat-box" style="flex-direction:column; align-items:flex-start; padding:10px 14px; background:rgba(255, 183, 77, 0.05); border:1px solid rgba(255, 183, 77, 0.1); border-radius:12px; width:100%;">
+        <span style="font-size:11px; color:var(--text-sub);">🔥 情绪温度 (Temperature)</span>
+        <b style="font-size:18px; color:#FFB74D; margin-top:4px;">${state.emotionalTemperature.toFixed(1)}%</b>
+      </div>
+      <div class="stat-box" style="flex-direction:column; align-items:flex-start; padding:10px 14px; background:rgba(129, 199, 132, 0.05); border:1px solid rgba(129, 199, 132, 0.1); border-radius:12px; width:100%;">
+        <span style="font-size:11px; color:var(--text-sub);">⚡ 互动频率 (Frequency)</span>
+        <b style="font-size:18px; color:#81C784; margin-top:4px;">${state.interactionFrequency.toFixed(1)}%</b>
+      </div>
+    </div>
+  `;
+  
+  // 1. Personality Growth Parameters Card
+  html += `
+    <div class="model-section-header" style="margin-top:24px;"><span>🧬 AI 人格特质成长系统 (AI Growth OS)</span></div>
+    <div class="personality-grid" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px; margin-top:8px;">
+      <div class="stat-box" style="flex-direction:column; align-items:flex-start; padding:10px 14px; background:rgba(var(--accent-rgb, 186, 104, 200), 0.05); border:1px solid rgba(var(--accent-rgb, 186, 104, 200), 0.1); border-radius:12px; width:100%;">
+        <span style="font-size:11px; color:var(--text-sub);">温柔度 (Gentleness)</span>
+        <b style="font-size:18px; color:var(--accent); margin-top:4px;">${p.gentleness.toFixed(1)}%</b>
+      </div>
+      <div class="stat-box" style="flex-direction:column; align-items:flex-start; padding:10px 14px; background:rgba(var(--accent-rgb, 186, 104, 200), 0.05); border:1px solid rgba(var(--accent-rgb, 186, 104, 200), 0.1); border-radius:12px; width:100%;">
+        <span style="font-size:11px; color:var(--text-sub);">主动性 (Initiative)</span>
+        <b style="font-size:18px; color:var(--accent); margin-top:4px;">${p.initiative.toFixed(1)}%</b>
+      </div>
+      <div class="stat-box" style="flex-direction:column; align-items:flex-start; padding:10px 14px; background:rgba(var(--accent-rgb, 186, 104, 200), 0.05); border:1px solid rgba(var(--accent-rgb, 186, 104, 200), 0.1); border-radius:12px; width:100%;">
+        <span style="font-size:11px; color:var(--text-sub);">幽默度 (Humor)</span>
+        <b style="font-size:18px; color:var(--accent); margin-top:4px;">${p.humor.toFixed(1)}%</b>
+      </div>
+      <div class="stat-box" style="flex-direction:column; align-items:flex-start; padding:10px 14px; background:rgba(var(--accent-rgb, 186, 104, 200), 0.05); border:1px solid rgba(var(--accent-rgb, 186, 104, 200), 0.1); border-radius:12px; width:100%;">
+        <span style="font-size:11px; color:var(--text-sub);">依恋度 (Attachment)</span>
+        <b style="font-size:18px; color:var(--accent); margin-top:4px;">${p.attachment.toFixed(1)}%</b>
+      </div>
+    </div>
+    <div class="action-buttons" style="margin-top:12px;">
+      <button class="btn btn-warning" onclick="resetPersonalityParameters('${currentAi}')" style="width:100%; border-radius:12px; font-weight:600; padding:10px 14px; font-size:12px;">重置人格特征成长指标</button>
+    </div>
+  `;
+
+  // 2. Memory Lifecycle Management
+  try {
+    const allMems = await VDB.all();
+    const activeMems = allMems.filter(m => (m.status || 'active') === 'active');
+    const stableMems = allMems.filter(m => m.status === 'stable');
+    const fadingMems = allMems.filter(m => m.status === 'fading');
+    const archivedMems = allMems.filter(m => m.status === 'archived');
+    
+    html += `
+      <div class="model-section-header" style="margin-top:24px;"><span>📂 记忆生命周期可视化空间 (Memory Lifecycle)</span></div>
+      <div style="font-size:11px; color:var(--text-sub); margin-bottom:12px; line-height:1.4;">系统根据关联频率和时间自动对记忆执行指数级衰退与升级归档，极力解决海量口水记忆稀释对重要记忆的影响。</div>
+      
+      <!-- Lifecycle tab controls -->
+      <div style="display:flex; gap:6px; margin-bottom:12px;">
+        <button id="tab-active" class="btn btn-info" onclick="toggleLifecycleTab('active')" style="flex:1; font-size:11px; padding:6px 2px; border-radius:8px;">活跃 (${activeMems.length})</button>
+        <button id="tab-stable" class="btn" onclick="toggleLifecycleTab('stable')" style="flex:1; font-size:11px; padding:6px 2px; border-radius:8px; background:none; border:1px solid var(--border-color); color:var(--text-sub);">稳态 (${stableMems.length})</button>
+        <button id="tab-fading" class="btn" onclick="toggleLifecycleTab('fading')" style="flex:1; font-size:11px; padding:6px 2px; border-radius:8px; background:none; border:1px solid var(--border-color); color:var(--text-sub);">衰退 (${fadingMems.length})</button>
+        <button id="tab-archived" class="btn" onclick="toggleLifecycleTab('archived')" style="flex:1; font-size:11px; padding:6px 2px; border-radius:8px; background:none; border:1px solid var(--border-color); color:var(--text-sub);">归档 (${archivedMems.length})</button>
+      </div>
+
+      <div id="lifecycle-content" style="max-height:240px; overflow-y:auto; border:1px solid var(--border-color); border-radius:12px; padding:10px; background:rgba(0,0,0,0.02); display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+        <!-- Filled dynamically -->
+      </div>
+    `;
+  } catch (err) {
+    console.error('[Lifecycle UI] Error rendering memories:', err);
+  }
+
+  // 3. Experience Layer Display
+  try {
+    const experiences = window.ExperienceStore ? await window.ExperienceStore.all() : [];
+    
+    html += `
+      <div class="model-section-header" style="margin-top:24px;"><span>💫 回忆画卷与共同经历 (Shared Experiences Canvas)</span></div>
+      <div style="font-size:11px; color:var(--text-sub); margin-bottom:12px; line-height:1.4;">收录你与角色互动共鸣最深切、最具成长纪念意义的那些高情绪经历。</div>
+      <div style="max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;">
+    `;
+    
+    if (experiences.length === 0) {
+      html += `
+        <div style="text-align:center; padding:24px 10px; border:1.5px dashed var(--border-color); border-radius:16px; color:var(--text-light); font-size:11px;">
+          🔮 尚未凝聚属于你们的共同成长里程碑。通过日常互动或高能量事件共鸣触发自动收录。
+        </div>
+      `;
+    } else {
+      experiences.sort((a,b) => b.lastRecalledAt - a.lastRecalledAt).forEach(exp => {
+        const icons = { milestone: '🏆', shared_event: '🌟', achievement: '🎓' };
+        const icon = icons[exp.type] || '💫';
+        const typeLabel = exp.type === 'milestone' ? '重大里程碑' : exp.type === 'achievement' ? '成长印记' : '共同瞬间';
+        
+        html += `
+          <div style="padding:12px; border:1px solid var(--border-color); border-radius:16px; background:#fff; display:flex; flex-direction:column; gap:6px; box-shadow:0 1.5px 4px rgba(0,0,0,0.02); transition:all 0.2s ease;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:9.5px; font-weight:700; color:var(--accent); background:rgba(var(--accent-rgb, 186, 104, 200),0.08); padding:2px 8px; border-radius:12px;">${icon} ${typeLabel}</span>
+              <span style="font-size:9.5px; color:var(--text-light);">${exp.createdAt}</span>
+            </div>
+            <div style="font-weight:600; font-size:12.5px; color:var(--text-color); margin-top:2px;">${exp.title}</div>
+            <div style="font-size:10px; color:var(--text-sub); display:flex; justify-content:space-between; align-items:center; border-top:1px solid rgba(0,0,0,0.03); padding-top:6px; margin-top:4px;">
+              <span>共鸣浓度: 💓 ${exp.importance || 70}%</span>
+              <button onclick="deleteExperience('${exp.id}')" style="background:none; border:none; color:#E53935; font-size:10px; cursor:pointer; padding:2px 6px;">✕ 遗忘此经历</button>
+            </div>
+          </div>
+        `;
+      });
+    }
+    
+    html += `</div>`;
+  } catch (err) {
+    console.error('[Experience UI] Error rendering experiences:', err);
+  }
+
+  container.innerHTML = html;
+  
+  // Show default tab on load
+  toggleLifecycleTab('active');
+}
+
+function resetPersonalityParameters(aiId) {
+  if (!confirm('确认重置该 AI 角色的人格特征指标吗？此操作将重新平衡成长特征。')) return;
+  const key = `ai_personality_${aiId}`;
+  localStorage.removeItem(key);
+  showToast('✅ 人格特质参数已成功重置');
+  renderMemorySettings();
+}
+
+async function deleteExperience(id) {
+  if (!confirm('确定将这段共鸣回忆从共同经历画卷中抹去吗？')) return;
+  if (window.ExperienceStore) {
+    await window.ExperienceStore.delete(id);
+    showToast('🗑️ 共同经历已移除');
+    renderMemorySettings();
+  }
+}
+
+async function toggleLifecycleTab(status) {
+  // Update button active states
+  ['active', 'stable', 'fading', 'archived'].forEach(s => {
+    const btn = document.getElementById(`tab-${s}`);
+    if (!btn) return;
+    if (s === status) {
+      btn.className = 'btn btn-info';
+      btn.style.background = 'var(--accent)';
+      btn.style.color = '#fff';
+      btn.style.border = 'none';
+    } else {
+      btn.className = 'btn';
+      btn.style.background = 'none';
+      btn.style.border = '1px solid var(--border-color)';
+      btn.style.color = 'var(--text-sub)';
+    }
+  });
+
+  // Render list
+  const contentDiv = document.getElementById('lifecycle-content');
+  if (!contentDiv) return;
+  contentDiv.innerHTML = '<div style="font-size:11px; text-align:center; padding:12px; color:var(--text-light);">加载中...</div>';
+  
+  try {
+    const allMems = await VDB.all();
+    const filtered = allMems.filter(m => {
+      const curStatus = m.status || 'active';
+      return curStatus === status;
+    });
+
+    if (filtered.length === 0) {
+      contentDiv.innerHTML = `<div style="font-size:11px; text-align:center; padding:16px; color:var(--text-light);">📭 该阶段暂无记忆节点</div>`;
+      return;
+    }
+
+    contentDiv.innerHTML = filtered.map(m => {
+      const score = m.importance_score || m.importance || 30;
+      const dateStr = new Date(m.ts).toLocaleDateString();
+      const tags = m.topicTags || [];
+      const tagsHtml = tags.length ? `<span style="font-size:8.5px; color:var(--accent); background:rgba(var(--accent-rgb, 186, 104, 200),0.06); padding:1px 5px; border-radius:4px; margin-right:4px;">${tags.join('/')}</span>` : '';
+      
+      let actionBtn = '';
+      if (status !== 'archived') {
+        actionBtn = `<button onclick="manuallyArchiveMemory('${m.id}')" title="强制归档" style="background:none; border:1px solid var(--border-color); border-radius:6px; font-size:9px; padding:2px 6px; cursor:pointer; color:var(--text-sub); margin-right:4px;">归档</button>`;
+      }
+      const deleteBtn = `<button onclick="manuallyDeleteMemory('${m.id}')" title="彻底遗忘" style="background:none; border:1px solid #FFCDD2; border-radius:6px; font-size:9px; padding:2px 6px; cursor:pointer; color:#C62828;">遗忘</button>`;
+
+      return `
+        <div style="display:flex; flex-direction:column; gap:4px; padding:8px 10px; border:1px solid var(--border-color); border-radius:10px; background:#fff; font-size:11.5px; text-align:left;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:9px; color:var(--text-light);">
+            <span>📅 ${dateStr} · 权重: ${score} · 提级数: ${m.mention_count || 1}</span>
+            <div style="display:flex;">${actionBtn}${deleteBtn}</div>
+          </div>
+          <div style="color:var(--text-color); font-weight:500; word-break:break-all; line-height:1.4;">${tagsHtml}${m.text}</div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    contentDiv.innerHTML = `<div style="font-size:11px; color:#C62828; text-align:center; padding:12px;">加载失败: ${err.message}</div>`;
+  }
+}
+
+async function manuallyArchiveMemory(id) {
+  if (!confirm('确定手动归档该记忆节点吗？归档后普通对话将无法检索，仅作为深层历史沉淀。')) return;
+  const item = await VDB.get(id);
+  if (item) {
+    item.status = 'archived';
+    await VDB.put(item);
+    showToast('🧠 记忆已成功归档');
+    renderMemorySettings();
+  }
+}
+
+async function manuallyDeleteMemory(id) {
+  if (!confirm('确定彻底遗忘这段记忆吗？该操作不可撤销。')) return;
+  await VDB.del(id);
+  showToast('🗑️ 记忆已彻底遗忘');
+  renderMemorySettings();
+}
+
+window.renderCompanionDashboard = renderCompanionDashboard;
+window.resetPersonalityParameters = resetPersonalityParameters;
+window.deleteExperience = deleteExperience;
+window.toggleLifecycleTab = toggleLifecycleTab;
+window.manuallyArchiveMemory = manuallyArchiveMemory;
+window.manuallyDeleteMemory = manuallyDeleteMemory;

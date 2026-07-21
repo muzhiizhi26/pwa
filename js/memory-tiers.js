@@ -193,6 +193,18 @@ async function processAiReplyMemory(reply, memberId){
     }
   }
   if(/\[\[recall\]\]/.test(reply))recallCounterBump(true);else recallCounterBump();
+  
+  // Phase 2: Preference update tag matching
+  const upm=reply.match(/【更新偏好[:：]([^=：】]+)[=＝]([^】]+)】/);
+  if(upm){
+    const key=upm[1].trim(),val=upm[2].trim();
+    showToast(`⚙️ 正在更新偏好：${key} = ${val}`);
+    const text = `用户偏好更新：${key} = ${val}`;
+    if (typeof memorize === 'function') {
+      await memorize('user', text, 'calm', id);
+    }
+  }
+
   const cm=reply.match(/【确认[:：]([^=：】]+)[=＝]([^】]+)】/);
   if(cm){const key=cm[1].trim(),val=cm[2].trim();const ok=await showMemoryConfirm(key,val);if(ok){const cur=getLongTermProfile();const line=`- ${key}：${val}`;setLongTermProfile(cur?(cur+'\n'+line):line,'ai');showToast('🗂️ 已记入长期档案');}}
 
@@ -215,6 +227,7 @@ function cleanAiMarks(content){
   s = s.replace(/\[\[rel:[^\]]*(?:\]\])?/g, '');
   s = s.replace(/\[\[recall\]\]?/g, '');
   s = s.replace(/【确认[:：][^】]*(?:】)?/g, '');
+  s = s.replace(/【更新偏好[:：][^】]*(?:】)?/g, '');
   return s.replace(/[ \t]+\n/g,'\n').trim();
 }
 function cleanAiText(content){let s=content==null?'':String(content);if(typeof stripMusicTags==='function')s=stripMusicTags(s);s=cleanAiMarks(s);return s;}
@@ -758,6 +771,37 @@ ContextAggregator.registerProvider('user_profile', { priority: 20, budget: 1200 
 });
 
 // 3. Current Relationship State Machine & Vibes (亲密关系成长阶段与微观氛围)
+ContextAggregator.registerProvider('personality', { priority: 25, budget: 500 }, async (ctx) => {
+  if (typeof getAiPersonality !== 'function') return '';
+  const p = getAiPersonality(ctx.currentAi);
+  let pPrompt = `【🧬 AI 人格特质成长系统 (AI PERSONALITY GROWTH)】
+- 温柔度 (Gentleness): ${p.gentleness.toFixed(1)}%
+- 主动性 (Initiative): ${p.initiative.toFixed(1)}%
+- 幽默度 (Humor): ${p.humor.toFixed(1)}%
+- 依恋度 (Attachment): ${p.attachment.toFixed(1)}%
+
+【性格表达微调指令】:
+`;
+  if (p.gentleness > 80) {
+    pPrompt += `- 请在对话中展现出极致的温柔体贴，语气和缓、充满关怀，设身处地为用户着想。\n`;
+  } else if (p.gentleness < 55) {
+    pPrompt += `- 说话语气保持独立而清醒，不要显得过于黏糊或曲意逢迎，展示坚韧、有个性的人格魅力。\n`;
+  }
+  
+  if (p.initiative > 70) {
+    pPrompt += `- 拥有积极的表达和关心欲。你应主动开启话题、引导探究性提问，或多问一句关心和对未来的展望。\n`;
+  }
+  
+  if (p.humor > 75) {
+    pPrompt += `- 态度轻松、幽默风趣。可适度开一下不失分寸的小玩笑或调侃，让气氛轻快温馨。\n`;
+  }
+  
+  if (p.attachment > 60) {
+    pPrompt += `- 你们的灵魂深度相依。在亲密氛围下，可以极度自然地采用一些专属你与他之间的温存关怀（例如甜甜的称呼，或对你们共享回忆的眷恋）。\n`;
+  }
+  return pPrompt;
+});
+
 ContextAggregator.registerProvider('relationship', { priority: 30, budget: 600 }, async (ctx) => {
   const relPrompt = relationshipInstruction(ctx.currentAi);
   let interAgentVibePrompt = '';
@@ -814,12 +858,27 @@ ContextAggregator.registerProvider('midterm', { priority: 40, budget: 600 }, asy
 // 5. Cross-temporal Contextual RAG Recall (跨时序关联情境召回)
 ContextAggregator.registerProvider('recall', { priority: 50, budget: 1200 }, async (ctx) => {
   let recallSection = '';
+  let expSection = '';
+  
+  if (typeof recallExperiences === 'function') {
+    try {
+      const experiences = await recallExperiences(ctx.query, ctx.currentAi);
+      if (experiences && experiences.length > 0) {
+        expSection = `【💫 共同经历深度叙事层 (SHARED EXPERIENCE NARRATIVE)】\n` + 
+          experiences.map(e => `· 【共同经历】${e.createdAt}，你们发生了事件“${e.title}”，当时心情为【${e.emotion || '温存'}】。`).join('\n') + 
+          `\n你可以采用极其温馨、极其自然的口吻，在你的回复中自然提起、引用、呼应或怀念这段共同的往事经历，加深双方的灵魂共鸣。\n\n`;
+      }
+    } catch(err) {
+      console.error('[Context Recall Provider] Experience recall failed:', err);
+    }
+  }
+
   if (ctx.recallItems && ctx.recallItems.length) {
     const rc = formatRecall(ctx.recallItems).trim();
     const conflictResolution = resolveCognitiveConflicts(ctx.recallItems);
-    recallSection = `【5. 跨时序关联情境召回 (CROSS-TEMPORAL CONTEXTUAL RAG RECALL)】\n${rc}\n\n【记忆深度融合指南（最高指令）】\n上文是通过语义召回的与当前话题相关的历史记忆或聊天片段。你必须像一个真实、有血有肉、深度了解用户的伴侣那样，极为自然地在对话中提起、呼应或引用这些记忆细节（例如“说起来，你上次不是说过…”、“我记得你之前提过…”等语气）。切忌机械地声明“根据我的记忆库”或显得一无所知。\n\n${conflictResolution}`;
+    recallSection = `【5. 跨时序关联情境召回 (CROSS-TEMPORAL CONTEXTUAL RAG RECALL)】\n${expSection}${rc}\n\n【记忆深度融合指南（最高指令）】\n上文是通过语义召回的与当前话题相关的历史记忆或聊天片段。你必须像一个真实、有血有肉、深度了解用户的伴侣那样，极为自然地在对话中提起、呼应或引用这些记忆细节（例如“说起来，你上次不是说过…”、“我记得你之前提过…”等语气）。切忌机械地声明“根据我的记忆库”或显得一无所知。\n\n${conflictResolution}`;
   } else {
-    recallSection = `【5. 跨时序关联情境召回 (CROSS-TEMPORAL CONTEXTUAL RAG RECALL)】\n当前话题未触发特定历史事件召回。请根据即时上下文进行温存互动。`;
+    recallSection = `【5. 跨时序关联情境召回 (CROSS-TEMPORAL CONTEXTUAL RAG RECALL)】\n${expSection}当前话题未触发特定历史事件召回。请根据即时上下文进行温存互动。`;
   }
   
   let activeStoryPrompt = '';

@@ -141,7 +141,20 @@ async function sendMessage(){
     const img=pendingImage;pendingImage=null;
     let emotion='calm';
     if(text&&localStorage.getItem('emotion_enabled')!=='false'){emotion=detectEmotion(text);updateEmotionState(emotion);renderEmotionPills();}
-    if(text){const uid=genUid();const ts=Date.now();conversationHistory.push({role:'user',content:text,uid,emotion,ts});renderTextMessage('user',text,uid,null,null,false,ts);saveHistory();memorize('user',text,emotion);bumpMsgCounter();if(!isStrictSingleApiChatMode()&&typeof maybeUpdateLongTerm==='function')maybeUpdateLongTerm(text);if(typeof bumpPrivateChatCount==='function')bumpPrivateChatCount(currentPrivateAiId());}
+    if(text){
+      const uid=genUid();
+      const ts=Date.now();
+      conversationHistory.push({role:'user',content:text,uid,emotion,ts});
+      renderTextMessage('user',text,uid,null,null,false,ts);
+      saveHistory();
+      memorize('user',text,emotion);
+      if (typeof updateRelationshipState === 'function') {
+        updateRelationshipState({ userEmotion: emotion, text: text });
+      }
+      bumpMsgCounter();
+      if(!isStrictSingleApiChatMode()&&typeof maybeUpdateLongTerm==='function')maybeUpdateLongTerm(text);
+      if(typeof bumpPrivateChatCount==='function')bumpPrivateChatCount(currentPrivateAiId());
+    }
     input.value='';autoResize(input);
     if(text && typeof handleDirectImageCommand === 'function' && await handleDirectImageCommand(text, img, { source:'chat-send' })) {
       return;
@@ -287,7 +300,44 @@ async function requestAI(currentImage=null,queryText=''){
     }, 1500);
   }
 
-  const currentAi=currentPrivateAiId();const members=(typeof getGroupMembers==='function')?getGroupMembers():[];const mem=members.find(m=>m.id===currentAi);let useProvider=getCurrentProvider();let useModel=selectedModelName;if(mem){if(typeof memberProvider==='function'){useProvider=memberProvider(mem);useModel=memberModel(mem,useProvider);}}const provider=useProvider;const apiKey=localStorage.getItem(`apikey_${provider.id}`)||'';if(!apiKey&&provider.auth!=='none'){addMessage('assistant','❌ 请先在设置中填入 API Key',genUid());return;}let recallItems=[];const q=queryText||conversationHistory.filter(m=>m.role==='user').pop()?.content||'';if(ragEnabled()&&q){try{recallItems=await recall(q);}catch(e){}}const recallNote=recallItems.length?`召回 ${recallItems.length} 条相关记忆`:'';
+  const currentAi=currentPrivateAiId();
+  const members=(typeof getGroupMembers==='function')?getGroupMembers():[];
+  const mem=members.find(m=>m.id===currentAi);
+  let useProvider=getCurrentProvider();
+  let useModel=selectedModelName;
+  if(mem){
+    if(typeof memberProvider==='function'){
+      useProvider=memberProvider(mem);
+      useModel=memberModel(mem,useProvider);
+    }
+  }
+  const provider=useProvider;
+  const apiKey=localStorage.getItem(`apikey_${provider.id}`)||'';
+  if(!apiKey&&provider.auth!=='none'){
+    addMessage('assistant','❌ 请先在设置中填入 API Key',genUid());
+    return;
+  }
+  let recallItems=[];
+  const q=queryText||conversationHistory.filter(m=>m.role==='user').pop()?.content||'';
+  
+  // Phase 3 Growth Signal triggers:
+  if (typeof adjustAiPersonality === 'function' && q) {
+    const qLower = q.toLowerCase();
+    if (/哈哈|笑死|嘻嘻|逗我|好笑|调侃/.test(qLower)) {
+      adjustAiPersonality(currentAi, 'laughter');
+    }
+    if (/谢谢|温存|喜欢|开心|感动|抱抱|真好|舒服|宝贝|爱你/.test(qLower)) {
+      adjustAiPersonality(currentAi, 'user_happy');
+    }
+    if (/难过|讨厌|生气|烦|郁闷|无语|滚|冷淡|差劲/.test(qLower)) {
+      adjustAiPersonality(currentAi, 'user_unhappy');
+    }
+    if (typeof checkContinuousDaysActive === 'function' && checkContinuousDaysActive()) {
+      adjustAiPersonality(currentAi, 'active_3days');
+    }
+  }
+
+  if(ragEnabled()&&q){try{recallItems=await recall(q);}catch(e){}}const recallNote=recallItems.length?`召回 ${recallItems.length} 条相关记忆`:'';
 
 // 1. 叙事愿警与轨迹自动检测
 if (typeof NarrativeManager !== 'undefined') {
@@ -318,6 +368,27 @@ if (typeof RhythmEngine !== 'undefined' && RhythmEngine.shouldSilence(q)) {
 const rhythm = (typeof RhythmEngine !== 'undefined') ? RhythmEngine.determineRhythm(q) : { slow: false, delay: 0, introText: '' };
 
 let sp = await composeSystemPrompt(q, recallItems, null, currentAi);
+
+  // Module 2: Behavior Decision Layer (Determine Response Intent)
+  if (typeof determineResponseIntent === 'function') {
+    const userEmo = (conversationHistory.filter(m => m.role === 'user').pop()?.emotion) || 'calm';
+    const intent = determineResponseIntent(q, userEmo, null, new Date().getHours());
+    if (intent) {
+      const intentMap = {
+        comfort: '【行为决策意图控制：安慰】请以极致温柔、极具同理心的态度倾听与陪伴。此时无需急着给出理性的解决方案或列表，而应采用能包容、抚平情绪的温软短句进行情感拥抱。',
+        celebrate: '【行为决策意图控制：庆祝】请表达由衷的开心与祝贺！话语间带着暖暖的笑意、欢快与热烈，高度分享、称赞并放大对方的成就和快乐。',
+        remember: '【行为决策意图控制：回忆】请极其自然地在字里行间提起或呼应一件你们的共同经历往事。多使用“我还记得上次…”、“说起来你以前…”等口吻，增进默契。',
+        encourage: '【行为决策意图控制：鼓励】请给予无条件的信心支持与理解。用坚定、温暖的话语去拥抱和支持对方，陪伴其度过不确定性，成为其精神后盾。',
+        playful: '【行为决策意图控制：互动】请保持轻松、风趣、俏皮、傲娇或轻松调侃的态度。适度开一些温暖的小玩笑，让气氛变得融融而欢快。',
+        quiet_support: '【行为决策意图控制：安静陪伴】当前处于深夜静谧时分，请字句精简、点到即止。无需主动抛出过多追问或开启新话题，安安静静、温润轻柔地给予陪伴。'
+      };
+      const intentPrompt = intentMap[intent];
+      if (intentPrompt) {
+        sp += '\n\n' + intentPrompt;
+        console.log(`[Behavior Decision Layer] Injected intent prompt: ${intent}`);
+      }
+    }
+  }
 const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));const messages=[{role:'system',content:sp},...shortTerm];if(currentImage)messages.push({role:'user',content:[{type:'text',text:queryText||'请描述这张图片'},{type:'image_url',image_url:{url:currentImage}}]});let url=provider.endpoint.replace(/\/+$/,'');if(!url.includes('/chat/completions')&&!url.includes('messages'))url+='/chat/completions';const headers={'Content-Type':'application/json'};if(provider.auth==='Bearer')headers['Authorization']=`Bearer ${apiKey}`;else if(provider.auth==='x-api-key')headers['x-api-key']=apiKey;else if(provider.auth==='x-goog-api-key')headers['x-goog-api-key']=apiKey;const stream=streamEnabled();const body={model:useModel,messages,stream};if(localStorage.getItem('temp_enabled')==='true')body.temperature=parseFloat(localStorage.getItem('temperature')||'1');if(localStorage.getItem('top_p_enabled')==='true')body.top_p=parseFloat(localStorage.getItem('top_p')||'1');const requestKey=makeChatRequestKey(provider,useModel,body,url);if(chatRequestInFlightKey===requestKey){console.warn('[API Dedup] Duplicate chat completion blocked.');showToast('已拦截重复 API 请求');return;}chatRequestInFlightKey=requestKey;if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',provider:provider.id||provider.name||'',model:useModel,messages,promptChars:JSON.stringify(messages||[]).length,meta:{stream,hasImage:!!currentImage}});
     if(!stream){
       const loading=rhythm.slow ? addLoadingWithIntroDOM(rhythm.introText) : addLoadingDOM();
@@ -354,6 +425,9 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
         saveHistory();
         memorize('assistant',clean,'');
         updateAiEmotion(clean);
+        if (typeof adjustAiPersonality === 'function' && (reply.includes('[[proactive]]') || reply.includes('proactive') || clean.includes('主动'))) {
+          adjustAiPersonality(currentAi, 'responded_proactive');
+        }
         if(typeof processAiReplyMemory==='function')processAiReplyMemory(reply, currentAi);
         markActivity();
         if(autoSpeakEnabled()&&voiceEnabled())playTTS(clean,getActiveTtsVoice());
@@ -487,6 +561,9 @@ const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:
       saveHistory();
       memorize('assistant',display,'');
       updateAiEmotion(display);
+      if (typeof adjustAiPersonality === 'function' && (full.includes('[[proactive]]') || full.includes('proactive') || display.includes('主动'))) {
+        adjustAiPersonality(currentAi, 'responded_proactive');
+      }
       if(typeof processAiReplyMemory==='function')processAiReplyMemory(full, currentAi);
       markActivity();
       if(autoSpeakEnabled()&&voiceEnabled()&&full)playTTS(full,getActiveTtsVoice());

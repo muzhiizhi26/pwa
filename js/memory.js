@@ -64,11 +64,63 @@ async function trimVectorStore(){
     const now = Date.now();
     const all = await VDB.all();
     
+    // PHASE 1 Lifecycle and Decay Process:
+    // Apply exponential decay to 'active' memories that have not been reinforced recently.
+    const lam = forgetLambda();
+    const recordsToUpdate = [];
+    all.forEach(r => {
+      let changed = false;
+      let currentStatus = r.status || 'active';
+      
+      if (currentStatus === 'active') {
+        const ageDays = (now - (r.ts || now)) / (24 * 3600 * 1000);
+        if (ageDays > 1) { // Only decay if more than a day has passed
+          const decayMultiplier = Math.exp(-lam * ageDays);
+          const originalScore = r.importance_score || 30;
+          const newScore = originalScore * decayMultiplier;
+          
+          if (newScore !== originalScore) {
+            r.importance_score = Math.max(1, Math.round(newScore));
+            changed = true;
+          }
+          
+          if (r.importance_score < 15) {
+            r.status = 'fading';
+            changed = true;
+            console.log(`[Memory Lifecycle] Demoted memory to FADING (score < 15): "${r.text.slice(0, 15)}..."`);
+          }
+        }
+      } else if (currentStatus === 'fading') {
+        const ageDays = (now - (r.ts || now)) / (24 * 3600 * 1000);
+        if (ageDays > 30) {
+          r.status = 'archived';
+          changed = true;
+          console.log(`[Memory Lifecycle] Archived fading memory (over 30 days old): "${r.text.slice(0, 15)}..."`);
+        }
+      }
+      
+      if (changed) {
+        recordsToUpdate.push(r);
+      }
+    });
+    
+    for (const recordToUpdate of recordsToUpdate) {
+      await VDB.put(recordToUpdate);
+    }
+
+    // Trigger Memory Merging after decay and status updates
+    if (typeof checkAndMergeMemories === 'function') {
+      await checkAndMergeMemories();
+    }
+
+    // Re-fetch all to apply current limits
+    const updatedAll = await VDB.all();
+
     // 1. 过滤并删除所有已经过期的即时 (Tier 1) / 情境 (Tier 2) 记忆
     const expiredIds = [];
     const validRecords = [];
     
-    all.forEach(r => {
+    updatedAll.forEach(r => {
       const exp = r.expiry_ts || (r.metadata && r.metadata.expiry_ts);
       if (exp && exp <= now) {
         expiredIds.push(r.id);
@@ -232,12 +284,40 @@ async function writeDedupedMemory(rec) {
     duplicate.expiry_ts = Math.max(duplicate.expiry_ts || 0, rec.expiry_ts || 0) || rec.expiry_ts;
     duplicate.topicTags = rec.topicTags || duplicate.topicTags;
     duplicate.timeWindowTag = rec.timeWindowTag || duplicate.timeWindowTag;
+    
+    // PHASE 1 updates
+    duplicate.mention_count = (duplicate.mention_count || 1) + 1;
+    // Frequency promotion rules:
+    const isRecentlyReinforced = duplicate.mention_count >= 3;
+    if (isRecentlyReinforced || duplicate.importance_score >= 80) {
+      duplicate.status = 'stable';
+    }
     await VDB.put(duplicate);
+    
+    // Auto-create Experience if reinforced (Phase 4)
+    if (duplicate.mention_count >= 5 && typeof autoCreateExperience === 'function') {
+      await autoCreateExperience(duplicate, 'achievement');
+    }
+
     return duplicate;
   }
   rec.vector = await embed(rec.text);
   rec.relatedIds = await linkRelatedMemories(rec);
   await VDB.put(rec);
+  
+  // Run Conflict Resolution (Phase 2)
+  if (typeof resolveMemoryConflicts === 'function') {
+    await resolveMemoryConflicts(rec);
+  }
+  
+  // Auto-create Experience if milestone/important
+  const isAnniversary = /纪念日|生日|情人节|春节|跨年|初见|相遇|第一次|看海/.test(rec.text);
+  if (isAnniversary && rec.importance_score >= 50 && typeof autoCreateExperience === 'function') {
+    await autoCreateExperience(rec, 'milestone');
+  } else if (rec.importance_score >= 80 && typeof autoCreateExperience === 'function') {
+    await autoCreateExperience(rec, 'shared_event');
+  }
+
   return rec;
 }
 
@@ -456,7 +536,10 @@ async function memorize(role,content,emotion,aiId){
     // Graph 2.0 properties
     topicTags,
     timeWindowTag,
-    relatedIds: []
+    relatedIds: [],
+    // PHASE 1 properties
+    status: 'active',
+    mention_count: 1
   };
 
   if (window.MemoryLockQueue) {
@@ -480,6 +563,8 @@ async function recall(query,aiId){
   let store;try{store=await VDB.all();}catch(e){return[];}
   if(!store.length)return[];
   const activeAi=aiId||(typeof currentPrivateAiId==='function'?currentPrivateAiId():'main');
+  const isDeepRecallQuery = /回忆|以前|过去|很久以前|不记得|记不记得|忘了吧|曾经|早些时候/.test((query || '').toLowerCase());
+  
   const filtered=store.filter(r=>{
     const recordAi=r.ai_id||'main';
     let vis=r.visibility||'relationship';
@@ -489,25 +574,22 @@ async function recall(query,aiId){
     }
 
     if(vis==='private'){
-      return recordAi===activeAi;
+      if (recordAi!==activeAi) return false;
+    } else if(vis==='relationship'){
+      if(activeAi!=='main' && recordAi!==activeAi && recordAi!=='main') return false;
     }
-    if(vis==='relationship'){
-      if(activeAi==='main'){
-        return true;
-      }
-      return recordAi===activeAi||recordAi==='main';
-    }
-    if(vis==='world' || vis==='chronicle' || vis==='archive'){
-      return true;
-    }
+    
+    // PHASE 1 Lifecycle filtration
+    const status = r.status || 'active';
+    if (status === 'archived') return false;
+    if (status === 'fading' && !isDeepRecallQuery) return false;
 
-    if(activeAi==='main'){
-      return true;
-    }
-    return recordAi===activeAi||recordAi==='main';
+    return true;
   });
   if(!filtered.length)return[];
   const qv=await embed(query);const lam=forgetLambda();const now=Date.now();
+  const queryTags = extractTopicTags(query);
+  
   const scored=filtered.map(r=>{
     const sim=cosine(qv,r.vector);
     const ageDays=(now-(r.ts||now))/(24*3600*1000);
@@ -531,7 +613,19 @@ async function recall(query,aiId){
       }
     }
     
-    return {...r,sim,score:sim*decay*boost,keepRecall};
+    // PHASE 5: Advanced weighting formula:
+    // 记忆价值 = 语义相似度 × 时间权重 × 情绪强度 × 关系深度 × 话题连续性
+    const emoWeight = ['love', 'sad', 'angry', 'excited', 'heart'].includes(r.emotion) ? 1.3 : 1.0;
+    
+    const rTags = r.topicTags || (r.metadata && r.metadata.topicTags) || [];
+    const hasTopicOverlap = queryTags.some(t => rTags.includes(t));
+    const continuityMultiplier = hasTopicOverlap ? 1.25 : 1.0;
+    
+    const relDepthMultiplier = 1.0 + Math.min(0.5, (r.mention_count || 1) * 0.05);
+    
+    const finalScore = sim * decay * boost * emoWeight * continuityMultiplier * relDepthMultiplier;
+    
+    return {...r,sim,score:finalScore,keepRecall};
   }).filter(r=>r.sim>=ragThreshold() && r.keepRecall !== false).sort((a,b)=>b.score-a.score);
   
   const top=scored.slice(0,ragTopK());
@@ -617,3 +711,380 @@ async function boostMemoryByText(text){
     }
   } catch(e) {}
 }
+
+/* ========================================================================= */
+/* ================== COGNITIVE COMPANION ENGINE ADDITIONS ================= */
+/* ========================================================================= */
+
+/* ---- PHASE 1: Memory Merging System (周期性记忆聚合为长期偏好) ---- */
+async function checkAndMergeMemories() {
+  try {
+    const store = await VDB.all();
+    const now = Date.now();
+    
+    // Group active/stable memories by topicTag
+    const topicGroups = {};
+    for (const record of store) {
+      if (!record.text || record.status === 'archived' || record.status === 'fading') continue;
+      const tags = record.topicTags || [];
+      for (const tag of tags) {
+        if (!topicGroups[tag]) {
+          topicGroups[tag] = [];
+        }
+        topicGroups[tag].push(record);
+      }
+    }
+    
+    // Look for clusters of 4+ memories in a single tag within recent days
+    for (const [tag, records] of Object.entries(topicGroups)) {
+      if (records.length >= 4) {
+        const recentRecords = records.filter(r => (now - (r.ts || now)) <= 5 * 24 * 3600 * 1000);
+        if (recentRecords.length >= 3) {
+          console.log(`[Memory Merge] Detected memory cluster for tag "${tag}". Merging...`);
+          
+          recentRecords.sort((a,b) => b.importance_score - a.importance_score);
+          const representative = recentRecords[0];
+          
+          // Construct combined narrative text
+          const combinedText = `关于【${tag}】的长期稳定偏好：` + recentRecords.map(r => r.text).join('；');
+          
+          // Create new stable merged memory record (Tier 3)
+          const mergedRec = {
+            id: 'v_merge_' + now + '_' + Math.random().toString(36).slice(2, 7),
+            text: combinedText,
+            vector: representative.vector,
+            role: 'user',
+            emotion: 'calm',
+            ts: now,
+            window_id: dayBucket(now),
+            boost: 2.0,
+            ai_id: representative.ai_id || 'main',
+            tier: 3, // Tier 3 (Long-term profile preference)
+            importance_score: 95,
+            expiry_ts: Infinity,
+            topicTags: [tag],
+            timeWindowTag: formatTimeWindow(now),
+            relatedIds: [],
+            status: 'stable',
+            mention_count: recentRecords.reduce((acc, r) => acc + (r.mention_count || 1), 0),
+            is_merged: true,
+            merged_sources: recentRecords.map(r => r.id)
+          };
+          
+          await VDB.put(mergedRec);
+          
+          // Batch delete the old fragment memories to reduce cognitive clutter
+          const oldIds = recentRecords.map(r => r.id);
+          await VDB.deleteBatch(oldIds);
+          
+          showToast(`🔮 已将关于「${tag}」的零散记忆融合成长期偏好记录`);
+          
+          // Auto-create Experience milestones for this growth!
+          if (typeof autoCreateExperience === 'function') {
+            await autoCreateExperience(mergedRec, 'achievement', [mergedRec.id]);
+          }
+          
+          break; // Process one merge per trim loop to ensure stability
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Memory Merge] Error merging memories:', err);
+  }
+}
+
+/* ---- PHASE 2: Cognitive Conflict Resolution (认知冲突解决与偏好自动纠正) ---- */
+async function resolveMemoryConflicts(newRec) {
+  try {
+    const store = await VDB.all();
+    const newText = newRec.text.toLowerCase();
+    
+    // Check if the new record indicates a change, correction, or denial
+    const isCorrection = newText.includes('纠正') || newText.includes('记错了') || newText.includes('偏好更新') || newText.includes('不喜欢') || newText.includes('不是的') || newText.includes('不要');
+    if (!isCorrection) return;
+
+    console.log('[Conflict Resolution] Checking conflicts for:', newRec.text);
+    
+    // Extract topic tags of the new memory
+    const newTags = newRec.topicTags || [];
+    if (!newTags.length) return;
+
+    for (const record of store) {
+      if (record.id === newRec.id) continue;
+      if ((record.ai_id || 'main') !== (newRec.ai_id || 'main')) continue;
+      
+      const recTags = record.topicTags || [];
+      const hasTopicOverlap = newTags.some(t => recTags.includes(t));
+      
+      if (hasTopicOverlap) {
+        const recordText = record.text.toLowerCase();
+        
+        let isContradictory = false;
+        // 1. Like vs Dislike contradiction
+        if ((newText.includes('不喜欢') && recordText.includes('喜欢') && !recordText.includes('不喜欢')) ||
+            (newText.includes('讨厌') && recordText.includes('喜欢')) ||
+            (newText.includes('不要') && recordText.includes('要') && !recordText.includes('不要'))) {
+          isContradictory = true;
+        }
+        
+        // 2. Clear denial / mismatch
+        if (newText.includes('不喝') && recordText.includes('喜欢喝') ||
+            newText.includes('不用') && recordText.includes('用') && !recordText.includes('不用')) {
+          isContradictory = true;
+        }
+        
+        if (isContradictory) {
+          console.log(`[Conflict Resolution] Contradiction archived: "${record.text}" contradicted by "${newRec.text}"`);
+          record.status = 'archived';
+          record.expiry_ts = Date.now(); // Expire immediately
+          await VDB.put(record);
+          
+          showToast(`🧠 已自动归档冲突的历史记忆: "${record.text.slice(0, 15)}..."`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Conflict Resolution] Error resolving memory conflicts:', err);
+  }
+}
+
+/* ---- PHASE 3: AI Character Growth System (AI 人格成长特质系统) ---- */
+function getAiPersonality(aiId) {
+  const id = aiId || 'main';
+  const key = `ai_personality_${id}`;
+  let data = localStorage.getItem(key);
+  if (!data) {
+    data = { gentleness: 80, initiative: 60, humor: 70, attachment: 50 };
+    localStorage.setItem(key, JSON.stringify(data));
+    return data;
+  }
+  try {
+    return JSON.parse(data);
+  } catch (e) {
+    return { gentleness: 80, initiative: 60, humor: 70, attachment: 50 };
+  }
+}
+
+function saveAiPersonality(aiId, data) {
+  const id = aiId || 'main';
+  const key = `ai_personality_${id}`;
+  localStorage.setItem(key, JSON.stringify(data));
+  if (typeof doubleWriteBackup === 'function') {
+    doubleWriteBackup(key, JSON.stringify(data));
+  }
+}
+
+function adjustAiPersonality(aiId, signal) {
+  try {
+    const id = aiId || 'main';
+    const p = getAiPersonality(id);
+    if (signal === 'user_happy') {
+      p.gentleness = Math.max(40, Math.min(95, p.gentleness + 0.5));
+    } else if (signal === 'user_unhappy') {
+      p.gentleness = Math.max(40, Math.min(95, p.gentleness - 0.5));
+    } else if (signal === 'responded_proactive') {
+      p.initiative = Math.max(40, Math.min(95, p.initiative + 0.5));
+    } else if (signal === 'laughter') {
+      p.humor = Math.max(40, Math.min(95, p.humor + 0.5));
+    } else if (signal === 'active_3days') {
+      p.attachment = Math.max(40, Math.min(95, p.attachment + 0.5));
+    }
+    saveAiPersonality(id, p);
+    console.log(`[AI Personality Growth] Parameter adjusted (${signal}):`, p);
+  } catch (e) {
+    console.error('[AI Personality] Error adjusting:', e);
+  }
+}
+
+function checkContinuousDaysActive() {
+  try {
+    if (typeof conversationHistory === 'undefined') return false;
+    const days = new Set();
+    for (const m of conversationHistory) {
+      if (m.ts) {
+        const day = new Date(m.ts).toDateString();
+        days.add(day);
+      }
+    }
+    const sortedDays = Array.from(days).map(d => new Date(d).getTime()).sort();
+    if (sortedDays.length >= 3) {
+      let consecutiveCount = 1;
+      for (let i = sortedDays.length - 1; i > 0; i--) {
+        const diff = sortedDays[i] - sortedDays[i-1];
+        if (diff <= 25 * 3600 * 1000) {
+          consecutiveCount++;
+        } else {
+          break;
+        }
+      }
+      return consecutiveCount >= 3;
+    }
+  } catch (e) {}
+  return false;
+}
+
+/* ---- PHASE 4: Common Experience Layer (共同经历了独立数据库储存) ---- */
+const ExperienceStore = {
+  DB_NAME: 'experience_db',
+  STORE_NAME: 'experiences',
+  VERSION: 1,
+  _db: null,
+
+  _openDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.DB_NAME, this.VERSION);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+          db.createObjectStore(this.STORE_NAME, { keyPath: 'id' });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  async init() {
+    if (this._db) return;
+    this._db = await this._openDB();
+  },
+
+  async put(exp) {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this._db.transaction(this.STORE_NAME, 'readwrite');
+      const store = tx.objectStore(this.STORE_NAME);
+      store.put(exp);
+      tx.oncomplete = () => resolve(exp);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async get(id) {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this._db.transaction(this.STORE_NAME, 'readonly');
+      const store = tx.objectStore(this.STORE_NAME);
+      const req = store.get(id);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async all() {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this._db.transaction(this.STORE_NAME, 'readonly');
+      const store = tx.objectStore(this.STORE_NAME);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async delete(id) {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this._db.transaction(this.STORE_NAME, 'readwrite');
+      const store = tx.objectStore(this.STORE_NAME);
+      store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async clear() {
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this._db.transaction(this.STORE_NAME, 'readwrite');
+      const store = tx.objectStore(this.STORE_NAME);
+      store.clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+};
+window.ExperienceStore = ExperienceStore;
+
+async function autoCreateExperience(rec, type, relatedMemoryIds) {
+  try {
+    const experiences = await ExperienceStore.all();
+    const activeAi = rec.ai_id || 'main';
+    
+    // Check de-duplication
+    const existing = experiences.find(e => {
+      return e.relatedMemories && e.relatedMemories.includes(rec.id);
+    });
+    if (existing) return;
+    
+    const ts = Date.now();
+    const dateStr = new Date(rec.ts || ts).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    let title = rec.text.slice(0, 30);
+    if (type === 'milestone') {
+      title = `共同纪念：${title}`;
+    } else if (type === 'achievement') {
+      title = `共同成长印记：${title}`;
+    } else {
+      title = `共同经历：${title}`;
+    }
+    
+    const exp = {
+      id: 'exp_' + ts + '_' + Math.random().toString(36).slice(2, 7),
+      title: title,
+      type: type, // 'milestone' | 'shared_event' | 'achievement'
+      participants: ['user', activeAi],
+      relatedMemories: relatedMemoryIds || [rec.id],
+      relatedContent: { images: [], diary: null, posts: [] },
+      emotion: rec.emotion || 'calm',
+      importance: rec.importance_score || 70,
+      createdAt: dateStr,
+      lastRecalledAt: ts
+    };
+    
+    await ExperienceStore.put(exp);
+    console.log(`[Experience] New experience stored: "${title}"`);
+    showToast(`🌟 共同经历已收录至回忆画卷: "${title}"`);
+  } catch (e) {
+    console.error('[Experience] Error creating experience:', e);
+  }
+}
+
+async function recallExperiences(query, aiId) {
+  try {
+    const experiences = await ExperienceStore.all();
+    if (!experiences || !experiences.length) return [];
+    const activeAi = aiId || 'main';
+    const qLower = (query || '').toLowerCase();
+    
+    // Dynamic matching of experience title/emotion against the prompt query
+    const scoredExps = experiences.filter(e => {
+      if (!e.participants.includes(activeAi)) return false;
+      const titleLower = e.title.toLowerCase();
+      
+      let score = 0;
+      const keywords = qLower.split(/[\s,，.。!！?？、]+/);
+      for (const kw of keywords) {
+        if (kw && titleLower.includes(kw)) {
+          score += 10;
+        }
+      }
+      return score > 0;
+    });
+    
+    return scoredExps.sort((a,b) => b.importance - a.importance).slice(0, 2);
+  } catch (e) {
+    console.error('[Experience Recall] Error:', e);
+    return [];
+  }
+}
+
+// Export helper functions to window context
+window.getAiPersonality = getAiPersonality;
+window.saveAiPersonality = saveAiPersonality;
+window.adjustAiPersonality = adjustAiPersonality;
+window.checkContinuousDaysActive = checkContinuousDaysActive;
+window.checkAndMergeMemories = checkAndMergeMemories;
+window.resolveMemoryConflicts = resolveMemoryConflicts;
+window.autoCreateExperience = autoCreateExperience;
+window.recallExperiences = recallExperiences;
