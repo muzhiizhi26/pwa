@@ -287,17 +287,6 @@ async function writeDedupedMemory(rec) {
     
     // PHASE 1 updates
     duplicate.mention_count = (duplicate.mention_count || 1) + 1;
-    
-    // Priority 1: Confidence & Verification Calibration
-    duplicate.verified_count = (duplicate.verified_count || 1) + 1;
-    duplicate.last_verified_ts = Date.now();
-    if (rec.role === 'user') {
-      duplicate.source = 'user_explicit';
-      duplicate.confidence_score = Math.min(1.0, (duplicate.confidence_score || 0.7) + 0.15);
-    } else {
-      duplicate.confidence_score = Math.min(1.0, (duplicate.confidence_score || 0.6) + 0.05);
-    }
-
     // Frequency promotion rules:
     const isRecentlyReinforced = duplicate.mention_count >= 3;
     if (isRecentlyReinforced || duplicate.importance_score >= 80) {
@@ -531,11 +520,6 @@ async function memorize(role,content,emotion,aiId){
   const topicTags = extractTopicTags(content);
   const timeWindowTag = formatTimeWindow(ts);
 
-  const source = (role === 'user') ? 'user_explicit' : 'ai_inferred';
-  const confidence_score = (role === 'user') ? 0.95 : 0.65;
-  const verified_count = (role === 'user') ? 1 : 0;
-  const last_verified_ts = ts;
-
   const rec = {
     id:'v_'+ts+'_'+Math.random().toString(36).slice(2,7),
     text:content,
@@ -555,12 +539,7 @@ async function memorize(role,content,emotion,aiId){
     relatedIds: [],
     // PHASE 1 properties
     status: 'active',
-    mention_count: 1,
-    // Priority 1 Confidence Calibration
-    source,
-    confidence_score,
-    verified_count,
-    last_verified_ts
+    mention_count: 1
   };
 
   if (window.MemoryLockQueue) {
@@ -635,7 +614,7 @@ async function recall(query,aiId){
     }
     
     // PHASE 5: Advanced weighting formula:
-    // 记忆价值 = 语义相似度 × 时间权重 × 情绪强度 × 关系深度 × 话题连续性 × 真实可信度校准
+    // 记忆价值 = 语义相似度 × 时间权重 × 情绪强度 × 关系深度 × 话题连续性
     const emoWeight = ['love', 'sad', 'angry', 'excited', 'heart'].includes(r.emotion) ? 1.3 : 1.0;
     
     const rTags = r.topicTags || (r.metadata && r.metadata.topicTags) || [];
@@ -643,19 +622,10 @@ async function recall(query,aiId){
     const continuityMultiplier = hasTopicOverlap ? 1.25 : 1.0;
     
     const relDepthMultiplier = 1.0 + Math.min(0.5, (r.mention_count || 1) * 0.05);
-
-    // 记忆真实性与可信度校准 (Confidence Calibration)
-    let conf = r.confidence_score != null ? r.confidence_score : (r.source === 'user_explicit' || r.role === 'user' ? 0.95 : 0.65);
-    const ageDays = (now - (r.last_verified_ts || r.ts || now)) / (24 * 3600 * 1000);
-    // 未经用户验证或推测类记忆，长时间未强化时进行置信度动态衰减，避免 AI 陷入固执的记忆漂移
-    if (r.source === 'ai_inferred' && ageDays > 14) {
-      conf = Math.max(0.25, conf * Math.exp(-0.02 * (ageDays - 14)));
-    }
-    const confidenceMultiplier = 0.4 + 0.6 * conf;
     
-    const finalScore = sim * decay * boost * emoWeight * continuityMultiplier * relDepthMultiplier * confidenceMultiplier;
+    const finalScore = sim * decay * boost * emoWeight * continuityMultiplier * relDepthMultiplier;
     
-    return {...r, sim, score: finalScore, keepRecall, computedConfidence: conf};
+    return {...r,sim,score:finalScore,keepRecall};
   }).filter(r=>r.sim>=ragThreshold() && r.keepRecall !== false).sort((a,b)=>b.score-a.score);
   
   const top=scored.slice(0,ragTopK());
@@ -699,7 +669,7 @@ function emotionLabelOf(key){try{return (EMOTION_LEXICON[key]||{}).label||'';}ca
 function formatRecall(items){
   if(!items||!items.length)return'';
   const main=items.filter(i=>!i.assoc),rel=items.filter(i=>i.assoc);
-  let out='\n【记忆网络核心召回（Memory Package 2.0·真实度校准）】\n';
+  let out='\n【记忆网络核心召回（Memory Package 2.0）】\n';
   out+=main.map(it=>{
     const who=it.role==='user'?'用户曾说':'AI曾说';
     const emo=it.emotion?emotionLabelOf(it.emotion):'';
@@ -709,19 +679,7 @@ function formatRecall(items){
     const timeWin = it.timeWindowTag || (it.metadata && it.metadata.timeWindowTag) || '';
     const timeStr = timeWin ? `，时间：${timeWin}` : '';
     const relv=(it.sim!=null?it.sim:it.score);
-    
-    // 置信度文案
-    const conf = it.computedConfidence != null ? it.computedConfidence : (it.confidence_score || (it.source === 'user_explicit' ? 0.95 : 0.65));
-    let confBadge = '[用户陈述]';
-    if (it.source === 'user_explicit' && conf >= 0.85) {
-      confBadge = '[确凿事实·已验证]';
-    } else if (it.source === 'ai_inferred' || conf < 0.6) {
-      confBadge = '[推测推断·未验证]';
-    } else if (it.source === 'system') {
-      confBadge = '[系统记忆]';
-    }
-
-    return `· ${confBadge} (${who}，检索共鸣${(relv*100).toFixed(0)}%${emoStr}${tagStr}${timeStr}) ${it.text}`;
+    return `· (${who}，检索共鸣${(relv*100).toFixed(0)}%${emoStr}${tagStr}${timeStr}) ${it.text}`;
   }).join('\n');
   
   if(rel.length) {
@@ -1085,20 +1043,6 @@ async function autoCreateExperience(rec, type, relatedMemoryIds) {
     };
     
     await ExperienceStore.put(exp);
-    if (window.UnifiedEventStore) {
-      window.UnifiedEventStore.registerEvent({
-        id: 'evt_' + exp.id,
-        type: 'EXPERIENCE',
-        title: exp.title,
-        summary: rec.text ? rec.text.slice(0, 50) : exp.title,
-        aiId: activeAi,
-        sourceModule: 'experience',
-        refId: exp.id,
-        emotion: exp.emotion,
-        importance: exp.importance,
-        ts
-      });
-    }
     console.log(`[Experience] New experience stored: "${title}"`);
     showToast(`🌟 共同经历已收录至回忆画卷: "${title}"`);
   } catch (e) {

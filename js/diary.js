@@ -81,32 +81,8 @@ async function renderDiaryList(){
       <div class="diary-actions"><button onclick="deleteDiary('${d.id}')">🗑️ 删除</button></div>
     </div>`).join('');
 }
-async function saveDiaryEntry(author,name,content){
-  if(!content||!content.trim())return;
-  const id = 'd_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
-  const rec = {id, author, name:name||'', content:content.trim(), ts:Date.now()};
-  await DIARY_DB.put(rec);
-  if (window.UnifiedEventStore) {
-    window.UnifiedEventStore.registerEvent({
-      id: 'evt_' + id,
-      type: 'DIARY',
-      title: `${author === 'user' ? '用户日记' : (name || 'AI') + '的日记'}`,
-      summary: content.trim().slice(0, 45),
-      sourceModule: 'diary',
-      refId: id,
-      ts: rec.ts
-    });
-  }
-  if(document.getElementById('diaryPanel').classList.contains('show')){buildDiaryTabs();renderDiaryList();}
-}
-async function deleteDiary(id){
-  if(!confirm('删除这篇日记？'))return;
-  await DIARY_DB.del(id);
-  if (window.UnifiedEventStore) {
-    window.UnifiedEventStore.deleteByRef('diary', id);
-  }
-  renderDiaryList();
-}
+async function saveDiaryEntry(author,name,content){if(!content||!content.trim())return;await DIARY_DB.put({id:'d_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),author,name:name||'',content:content.trim(),ts:Date.now()});if(document.getElementById('diaryPanel').classList.contains('show')){buildDiaryTabs();renderDiaryList();}}
+async function deleteDiary(id){if(!confirm('删除这篇日记？'))return;await DIARY_DB.del(id);renderDiaryList();}
 async function writeUserDiary(){
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{name:'主AI'}];
   const list = ['1. 我自己 (User)'].concat(members.map((m, i)=>`${i+2}. ${m.name}`));
