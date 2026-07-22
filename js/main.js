@@ -39,6 +39,23 @@ window.onload=async()=>{
   try { scheduleProactive(); } catch (e) { console.error('scheduleProactive failed', e); }
   try { checkProactive(); } catch (e) { console.error('checkProactive failed', e); }
   try { bindMicPushToTalk(); } catch (e) { console.error('bindMicPushToTalk failed', e); }
+
+  // 4. 定期自我复盘 (Self Reflection Check: 超过24小时自动触发)
+  try {
+    const lastReflectionTime = parseInt(localStorage.getItem('lastReflectionTime') || '0');
+    if (!lastReflectionTime || (Date.now() - lastReflectionTime) > 24 * 3600 * 1000) {
+      setTimeout(() => {
+        if (typeof performSelfReflection === 'function') {
+          console.log('🤖 触发 24 小时 AI 自我复盘 (Self Reflection)...');
+          performSelfReflection().then(report => {
+            console.log('✅ AI 自我复盘完成:', report);
+          }).catch(err => console.warn('Self reflection error:', err));
+        }
+      }, 30000); // 延迟 30 秒，不影响首屏
+    }
+  } catch (e) {
+    console.error('Self reflection trigger check failed:', e);
+  }
   
   if(location.hash.startsWith('#msg-')){
     const uid=location.hash.slice(5);

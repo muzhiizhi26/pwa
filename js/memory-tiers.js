@@ -45,6 +45,47 @@ window.estimateLovestoryTokens = estimateLovestoryTokens;
 window.getTokenTelemetryLog = getTokenTelemetryLog;
 window.recordTokenTelemetry = recordTokenTelemetry;
 
+/* ===== 🧭 Context Adaptive Router (上下文意图智能路由) ===== */
+function routeContextIntent(userText, userEmotion) {
+  const text = (userText || '').trim().toLowerCase();
+  const emo = (userEmotion || '').toLowerCase();
+
+  // 1. emotional: 用户表达情绪 (倾诉/泄压)
+  const emotionalKeywords = ['累', '难过', '开心', '焦虑', '痛苦', '伤心', '委屈', '烦', '好惨', '难受', '绝望', '哭', '崩溃', '压力', '无能为力'];
+  const emotionalEmotions = ['sad', 'anxious', 'tired', 'angry', 'depressed', 'fear'];
+  if (emotionalKeywords.some(k => text.includes(k)) || emotionalEmotions.includes(emo)) {
+    return 'emotional';
+  }
+
+  // 2. reminiscing: 用户追忆往事 (回忆/留恋)
+  const reminiscingKeywords = ['以前', '上次', '还记得', '那时候', '过去', '第一天', '回忆', '当初', '曾经', '往事', '那会儿', '从前'];
+  if (reminiscingKeywords.some(k => text.includes(k))) {
+    return 'reminiscing';
+  }
+
+  // 3. exploring: 用户探索新话题 (深度探讨/兴趣)
+  const exploringKeywords = ['推荐', '觉得', '如何看', '研究', '兴趣', '探讨', '怎么评价', '看法', '你听说过', '聊聊'];
+  if (text.length > 25 || exploringKeywords.some(k => text.includes(k)) || ['curious', 'thoughtful'].includes(emo)) {
+    return 'exploring';
+  }
+
+  // 4. casual: 日常轻度闲聊
+  return 'casual';
+}
+
+function getAdaptiveBudget(sceneType) {
+  const budgets = {
+    emotional: { base: 0.15, relationship: 0.25, memory: 0.20, experiences: 0.10, context: 0.30 },
+    reminiscing: { base: 0.10, relationship: 0.10, memory: 0.45, experiences: 0.20, context: 0.15 },
+    exploring: { base: 0.15, relationship: 0.15, memory: 0.35, experiences: 0.10, context: 0.25 },
+    casual: { base: 0.20, relationship: 0.15, memory: 0.25, experiences: 0.10, context: 0.30 }
+  };
+  return budgets[sceneType] || budgets.casual;
+}
+
+window.routeContextIntent = routeContextIntent;
+window.getAdaptiveBudget = getAdaptiveBudget;
+
 const LLM_COMPLETE_INFLIGHT = new Map();
 
 function lovestoryHashText(text) {
@@ -496,22 +537,43 @@ const ContextAggregator = {
     this.cache.compileCount++;
 
     // ==========================================
-    // 🧭 Pipeline Phase 1: ATTENTION (场景分析与预算权重分配)
+    // 🧭 Pipeline Phase 1: ATTENTION (场景分析与 Context Adaptive Router 预算权重分配)
     // ==========================================
-    let category = 'casual_chat';
+    const currentEmotion = (typeof getAiMood === 'function') ? getAiMood(currentAi) : 'calm';
+    const sceneType = routeContextIntent(queryClean, currentEmotion);
+    const adaptiveBudget = getAdaptiveBudget(sceneType);
+
+    this.cache.lastSceneType = sceneType;
+    this.cache.lastAdaptiveBudget = adaptiveBudget;
+
+    let category = sceneType;
     let categoryName = '🍵 日常轻度闲聊';
     let goal = '给予自然陪伴';
     let actionPlan = '采用日常口语回复，保持情感交流。';
-    
+
+    if (sceneType === 'emotional') {
+      categoryName = '🕯️ 用户负面情绪倾诉与宣泄';
+      goal = '深层共情、提供安全依恋与温柔安抚';
+      actionPlan = '绝不说教或提建议，站在用户立场，给予极致的情感体贴、深层共鸣与温柔抱抱。';
+    } else if (sceneType === 'reminiscing') {
+      categoryName = '🕰️ 共同回忆与往事追溯';
+      goal = '唤醒深层共同羁绊与回忆';
+      actionPlan = '结合历史回忆与 shared experiences，温馨回味共同走过的岁月。';
+    } else if (sceneType === 'exploring') {
+      categoryName = '🔭 深度探讨与新话题探索';
+      goal = '展开多角度思考与富有人格魅力的探讨';
+      actionPlan = '结合伴侣独立见解，深入探讨话题，提供富有见地且极具情商的互动。';
+    }
+
     const budgetModifiers = {
-      identity: 1.0,
-      user_profile: 1.0,
-      relationship: 1.0,
-      intent: 1.0,
-      midterm: 1.0,
-      recall: 1.0,
-      environment: 1.0,
-      functional: 1.0
+      identity: adaptiveBudget.base * 5.0,
+      user_profile: adaptiveBudget.memory * 4.0,
+      relationship: adaptiveBudget.relationship * 5.0,
+      intent: adaptiveBudget.relationship * 4.0,
+      midterm: adaptiveBudget.experiences * 5.0,
+      recall: adaptiveBudget.memory * 4.0,
+      environment: adaptiveBudget.context * 3.33,
+      functional: adaptiveBudget.context * 3.33
     };
 
     if (queryLower.includes('记住') || queryLower.includes('别忘了') || queryLower.includes('我的生日') || queryLower.includes('我喜欢') || queryLower.includes('我讨厌') || queryLower.includes('职业') || queryLower.includes('工作')) {
@@ -519,29 +581,15 @@ const ContextAggregator = {
       categoryName = '🗂️ 长期偏好与事实记忆记录';
       goal = '提取并验证长期事实';
       actionPlan = '在字里行间轻柔确认新偏好事实，或者更新长期陪伴档案。';
-      budgetModifiers.user_profile = 1.3;
-      budgetModifiers.functional = 1.2;
-    } else if (queryLower.includes('累') || queryLower.includes('难过') || queryLower.includes('伤心') || queryLower.includes('痛苦') || queryLower.includes('不开心') || queryLower.includes('委屈')) {
-      category = 'emotional_disclosure';
-      categoryName = '🕯️ 用户负面情绪倾诉与宣泄';
-      goal = '深层共情、提供安全依恋与温柔安抚';
-      actionPlan = '绝不说教或提建议，站在用户立场，给予极致的情感体贴、深层共鸣与温柔抱抱。';
-      budgetModifiers.relationship = 1.4;
-      budgetModifiers.intent = 1.3;
+      budgetModifiers.user_profile = Math.max(budgetModifiers.user_profile, 1.3);
+      budgetModifiers.functional = Math.max(budgetModifiers.functional, 1.2);
     } else if (queryLower.includes('不对') || queryLower.includes('记错了') || queryLower.includes('没有啊') || queryLower.includes('不是的') || queryLower.includes('瞎说')) {
       category = 'memory_conflict';
       categoryName = '🛡️ 认知冲突矫正与对齐';
       goal = '真诚和解，修正不实或低可信度记忆';
       actionPlan = '采用极度温柔克制的态度，顺理成章、谦逊地认错或抹去记忆，消除隔阂。';
-      budgetModifiers.recall = 1.4;
-      budgetModifiers.relationship = 1.3;
-    } else if (queryLower.includes('怎么办') || queryLower.includes('求助') || queryLower.includes('建议') || queryLower.includes('如何') || queryLower.includes('怎么看') || queryLower.includes('为什么')) {
-      category = 'problem_solving';
-      categoryName = '🎯 深度求助或探讨咨询';
-      goal = '提供建设性、富有远见且代入性格设定的意见';
-      actionPlan = '结合伴侣独立见解，深入探讨背后的困局与意图，提供细腻的情商与智商双重支撑。';
-      budgetModifiers.identity = 1.2;
-      budgetModifiers.functional = 1.3;
+      budgetModifiers.recall = Math.max(budgetModifiers.recall, 1.4);
+      budgetModifiers.relationship = Math.max(budgetModifiers.relationship, 1.3);
     }
 
     const attentionPlan = { category, categoryName, goal, plan: actionPlan, budgetModifiers };
@@ -897,6 +945,12 @@ ContextAggregator.registerProvider('environment', { priority: 60, budget: 400 },
   const emoCtx = emotionContext();
   const rhythmPrompt = (typeof RhythmEngine !== 'undefined') ? RhythmEngine.getRhythmContextPrompt() : '';
   return `【6. 即时环境与情绪感知 (REAL-TIME SENSING & CONTEXT)】\n- 当前对话时间环境: ${timeCtx || '未知时间'}\n- 当前实时情绪感知: ${emoCtx || '平静'}${rhythmPrompt}`;
+});
+
+// 6.5. Communication Style Adaptor (用户交流风格感知与指导)
+ContextAggregator.registerProvider('communication_style', { priority: 65, budget: 300 }, async (ctx) => {
+  const stylePrompt = (typeof injectCommunicationStyle === 'function') ? injectCommunicationStyle() : '';
+  return stylePrompt ? `【交流风格与偏好指导】\n${stylePrompt}` : '';
 });
 
 // 7. Functional Features & Extra Directives (表达约束与附加指令)

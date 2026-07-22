@@ -280,8 +280,21 @@
 
 <input type="file" id="caZipFileInput" accept=".zip" style="display: none;" onchange="handleCaZipUpload(this)">
 
+<!-- ===== 关系成长时间线面板 ===== -->
+<div class="memo-panel" id="timelinePanel" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="memo-container" style="max-width:520px;">
+    <div class="memo-header">
+      <h3>📜 关系成长时间线</h3>
+      <button class="icon-btn" onclick="document.getElementById('timelinePanel').classList.remove('show')">✕</button>
+    </div>
+    <div class="memo-body" id="timelineBody" style="max-height:65vh;overflow-y:auto;padding:16px;">
+    </div>
+  </div>
+</div>
+
 <script src="js/config.js?v=20260708"></script>
 <script src="js/utils.js?v=20260708"></script>
+<script src="js/communication.js?v=20260722"></script>
 <script src="js/memory.js?v=20260720-singleapi"></script>
 <script src="js/memory-tiers.js?v=20260720-leanprompt"></script>
 <script src="js/attention-manager.js?v=20260714"></script>

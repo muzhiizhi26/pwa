@@ -174,6 +174,21 @@ async function sendMessage(){
       if (typeof updateRelationshipState === 'function') {
         try { updateRelationshipState({ userEmotion: emotion, text: text }); } catch (e) { console.error('updateRelationshipState failed:', e); }
       }
+      if (typeof updateCommunicationProfile === 'function') {
+        try {
+          let userSkippedLongReply = false;
+          if (conversationHistory.length >= 2) {
+            const lastAiMsg = conversationHistory[conversationHistory.length - 1];
+            if (lastAiMsg && lastAiMsg.role === 'assistant' && (lastAiMsg.content || '').length > 200) {
+              const deltaSec = (Date.now() - (lastAiMsg.ts || Date.now())) / 1000;
+              if (deltaSec < 5) userSkippedLongReply = true;
+            }
+          }
+          updateCommunicationProfile({ text, userSkippedLongReply });
+        } catch (e) {
+          console.error('updateCommunicationProfile failed:', e);
+        }
+      }
       if (typeof processProactiveFeedback === 'function') {
         try { processProactiveFeedback(text); } catch (e) { console.error('[sendMessage] processProactiveFeedback failed:', e); }
       }

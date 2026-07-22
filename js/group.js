@@ -596,6 +596,7 @@ function renderGroupSettings(){settingsMode='group';document.getElementById('det
       `}
       <div class="list-row"><span class="res-label" style="min-width:44px;">模型</span><select class="form-input" onchange="editGroupMemberModel(${i},this.value)"><option value="">跟随默认</option>${provOpts((m.providerId&&m.model)?m.providerId+'||'+m.model:'')}</select></div>
       <div class="list-row"><span class="res-label" style="min-width:44px;">音色</span><input type="text" class="form-input" value="${m.voice||''}" placeholder="留空用默认AI音色" onchange="editGroupMember(${i},'voice',this.value)"><button class="del-x" style="background:var(--info);color:#3A3E4A;" onclick="groupCallMember('${m.id}')" title="打电话">📞</button></div>
+      <div class="list-row"><span class="res-label" style="min-width:64px; font-size:12px; color:var(--text-sub);">记忆权限</span><select class="form-input" onchange="editGroupMember(${i},'memoryScope',this.value)">${m.isMain?'<option value="all" selected>全部记忆 (主AI特权)</option>':`<option value="shared" ${(m.memoryScope||'shared')==='shared'?'selected':''}>共享记忆 (基础偏好/兴趣)</option><option value="public_only" ${m.memoryScope==='public_only'?'selected':''}>仅公共记忆 (仅群聊/公共卡片)</option><option value="all" ${m.memoryScope==='all'?'selected':''}>全部记忆 (信任共享)</option>`}</select></div>
       
       <!-- 高级模型配置 (上下文消息数量、温度、Top P) -->
       <details class="gp-advanced" style="margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 8px;">
@@ -703,7 +704,29 @@ function renderGroupSettings(){settingsMode='group';document.getElementById('det
     </div>
     <div class="form-hint" style="margin-top:8px;line-height:1.7;">头像可填 emoji；模型与高级模型参数(温度/Top P/上下文上限)可给每个 AI 单独指定；音色留空用默认。群聊与主聊天共享长期记忆与档案。发言里 @成员名 可点名让某个 AI 回。</div>`;
 }
-function editGroupMember(i,key,val){const l=getGroupMembers();if(l[i]){l[i][key]=val;saveGroupMembers(l);if(l[i].isMain){if(key==='name'){localStorage.setItem('ai_name',val.trim()||'主AI');if(typeof renderBrandAvatar==='function')renderBrandAvatar();if(typeof updateBrandAvatarAndHeader==='function')updateBrandAvatarAndHeader();}else if(key==='avatar'){localStorage.setItem('ai_avatar',val.trim()||'🤖');if(typeof renderBrandAvatar==='function')renderBrandAvatar();if(typeof updateBrandAvatarAndHeader==='function')updateBrandAvatarAndHeader();}}if(typeof renderGroupMessages==='function')renderGroupMessages();}}
+function editGroupMember(i,key,val){
+  const l=getGroupMembers();
+  if(l[i]){
+    l[i][key]=val;
+    saveGroupMembers(l);
+    if (key === 'memoryScope' && typeof getCharacterMemoryMatrix === 'function') {
+      try {
+        const matrix = getCharacterMemoryMatrix();
+        if (!matrix[l[i].id]) {
+          matrix[l[i].id] = { id: l[i].id, name: l[i].name, memoryScope: val, sharedMemoryKeys: ["preferences", "topics", "facts"], isMain: !!l[i].isMain };
+        } else {
+          matrix[l[i].id].memoryScope = val;
+        }
+        saveCharacterMemoryMatrix(matrix);
+      } catch (e) {}
+    }
+    if(l[i].isMain){
+      if(key==='name'){localStorage.setItem('ai_name',val.trim()||'主AI');if(typeof renderBrandAvatar==='function')renderBrandAvatar();if(typeof updateBrandAvatarAndHeader==='function')updateBrandAvatarAndHeader();}
+      else if(key==='avatar'){localStorage.setItem('ai_avatar',val.trim()||'🤖');if(typeof renderBrandAvatar==='function')renderBrandAvatar();if(typeof updateBrandAvatarAndHeader==='function')updateBrandAvatarAndHeader();}
+    }
+    if(typeof renderGroupMessages==='function')renderGroupMessages();
+  }
+}
 function editGroupMemberModel(i,val){const l=getGroupMembers();if(!l[i])return;if(!val){l[i].providerId='';l[i].model='';}else{const[pid,mo]=val.split('||');l[i].providerId=pid;l[i].model=mo;}saveGroupMembers(l);}
 function delGroupMember(i){const l=getGroupMembers();if(l[i]&&l[i].isMain){showToast('主AI不可删除');return;}l.splice(i,1);saveGroupMembers(l);refreshGroupOrPersonaSettings();}
 function addGroupMember(){const l=getGroupMembers();l.push({id:'g'+Date.now(),name:'新成员',persona:'',avatar:'🤖',providerId:'',model:'',voice:''});saveGroupMembers(l);refreshGroupOrPersonaSettings();}

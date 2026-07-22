@@ -490,6 +490,22 @@ function renderMemorySettings(){
     document.getElementById('detailBody').appendChild(renderMemoryBridgeDashboard());
   }
 
+  // Lovestory Companion OS: Memory Health Monitor Dashboard
+  const healthMonitorContainer = document.createElement('div');
+  healthMonitorContainer.id = 'memory-health-monitor-dashboard';
+  healthMonitorContainer.style.marginTop = '20px';
+  healthMonitorContainer.innerHTML = `
+    <div class="model-section-header">
+      <span>🏥 记忆健康监控 (Memory Health Monitor)</span>
+      <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px;" onclick="renderMemoryHealthCard()">🔄 刷新数据</button>
+    </div>
+    <div id="memoryHealthCardBox" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+      <div style="font-size:12px; color:var(--text-sub);">正在聚合记忆健康数据...</div>
+    </div>
+  `;
+  document.getElementById('detailBody').appendChild(healthMonitorContainer);
+  setTimeout(() => renderMemoryHealthCard(), 50);
+
   // Lovestory Companion OS: Append Growth and Experience Dashboard
   const container = document.createElement('div');
   container.id = 'companion-dashboard';
@@ -497,6 +513,119 @@ function renderMemorySettings(){
   document.getElementById('detailBody').appendChild(container);
   if (typeof renderCompanionDashboard === 'function') {
     renderCompanionDashboard(container);
+  }
+}
+
+async function renderMemoryHealthCard() {
+  const box = document.getElementById('memoryHealthCardBox');
+  if (!box) return;
+
+  if (typeof getMemoryHealthReport !== 'function') {
+    box.innerHTML = '<div style="font-size:12px; color:var(--text-sub);">记忆健康检测模块未准备就绪</div>';
+    return;
+  }
+
+  box.innerHTML = '<div style="font-size:12px; color:var(--text-sub);">⌛ 正在计算记忆节点与健康指标...</div>';
+
+  try {
+    const report = await getMemoryHealthReport();
+    const lastReflection = localStorage.getItem('lastReflectionReport');
+    let reflectionSummary = '尚未进行自我复盘';
+    if (lastReflection) {
+      try {
+        const refObj = JSON.parse(lastReflection);
+        reflectionSummary = `上次复盘: ${refObj.timestamp || '未知'} (降级 ${refObj.summary?.demotedToFading || 0} 条/归档 ${refObj.summary?.demotedToArchived || 0} 条)`;
+      } catch(e) {}
+    }
+
+    box.innerHTML = `
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
+        <div style="background: var(--bg-hover); padding: 8px 10px; border-radius: 8px; text-align: center; border: 1px solid var(--border);">
+          <div style="font-size: 10px; color: var(--text-sub);">总记忆条数</div>
+          <div style="font-size: 16px; font-weight: 800; color: var(--text-main); margin-top: 2px;">${report.totalCount} 条</div>
+        </div>
+        <div style="background: var(--bg-hover); padding: 8px 10px; border-radius: 8px; text-align: center; border: 1px solid var(--border);">
+          <div style="font-size: 10px; color: var(--text-sub);">有效记忆率</div>
+          <div style="font-size: 16px; font-weight: 800; color: #07c160; margin-top: 2px;">${report.effectiveRatio}</div>
+        </div>
+        <div style="background: var(--bg-hover); padding: 8px 10px; border-radius: 8px; text-align: center; border: 1px solid var(--border);">
+          <div style="font-size: 10px; color: var(--text-sub);">推测未验证比例</div>
+          <div style="font-size: 16px; font-weight: 800; color: ${parseFloat(report.unverifiedInferenceRatio) > 20 ? '#d32f2f' : 'var(--text-main)'}; margin-top: 2px;">${report.unverifiedInferenceRatio}</div>
+        </div>
+        <div style="background: var(--bg-hover); padding: 8px 10px; border-radius: 8px; text-align: center; border: 1px solid var(--border);">
+          <div style="font-size: 10px; color: var(--text-sub);">认知冲突数</div>
+          <div style="font-size: 16px; font-weight: 800; color: ${report.conflictCount > 0 ? '#f57c00' : 'var(--text-main)'}; margin-top: 2px;">${report.conflictCount} 对</div>
+        </div>
+        <div style="background: var(--bg-hover); padding: 8px 10px; border-radius: 8px; text-align: center; border: 1px solid var(--border); grid-column: span 2;">
+          <div style="font-size: 10px; color: var(--text-sub);">低质量/衰减记忆</div>
+          <div style="font-size: 16px; font-weight: 800; color: ${report.lowQualityCount > 0 ? '#d32f2f' : '#07c160'}; margin-top: 2px;">${report.lowQualityCount} 条</div>
+        </div>
+      </div>
+
+      <div style="font-size: 11px; color: var(--text-sub); margin-bottom: 12px; padding: 6px 8px; background: rgba(0,0,0,0.02); border-radius: 6px; border: 1px dashed var(--border);">
+        🤖 <b>AI 自我复盘状态：</b> ${reflectionSummary}
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn btn-warning" style="flex: 1; padding: 6px 10px; font-size: 11.5px; white-space: nowrap;" onclick="triggerCleanLowQualityMemories()">🧹 一键清理低质量记忆</button>
+        <button class="btn btn-info" style="flex: 1; padding: 6px 10px; font-size: 11.5px; white-space: nowrap;" onclick="triggerManualSelfReflection()">🤖 立即执行复盘</button>
+        <button class="btn btn-secondary" style="flex: 1; padding: 6px 10px; font-size: 11.5px; white-space: nowrap;" onclick="exportMemoryHealthReportJSON()">📥 导出健康报告</button>
+      </div>
+    `;
+  } catch(e) {
+    box.innerHTML = `<div style="font-size:12px; color:#d32f2f;">获取健康报告失败: ${e.message}</div>`;
+  }
+}
+
+async function triggerCleanLowQualityMemories() {
+  if (!confirm('确定要一键清理所有低质量/陈旧衰减记忆吗？该操作将永久删除衰减、归档及长期低置信度记录。')) return;
+  try {
+    showToast('🧹 正在清理低质量记忆...');
+    const result = await cleanLowQualityMemories();
+    showToast(`✅ 已清理 ${result.cleanedCount} 条低质量记忆！`);
+    renderMemoryHealthCard();
+    if (typeof renderMemorySettings === 'function') renderMemorySettings();
+  } catch (e) {
+    showToast(`❌ 清理失败: ${e.message}`);
+  }
+}
+
+async function triggerManualSelfReflection() {
+  try {
+    showToast('🤖 正在执行 AI 自我复盘维护...');
+    const report = await performSelfReflection();
+    showToast(`✨ 自我复盘完成！降级 ${report.summary.demotedToFading} 条，归档 ${report.summary.demotedToArchived} 条`);
+    renderMemoryHealthCard();
+  } catch (e) {
+    showToast(`❌ 复盘失败: ${e.message}`);
+  }
+}
+
+async function exportMemoryHealthReportJSON() {
+  try {
+    const report = await getMemoryHealthReport();
+    const lastReflection = localStorage.getItem('lastReflectionReport');
+    let refObj = null;
+    if (lastReflection) {
+      try { refObj = JSON.parse(lastReflection); } catch(e) {}
+    }
+
+    const exportData = {
+      healthReport: report,
+      lastReflectionReport: refObj,
+      exportedAt: new Date().toISOString()
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `memory_health_report_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('📥 记忆健康报告 JSON 已导出！');
+  } catch (e) {
+    showToast(`导出失败: ${e.message}`);
   }
 }
 async function applyMemTrim(){if(document.getElementById('memMaxLocal'))localStorage.setItem('mem_max_local',document.getElementById('memMaxLocal').value||'10000');if(document.getElementById('memMaxRemote'))localStorage.setItem('mem_max_remote',document.getElementById('memMaxRemote').value||'5000');await trimVectorStore();showToast('✅ 已按上限清理');renderMemorySettings();}

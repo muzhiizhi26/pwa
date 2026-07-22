@@ -578,6 +578,22 @@ async function recall(query,aiId){
     } else if(vis==='relationship'){
       if(activeAi!=='main' && recordAi!==activeAi && recordAi!=='main') return false;
     }
+
+    // 🎭 多角色认知边界 (Character Cognitive Boundary) 过滤
+    if (typeof getCharacterMemoryScope === 'function') {
+      const scopeObj = getCharacterMemoryScope(activeAi);
+      if (scopeObj.scope === 'public_only') {
+        const isGroupSource = r.source === 'group_chat' || (r.metadata && r.metadata.source === 'group_chat') || vis === 'world' || r.visibility === 'group';
+        if (!isGroupSource) return false;
+      } else if (scopeObj.scope === 'shared') {
+        const isGroupSource = r.source === 'group_chat' || (r.metadata && r.metadata.source === 'group_chat') || vis === 'world' || r.visibility === 'group';
+        const tags = r.topicTags || (r.metadata && r.metadata.topicTags) || [];
+        const text = (r.text || '').toLowerCase();
+        const sharedKeys = scopeObj.sharedKeys || ['preferences', 'topics', 'facts'];
+        const matchesShared = sharedKeys.some(k => tags.includes(k) || text.includes(k) || (r.category && r.category.includes(k)));
+        if (!isGroupSource && !matchesShared && recordAi !== activeAi) return false;
+      }
+    }
     
     // PHASE 1 Lifecycle filtration
     const status = r.status || 'active';
@@ -1079,6 +1095,239 @@ async function recallExperiences(query, aiId) {
   }
 }
 
+/* ===== 🏥 记忆健康监控 (Memory Health Monitor) & AI 自我复盘 (Self Reflection) ===== */
+async function getMemoryHealthReport() {
+  try {
+    const allRecords = await VDB.all();
+    const totalCount = allRecords.length;
+
+    if (totalCount === 0) {
+      return {
+        totalCount: 0,
+        effectiveRatio: '100%',
+        unverifiedInferenceRatio: '0%',
+        conflictCount: 0,
+        lowQualityCount: 0,
+        statusCounts: { active: 0, stable: 0, fading: 0, archived: 0 },
+        sourceCounts: { user_explicit: 0, ai_inferred: 0, other: 0 },
+        generatedAt: new Date().toLocaleString('zh-CN')
+      };
+    }
+
+    const now = Date.now();
+    const ninetyDaysMs = 90 * 24 * 3600 * 1000;
+
+    let activeCount = 0;
+    let stableCount = 0;
+    let fadingCount = 0;
+    let archivedCount = 0;
+
+    let userExplicitCount = 0;
+    let aiInferredCount = 0;
+    let otherSourceCount = 0;
+
+    let unverifiedInferredCount = 0;
+    let lowQualityCount = 0;
+
+    let conflictCount = 0;
+    const topicMap = new Map();
+
+    for (const rec of allRecords) {
+      const status = rec.status || 'active';
+      if (status === 'active') activeCount++;
+      else if (status === 'stable') stableCount++;
+      else if (status === 'fading') fadingCount++;
+      else if (status === 'archived') archivedCount++;
+      else activeCount++;
+
+      const source = rec.source || (rec.metadata && rec.metadata.source) || 'user_explicit';
+      if (source === 'user_explicit' || source === 'user') userExplicitCount++;
+      else if (source === 'ai_inferred' || source === 'inferred') aiInferredCount++;
+      else otherSourceCount++;
+
+      const isVerified = (rec.verified_count || 0) > 0;
+      const confidence = rec.confidence != null ? rec.confidence : (rec.importance_score || 50);
+      const ageMs = now - (rec.ts || now);
+
+      if ((source === 'ai_inferred' || source === 'inferred') && !isVerified) {
+        unverifiedInferredCount++;
+      }
+
+      // 低价值记忆判定：状态为 fading 或 archived，或者 (置信度 < 40 且 90天未被验证)
+      const isLowQuality = (status === 'fading' || status === 'archived') ||
+                           (confidence < 40 && !isVerified && ageMs > ninetyDaysMs);
+      if (isLowQuality) {
+        lowQualityCount++;
+      }
+
+      // 冲突记忆统计
+      if (rec.conflict_with || status === 'conflict') {
+        conflictCount++;
+      } else {
+        const topicKey = (rec.text || '').slice(0, 10);
+        if (topicKey) {
+          if (topicMap.has(topicKey)) {
+            const prev = topicMap.get(topicKey);
+            if (prev.emotion && rec.emotion && prev.emotion !== rec.emotion) {
+              conflictCount++;
+            }
+          } else {
+            topicMap.set(topicKey, rec);
+          }
+        }
+      }
+    }
+
+    const effectiveRatioNum = ((activeCount + stableCount) / totalCount) * 100;
+    const effectiveRatio = `${effectiveRatioNum.toFixed(1)}%`;
+
+    const unverifiedRatioNum = totalCount > 0 ? (unverifiedInferredCount / totalCount) * 100 : 0;
+    const unverifiedInferenceRatio = `${unverifiedRatioNum.toFixed(1)}%`;
+
+    return {
+      totalCount,
+      effectiveRatio,
+      unverifiedInferenceRatio,
+      conflictCount,
+      lowQualityCount,
+      statusCounts: { active: activeCount, stable: stableCount, fading: fadingCount, archived: archivedCount },
+      sourceCounts: { user_explicit: userExplicitCount, ai_inferred: aiInferredCount, other: otherSourceCount },
+      generatedAt: new Date().toLocaleString('zh-CN')
+    };
+  } catch (e) {
+    console.error('[Memory Health] Error generating report:', e);
+    return {
+      totalCount: 0,
+      effectiveRatio: '0%',
+      unverifiedInferenceRatio: '0%',
+      conflictCount: 0,
+      lowQualityCount: 0,
+      statusCounts: { active: 0, stable: 0, fading: 0, archived: 0 },
+      sourceCounts: { user_explicit: 0, ai_inferred: 0, other: 0 },
+      error: e.message
+    };
+  }
+}
+
+async function cleanLowQualityMemories() {
+  try {
+    const allRecords = await VDB.all();
+    const now = Date.now();
+    const ninetyDaysMs = 90 * 24 * 3600 * 1000;
+    const lowQualityIds = [];
+
+    for (const rec of allRecords) {
+      const status = rec.status || 'active';
+      const source = rec.source || (rec.metadata && rec.metadata.source) || 'user_explicit';
+      const isVerified = (rec.verified_count || 0) > 0;
+      const confidence = rec.confidence != null ? rec.confidence : (rec.importance_score || 50);
+      const ageMs = now - (rec.ts || now);
+
+      const isLowQuality = (status === 'fading' || status === 'archived') ||
+                           (confidence < 40 && !isVerified && ageMs > ninetyDaysMs);
+      if (isLowQuality && rec.id) {
+        lowQualityIds.push(rec.id);
+      }
+    }
+
+    if (lowQualityIds.length > 0) {
+      await VDB.deleteBatch(lowQualityIds);
+      console.log(`[Memory Health] Cleaned ${lowQualityIds.length} low quality memory items.`);
+    }
+
+    return { cleanedCount: lowQualityIds.length };
+  } catch (e) {
+    console.error('[Memory Health] Error cleaning low quality memories:', e);
+    throw e;
+  }
+}
+
+async function performSelfReflection() {
+  try {
+    console.log('[SelfReflection] Starting AI Self Reflection cycle...');
+    const allRecords = await VDB.all();
+    const now = Date.now();
+
+    const oneHundredEightyDaysMs = 180 * 24 * 3600 * 1000;
+    const threeHundredSixtyFiveDaysMs = 365 * 24 * 3600 * 1000;
+    const ninetyDaysMs = 90 * 24 * 3600 * 1000;
+
+    let demotedToFading = 0;
+    let demotedToArchived = 0;
+    let confidenceReduced = 0;
+
+    for (const rec of allRecords) {
+      let changed = false;
+      const status = rec.status || 'active';
+      const lastRecall = rec.lastRecalledAt || rec.ts || now;
+      const ageSinceRecall = now - lastRecall;
+      const source = rec.source || (rec.metadata && rec.metadata.source) || 'user_explicit';
+      const verifiedCount = rec.verified_count || 0;
+
+      // 1. 连续 180 天未被召回的 stable 记忆降级为 fading
+      if (status === 'stable' && ageSinceRecall > oneHundredEightyDaysMs) {
+        rec.status = 'fading';
+        demotedToFading++;
+        changed = true;
+      }
+      // 2. 连续 365 天未被召回的 fading 记忆降级为 archived
+      else if (status === 'fading' && ageSinceRecall > threeHundredSixtyFiveDaysMs) {
+        rec.status = 'archived';
+        demotedToArchived++;
+        changed = true;
+      }
+
+      // 3. verified_count 为 0 且 source 为 ai_inferred 且超过 90 天未验证，置信度降低 10%
+      if ((source === 'ai_inferred' || source === 'inferred') && verifiedCount === 0) {
+        const memoryAge = now - (rec.ts || now);
+        if (memoryAge > ninetyDaysMs) {
+          const currentConf = rec.confidence != null ? rec.confidence : (rec.importance_score || 50);
+          rec.confidence = Math.max(1, Math.round(currentConf * 0.9));
+          rec.importance_score = rec.confidence;
+          confidenceReduced++;
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        await VDB.put(rec);
+      }
+    }
+
+    const currentMetrics = await getMemoryHealthReport();
+
+    let previousMetrics = null;
+    try {
+      const prevRaw = localStorage.getItem('lastReflectionReport');
+      if (prevRaw) {
+        const prevObj = JSON.parse(prevRaw);
+        previousMetrics = prevObj.currentMetrics || null;
+      }
+    } catch(e) {}
+
+    const reflectionReport = {
+      timestamp: new Date().toLocaleString('zh-CN'),
+      executedAt: Date.now(),
+      summary: {
+        demotedToFading,
+        demotedToArchived,
+        confidenceReduced
+      },
+      currentMetrics,
+      previousMetrics
+    };
+
+    localStorage.setItem('lastReflectionReport', JSON.stringify(reflectionReport));
+    localStorage.setItem('lastReflectionTime', Date.now().toString());
+
+    console.log(`[SelfReflection] Cycle completed. Demoted to Fading: ${demotedToFading}, Demoted to Archived: ${demotedToArchived}, Confidence Reduced: ${confidenceReduced}`);
+    return reflectionReport;
+  } catch (e) {
+    console.error('[SelfReflection] Error executing self reflection:', e);
+    throw e;
+  }
+}
+
 // Export helper functions to window context
 window.getAiPersonality = getAiPersonality;
 window.saveAiPersonality = saveAiPersonality;
@@ -1088,3 +1337,6 @@ window.checkAndMergeMemories = checkAndMergeMemories;
 window.resolveMemoryConflicts = resolveMemoryConflicts;
 window.autoCreateExperience = autoCreateExperience;
 window.recallExperiences = recallExperiences;
+window.getMemoryHealthReport = getMemoryHealthReport;
+window.cleanLowQualityMemories = cleanLowQualityMemories;
+window.performSelfReflection = performSelfReflection;

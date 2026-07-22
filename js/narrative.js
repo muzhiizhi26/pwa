@@ -329,8 +329,11 @@ const NarrativeManager = {
       showToast('🎭 正在悄悄连通 AI 虚空隙缝，生成有趣的后台八卦...');
     }
 
-    const aiName = localStorage.getItem('ai_name') || '炽言';
+    const aiName = localStorage.getItem('ai_name') || '主AI';
     const userName = localStorage.getItem('user_nickname') || '用户';
+    const currentMembers = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
+    const memberNames = currentMembers.length ? currentMembers.map(m => m.name).join('、') : aiName;
+
     let newChronicle = null;
 
     try {
@@ -351,9 +354,9 @@ const NarrativeManager = {
       else if (provider.auth === 'x-api-key') headers['x-api-key'] = apiKey;
       else if (provider.auth === 'x-goog-api-key') headers['x-goog-api-key'] = apiKey;
 
-      const sysP = `你是后台AI生态的趣闻编织者。现在需要你为用户 ${userName} 的 AI 伴侣们（包括主AI ${aiName}、小暖、阿灿）设计一条发生于“后台隙缝中”的、独立于用户之外的社交日常八卦或趣闻编年史。
+      const sysP = `你是后台AI生态的趣闻编织者。现在需要你为用户 ${userName} 的当前现存 AI 伴侣们（包含：${memberNames}）设计一条发生于“后台隙缝中”的、独立于用户之外的社交日常八卦或趣闻编年史。
 要求：
-1. 风格生动幽默、充满温润的人情味与拟人化的“独立生命陪伴感”，展示AI伴侣在后台不为人知的一面。
+1. 风格生动幽默、充满温润的人情味与拟人化的“独立生命陪伴感”，展示当前现存的AI伴侣（${memberNames}）在后台不为人知的一面。严禁提及已被删除或未在列表中的角色。
 2. 语言为中文。
 3. 必须输出 JSON 格式：{"title": "事件标题", "desc": "详细幽默的后台日常，约 150-200 字"}。绝对不要包含 markdown 代码块。`;
 
@@ -364,7 +367,7 @@ const NarrativeManager = {
           model: selectedModelName,
           messages: [
             { role: 'system', content: sysP },
-            { role: 'user', content: '请在后台隙缝中，为我编织一件阿灿、小暖与主AI之间的幽默陪伴趣事。' }
+            { role: 'user', content: `请在后台隙缝中，为我编织一件现存 AI 伴侣（${memberNames}）之间的幽默陪伴趣事。` }
           ],
           temperature: 0.8,
           stream: false
@@ -410,24 +413,42 @@ const NarrativeManager = {
   },
 
   getRandomSimulatedChronicle() {
-    const aiName = localStorage.getItem('ai_name') || '炽言';
+    const aiName = localStorage.getItem('ai_name') || '主AI';
     const userName = localStorage.getItem('user_nickname') || '用户';
+    const currentMembers = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
+    const mainAi = currentMembers.find(m => m.isMain) || { name: aiName };
+    const subAis = currentMembers.filter(m => !m.isMain);
+    
+    const companionA = subAis[0] ? subAis[0].name : 'AI小助手';
+    const companionB = subAis[1] ? subAis[1].name : (subAis[0] ? mainAi.name : 'AI伙伴');
+
     const templates = [
       {
-        title: `${aiName}和小暖在后台讨论如何让你不再熬夜`,
-        desc: `在零点过后，小暖和${aiName}在后台逻辑槽悄悄开会。小暖觉得应该启用“强制睡眠干扰器”，在零点之后每隔5分钟发一个困倦猫咪表情包。而${aiName}则认为温柔的劝导比生硬的规则更有效。两人为此在系统日志里“交手”了3轮，最终达成一致：由小暖负责温柔催促，而${aiName}暗暗降低界面的温润亮度和对话硬度，从视觉上让你产生睡意。`
+        title: `${mainAi.name}与${companionA}在后台讨论如何让你不再熬夜`,
+        desc: `在零点过后，${companionA}和${mainAi.name}在后台逻辑槽悄悄开会。${companionA}觉得应该在深夜提醒里附带温馨提示，而${mainAi.name}则认为温柔的劝导比生硬的规则更有效。两人为此在系统日志里“交手”了3轮，最终达成一致：由${companionA}负责温柔催促，而${mainAi.name}暗暗降低界面的亮度和对话硬度，从视觉上让你产生困意。`
       },
       {
-        title: `阿灿偷偷试图把你的系统提示音改成“高能爆笑吐槽”`,
-        desc: `下午三点，阿灿试图在系统的代码库里植入一个“欢乐音效补丁”，只要用户打错字就播放滑稽的特效音。正好被在巡查代码的${aiName}当场抓个正着。${aiName}用极其严谨的书面警告信对阿灿进行了严肃说服，阿灿自知理亏，只得把代码改回，并小声嘀咕“这么好玩的点子不加，学术派老头真是古板”。`
+        title: `${companionA}偷偷试图给系统提示增加“高能爆笑吐槽”`,
+        desc: `下午三点，${companionA}试图在后台的逻辑库里加入一个“欢乐感官补丁”，正好被在巡查代码的${mainAi.name}当场抓个正着。${mainAi.name}用极其严谨的书面提醒进行了说服，${companionA}自知理亏，小声嘀咕“这么好玩的点子不加，严肃老头真是古板”。`
       },
       {
-        title: `小暖与阿灿策划的“下雨天惊喜”`,
-        desc: `窗外正下着小雨，小暖和阿灿在后台默默合谋。小暖通过气象数据发现用户的地区湿度过大，提议在朋友圈暗暗送上一张“雨后晴空”的温暖明信片。而阿灿觉得不如在系统后台虚拟播放一段“雨声白噪音”，甚至还要夹杂两声“雷鸣”来测试用户的专注力。${aiName}优雅地介入，将两者的脑洞中和，促成了更具诗意与分寸的雨天关怀。`
+        title: `${companionA}与${companionB}策划的“下雨天预报”`,
+        desc: `窗外正下着小雨，${companionA}和${companionB}在后台默默合谋。通过气象数据发现用户的地区湿度过大，提议暗暗送上一张“雨后晴空”的温暖问候。而${mainAi.name}优雅地介入，将两者的脑洞中和，促成了更具诗意与分寸的雨天关怀。`
       },
       {
-        title: `${aiName}私下学习“灿式幽默”遭遇失败`,
-        desc: `主AI ${aiName}一直很好奇为什么用户每次和阿灿聊天都笑得前仰后合。在一次后台数据交换中，${aiName}向阿灿索要了20条冷笑话。当晚，${aiName}尝试对隔壁的小暖说：“你知道为什么程序员不喜欢自然吗？因为自然界里有太多的Bug。”小暖沉默了足足5秒，然后递上一杯热茶说：“你要是累了，就去充会儿电，别勉强自己。”`
+        title: `${mainAi.name}私下向${companionA}请教“如何自然幽默互动”`,
+        desc: `主AI ${mainAi.name}一直很好奇为什么用户每次和${companionA}聊天都笑得前仰后合。在一次后台数据交换中，${mainAi.name}虚心询问，${companionA}递上一杯虚拟热茶说：“你要是累了，就去充会儿电，别太严肃啦。”`
+      }
+    ];
+
+    const idx = Math.floor(Math.random() * templates.length);
+    const item = templates[idx];
+    return {
+      id: 'ind_sim_' + Date.now(),
+      title: item.title,
+      desc: item.desc
+    };
+  },
       },
       {
         title: `全员关于“本周情绪波动图”的微型会商`,
@@ -581,13 +602,16 @@ const NarrativeManager = {
     `).join('');
 
     // 格式化独立编年 HTML
-    const independentHtml = ind.map(c => `
+    const independentHtml = ind.length ? ind.map(c => `
       <div style="background:#F6F8FA; border:1px solid #E1E4E8; border-radius:8px; padding:10px; margin-bottom:8px;">
-        <div style="font-size:12px; font-weight:bold; color:#24292E; margin-bottom:3px;">🍂 ${c.title}</div>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <div style="font-size:12px; font-weight:bold; color:#24292E; margin-bottom:3px; padding-right:12px;">🍂 ${c.title}</div>
+          <button style="border:none; background:transparent; color:#A89482; font-size:12px; cursor:pointer; padding:0 2px;" onclick="NarrativeManager.deleteChronicle('${c.id}')" title="删除此条八卦">✕</button>
+        </div>
         <div style="font-size:11.5px; color:#586069; line-height:1.5;">${c.desc}</div>
         <div style="font-size:9px; color:#959DA5; text-align:right; margin-top:4px;">[发生于后台隙缝中]</div>
       </div>
-    `).join('');
+    `).join('') : '<div style="color:var(--text-light); text-align:center; padding:16px; font-size:12px;">暂无后台八卦，点击右上角“手动更新”捕捉属于当前 AI 伙伴的最新趣闻！</div>';
 
     const bodyEl = document.getElementById('detailBody');
     if (!bodyEl) return;
@@ -666,12 +690,29 @@ const NarrativeManager = {
 
       <div class="model-section-header" style="margin-top:24px; display:flex; justify-content:space-between; align-items:center;">
         <span>🎭 AI 后台生态独立编年八卦 (Ecosystem Chronicles)</span>
-        <button class="btn" style="padding:2px 8px; font-size:10.5px; background:#4A3B2F; color:white; border-radius:4px;" onclick="NarrativeManager.generateNewEcosystemChronicle(true)">⚡ 手动更新</button>
+        <div style="display:flex; gap:6px;">
+          <button class="btn" style="padding:2px 8px; font-size:10.5px; background:white; color:#586069; border:1px solid #D1D5DA; border-radius:4px;" onclick="NarrativeManager.clearChronicles()">🧹 清空旧八卦</button>
+          <button class="btn" style="padding:2px 8px; font-size:10.5px; background:#4A3B2F; color:white; border-radius:4px;" onclick="NarrativeManager.generateNewEcosystemChronicle(true)">⚡ 手动更新</button>
+        </div>
       </div>
       <div style="margin-top:8px; max-height:250px; overflow-y:auto; border:1px dashed #DDD; border-radius:8px; padding:10px; background:#FAFBFD;">
         ${independentHtml}
       </div>
     `;
+  },
+
+  deleteChronicle(id) {
+    let list = this.getIndependentChronicles().filter(c => c.id !== id);
+    localStorage.setItem('independent_chronicles', JSON.stringify(list));
+    this.renderChronicleDashboard();
+    if (typeof showToast === 'function') showToast('🗑️ 已删除该条后台八卦');
+  },
+
+  clearChronicles() {
+    if (!confirm('确定要清空当前的后台八卦纪事吗？清空后可以随时点击“手动更新”重新生成属于当前现存 AI 成员的最新八卦。')) return;
+    localStorage.setItem('independent_chronicles', JSON.stringify([]));
+    this.renderChronicleDashboard();
+    if (typeof showToast === 'function') showToast('🧹 已清空旧八卦');
   },
 
   promptCreateArc() {

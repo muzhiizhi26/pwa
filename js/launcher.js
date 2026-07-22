@@ -14,6 +14,7 @@ const LAUNCHER_DEFAULT=[
   {id:'voicesettings',label:'语音设置',icon:'🔊',action:'voice'},
   // 网格 第三行
   {id:'memory',label:'记忆',icon:'🧠',action:'memory'},
+  {id:'timeline',label:'成长时间线',icon:'📜',action:'timeline'},
   // 底部 Dock
   {id:'chat',label:'聊天',icon:'💬',action:'chat'},
   {id:'group',label:'群聊',icon:'👥',action:'group'},
@@ -171,6 +172,11 @@ function launcherOpen(action){
     case 'moments':
       if (typeof switchMainTab === 'function') {
         switchMainTab('moments');
+      }
+      break;
+    case 'timeline':
+      if (typeof openTimeline === 'function') {
+        openTimeline();
       }
       break;
     case 'group':

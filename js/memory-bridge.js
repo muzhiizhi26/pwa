@@ -914,6 +914,84 @@ function addTimelineMilestone(title, desc, category, dateStr, aiParticipant, rel
 window.addTimelineMilestone = addTimelineMilestone;
 
 /**
+ * 📜 打开并渲染关系成长时间线 modal
+ */
+function openTimeline() {
+  const panel = document.getElementById('timelinePanel');
+  if (panel) {
+    panel.classList.add('show');
+    renderTimeline();
+  }
+}
+window.openTimeline = openTimeline;
+
+function renderTimeline() {
+  const body = document.getElementById('timelineBody');
+  if (!body) return;
+
+  const timeline = (typeof getLifeEventTimeline === 'function') ? getLifeEventTimeline() : [];
+
+  if (!timeline || timeline.length === 0) {
+    body.innerHTML = `
+      <div style="text-align: center; padding: 32px 16px; color: var(--text-sub);">
+        <div style="font-size: 36px; margin-bottom: 12px;">💫</div>
+        <div style="font-size: 14px; font-weight: bold; margin-bottom: 6px;">还没有记录共同经历</div>
+        <div style="font-size: 12px;">开始与 AI 伴侣倾诉或互动，属于你们的时光纪事将在此自动呈现。</div>
+      </div>
+    `;
+    return;
+  }
+
+  const categoryIcons = {
+    career: '💼',
+    emotion: '🕯️',
+    life: '🌱',
+    relationship: '🤝',
+    chat: '💬',
+    image: '🎨',
+    diary: '📔',
+    milestone: '🏆',
+    group: '👥'
+  };
+
+  const listHtml = timeline.map((m, idx) => {
+    const isLast = idx === timeline.length - 1;
+    const catIcon = categoryIcons[m.category] || '🌟';
+    const dateDisplay = m.dateStr || (m.timestamp ? new Date(m.timestamp).toLocaleDateString('zh-CN') : '近日');
+    const participant = m.aiParticipant || 'AI伴侣';
+    const stage = m.relationshipStage || '知心伴侣';
+
+    return `
+      <div style="display: flex; gap: 12px; position: relative;">
+        <!-- Left Axis -->
+        <div style="display: flex; flex-direction: column; align-items: center; min-width: 32px;">
+          <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--bg-hover, #F0EAE1); border: 2px solid var(--primary, #A89482); display: flex; align-items: center; justify-content: center; font-size: 13px; z-index: 2;">
+            ${catIcon}
+          </div>
+          ${!isLast ? '<div style="width: 2px; flex: 1; background: var(--border, #E0D8CE); margin: 4px 0;"></div>' : ''}
+        </div>
+        <!-- Right Content Card -->
+        <div style="flex: 1; background: var(--bg-card, #FFFFFF); border: 1px solid var(--border, #E6E0D8); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 11px; font-weight: 600; color: var(--primary, #8C7B6C); background: rgba(168,148,130,0.12); padding: 2px 8px; border-radius: 10px;">${dateDisplay}</span>
+            <span style="font-size: 10px; color: var(--text-sub); font-weight: 500;">与 ${participant} • ${stage}</span>
+          </div>
+          <div style="font-size: 13px; font-weight: bold; color: var(--text-main); margin-bottom: 4px;">${m.title}</div>
+          <div style="font-size: 12px; color: var(--text-sub); line-height: 1.5;">${m.desc}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  body.innerHTML = `
+    <div style="padding-top: 8px;">
+      ${listHtml}
+    </div>
+  `;
+}
+window.renderTimeline = renderTimeline;
+
+/**
  * 📅 渲染共同岁月时间轴 (Life Event Timeline) UI
  */
 function renderLifeEventTimelineUI() {
