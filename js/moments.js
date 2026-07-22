@@ -183,6 +183,19 @@ const MomentsEngine = {
     moments.unshift(moment);
     this.saveMoments(moments);
 
+    if (window.UnifiedEventStore) {
+      window.UnifiedEventStore.registerEvent({
+        id: 'evt_moment_' + moment.id,
+        type: 'MOMENT',
+        title: `动态: ${moment.name || moment.author || '未知作者'}`,
+        summary: (moment.content || moment.text || '').slice(0, 45),
+        aiId: moment.authorId || 'main',
+        sourceModule: 'moments',
+        refId: moment.id,
+        ts: moment.ts || Date.now()
+      });
+    }
+
     // Cache image in LovestoryImageDB if present
     if (moment.image && window.LovestoryImageDB) {
       if (typeof downloadAndStoreImage === 'function') {

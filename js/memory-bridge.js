@@ -19,6 +19,91 @@ class MemoryLockQueue {
 }
 window.MemoryLockQueue = window.MemoryLockQueue || new MemoryLockQueue();
 
+/**
+ * 🏛️ 统一事件存储中心 (Unified Event Store)
+ * 统一收拢 Moments 朋友圈、Diary 日记、Experience 共同经历、Milestone 纪念日 memory 与 Proactive 关怀事件
+ */
+const UnifiedEventStore = {
+  _getEvents() {
+    try {
+      return JSON.parse(localStorage.getItem('unified_event_store') || '[]');
+    } catch (e) {
+      return [];
+    }
+  },
+
+  _saveEvents(events) {
+    try {
+      localStorage.setItem('unified_event_store', JSON.stringify(events.slice(0, 500)));
+    } catch (e) {}
+  },
+
+  registerEvent(evt) {
+    if (!evt || (!evt.title && !evt.summary)) return null;
+    const now = Date.now();
+    const store = this._getEvents();
+    
+    const eventRecord = {
+      id: evt.id || ('evt_' + now + '_' + Math.random().toString(36).slice(2, 7)),
+      type: evt.type || 'EVENT', // 'MOMENT', 'DIARY', 'EXPERIENCE', 'MILESTONE_MEMORY', 'PROACTIVE_CARE', 'ANNIVERSARY'
+      title: evt.title || evt.summary || '未命名事件',
+      summary: evt.summary || evt.title || '',
+      aiId: evt.aiId || (typeof currentPrivateAiId === 'function' ? currentPrivateAiId() : 'main'),
+      sourceModule: evt.sourceModule || 'system', // 'moments', 'diary', 'experience', 'memory', 'proactive'
+      refId: evt.refId || null,
+      emotion: evt.emotion || 'calm',
+      importance: evt.importance || 50,
+      tags: evt.tags || [],
+      ts: evt.ts || now,
+      metadata: evt.metadata || {}
+    };
+
+    const existingIdx = store.findIndex(e => e.sourceModule === eventRecord.sourceModule && e.refId === eventRecord.refId && e.refId != null);
+    if (existingIdx >= 0) {
+      store[existingIdx] = { ...store[existingIdx], ...eventRecord, ts: now };
+    } else {
+      store.unshift(eventRecord);
+    }
+
+    this._saveEvents(store);
+
+    if (typeof CompanionEvents !== 'undefined') {
+      CompanionEvents.record(eventRecord.aiId, 'UNIFIED_EVENT', {
+        title: eventRecord.title,
+        module: eventRecord.sourceModule,
+        type: eventRecord.type
+      }, `🏛️ UnifiedEventStore: [${eventRecord.sourceModule}] ${eventRecord.title}`);
+    }
+
+    return eventRecord;
+  },
+
+  queryEvents({ type, aiId, keyword, limit = 20 }) {
+    let events = this._getEvents();
+    if (aiId) {
+      events = events.filter(e => e.aiId === aiId || e.aiId === 'main' || aiId === 'main');
+    }
+    if (type) {
+      events = events.filter(e => e.type === type || e.sourceModule === type);
+    }
+    if (keyword) {
+      const kw = keyword.toLowerCase();
+      events = events.filter(e => (e.title && e.title.toLowerCase().includes(kw)) || (e.summary && e.summary.toLowerCase().includes(kw)));
+    }
+    return events.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, limit);
+  },
+
+  getTimeline(aiId, limit = 30) {
+    return this.queryEvents({ aiId, limit });
+  },
+
+  deleteByRef(sourceModule, refId) {
+    const store = this._getEvents().filter(e => !(e.sourceModule === sourceModule && e.refId === refId));
+    this._saveEvents(store);
+  }
+};
+window.UnifiedEventStore = UnifiedEventStore;
+
 // 内存中缓存最近处理过的事件用于看板实时显示
 let _memoryEventLogs = [];
 try {

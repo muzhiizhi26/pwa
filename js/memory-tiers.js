@@ -366,6 +366,94 @@ const MemorySnapshot = {
 };
 window.MemorySnapshot = MemorySnapshot;
 
+/* ---- 上下文 Token/字符 预算管理器 (Context Budget Manager) ---- */
+const ContextBudgetManager = {
+  getGlobalBudget() {
+    const val = parseInt(localStorage.getItem('context_char_budget') || '4500');
+    return isNaN(val) || val <= 0 ? 4500 : val;
+  },
+
+  setGlobalBudget(limit) {
+    localStorage.setItem('context_char_budget', String(limit));
+  },
+
+  smartTrimProvider(pid, text, targetMax) {
+    if (!text || text.length <= targetMax) return text;
+
+    if (pid === 'recall') {
+      const lines = text.split('\n');
+      const kept = [];
+      let currentLen = 0;
+      for (const line of lines) {
+        if (line.includes('【') || line.includes('[确凿事实') || line.includes('[用户陈述') || line.includes('用户曾说')) {
+          if (currentLen + line.length + 1 <= targetMax - 40) {
+            kept.push(line);
+            currentLen += line.length + 1;
+          }
+        } else if (line.trim().length > 0) {
+          if (currentLen + line.length + 1 <= targetMax - 40) {
+            kept.push(line);
+            currentLen += line.length + 1;
+          }
+        }
+      }
+      if (kept.length > 0) {
+        return kept.join('\n') + `\n... [已按 Context Budget 精确保留最高可信召回，自动省略低频节点]`;
+      }
+    }
+
+    if (pid === 'user_profile') {
+      const sentences = text.split(/(?<=[。\n])/);
+      let keptStr = '';
+      for (const s of sentences) {
+        if ((keptStr + s).length <= targetMax - 35) {
+          keptStr += s;
+        } else {
+          break;
+        }
+      }
+      return keptStr + `\n... [已被 Context Budget 裁切收拢]`;
+    }
+
+    const endIdx = text.lastIndexOf('。', targetMax - 30);
+    if (endIdx > targetMax * 0.4) {
+      return text.slice(0, endIdx + 1) + `\n... [由 Context Budget 压缩]`;
+    }
+    return text.slice(0, Math.max(100, targetMax - 30)) + `\n... [由 Context Budget 压缩]`;
+  },
+
+  compress(compiledFragments, globalBudget, budgetModifiers = {}) {
+    let totalLen = Object.values(compiledFragments).reduce((sum, t) => sum + (t ? t.length : 0), 0);
+    if (totalLen <= globalBudget) {
+      return { compiledFragments, wasCompressed: false, totalLen };
+    }
+
+    let excess = totalLen - globalBudget;
+    const priorityOrder = ['recall', 'user_profile', 'midterm', 'functional', 'intent', 'relationship'];
+
+    for (const pid of priorityOrder) {
+      if (!compiledFragments[pid] || compiledFragments[pid].length < 180) continue;
+
+      const originalLen = compiledFragments[pid].length;
+      const modifier = budgetModifiers[pid] || 1.0;
+      const compressionFactor = Math.max(0.35, 0.55 / modifier);
+      const targetLen = Math.max(150, Math.round(originalLen * compressionFactor));
+      const diff = originalLen - targetLen;
+
+      if (diff > 0) {
+        compiledFragments[pid] = this.smartTrimProvider(pid, compiledFragments[pid], targetLen);
+        const actualReduced = originalLen - compiledFragments[pid].length;
+        excess -= actualReduced;
+        if (excess <= 0) break;
+      }
+    }
+
+    const finalLen = Object.values(compiledFragments).reduce((sum, t) => sum + (t ? t.length : 0), 0);
+    return { compiledFragments, wasCompressed: true, totalLen: finalLen };
+  }
+};
+window.ContextBudgetManager = ContextBudgetManager;
+
 /* ---- 统一系统提示词组装（建立统一的 Context Aggregator 上下文聚合器）---- */
 const ContextAggregator = {
   providers: [],
@@ -585,27 +673,10 @@ const ContextAggregator = {
     // ==========================================
     // 📦 Pipeline Phase 3: COMPRESSION (Token 预算动态梯度裁切)
     // ==========================================
-    const GLOBAL_CHAR_BUDGET = 4500;
-    let totalLength = Object.values(compiledFragments).reduce((sum, text) => sum + text.length, 0);
-
-    if (totalLength > GLOBAL_CHAR_BUDGET) {
-      console.warn(`[ContextAggregator] Context length (${totalLength}) exceeds budget (${GLOBAL_CHAR_BUDGET}). Running Compression pipeline...`);
-      let excess = totalLength - GLOBAL_CHAR_BUDGET;
-      const compressibleProviders = ['recall', 'user_profile', 'midterm', 'functional'];
-      
-      for (const pid of compressibleProviders) {
-        if (compiledFragments[pid] && compiledFragments[pid].length > 200) {
-          const originalLen = compiledFragments[pid].length;
-          const modifier = budgetModifiers[pid] || 1.0;
-          const targetLen = Math.max(150, Math.round(originalLen * 0.5 * modifier));
-          const diff = originalLen - targetLen;
-          if (diff > 0) {
-            compiledFragments[pid] = compiledFragments[pid].slice(0, targetLen) + `\n... [已被 Context Aggregator 动态压缩以控制 Token 开销]`;
-            excess -= diff;
-            if (excess <= 0) break;
-          }
-        }
-      }
+    const GLOBAL_CHAR_BUDGET = ContextBudgetManager.getGlobalBudget();
+    const compressionResult = ContextBudgetManager.compress(compiledFragments, GLOBAL_CHAR_BUDGET, budgetModifiers);
+    if (compressionResult.wasCompressed) {
+      console.warn(`[ContextAggregator] Context length exceeded budget (${GLOBAL_CHAR_BUDGET}). Managed and compressed to ${compressionResult.totalLen} chars.`);
     }
 
     // ==========================================
