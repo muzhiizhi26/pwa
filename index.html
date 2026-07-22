@@ -63,6 +63,7 @@
     <button id="songMenuBtn" onclick="openSongCraft()">🎼 创作歌曲</button>
     <button onclick="openEbook()">📖 阅读电子书</button>
     <button onclick="openGroupChat()">👥 群聊</button>
+    <button onclick="openGroupRelationGraph(); toggleActionMenu();">🕸️ AI社会网络关系图</button>
     <button onclick="openDiary()">📔 日记</button>
     <button onclick="openCodeAnalyzer()">📦 代码分析</button>
     <button onclick="triggerFileInput('imageFileInput')">🖼️ 发送图片</button>
@@ -182,7 +183,7 @@
         <span class="cf-title">👥 群聊</span>
         <div style="display:flex;align-items:center;gap:6px;">
             <button class="g-auto-btn" id="gAutoBtn" onclick="groupAutoChat()" title="让AI们自由接话聊天"><span>🤖</span> 让AI聊聊</button>
-            <button class="icon-btn" onclick="openGroupRelationGraph()" ontouchend="event.preventDefault(); openGroupRelationGraph();" title="AI社会网络关系图" style="width:38px;height:38px;font-size:16px;touch-action:manipulation;cursor:pointer;">🕸️</button>
+            <button class="icon-btn" onclick="openGroupRelationGraph()" title="AI社会网络关系图" style="width:38px;height:38px;font-size:16px;cursor:pointer;background:#f0e4f7;color:#6b21a8;border:1px solid #d8b4fe;">🕸️</button>
             <button class="icon-btn" onclick="startGroupVoiceCall()" title="群聊语音通话" style="width:38px;height:38px;font-size:16px;">📞</button>
             <button class="icon-btn" onclick="openSettings();settingsMode='group';renderProviderList();renderGroupSettings();" style="width:38px;height:38px;font-size:16px;" title="群设置">⚙️</button>
         </div>

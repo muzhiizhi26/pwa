@@ -97,14 +97,19 @@ const MomentsEngine = {
     }
   },
 
+  _momentsCache: null,
+
   // 获取所有动态
   getMoments() {
+    if (Array.isArray(this._momentsCache) && this._momentsCache.length > 0) {
+      return this._momentsCache;
+    }
     try {
       const raw = localStorage.getItem('lovestory_moments');
       if (raw !== null && raw !== undefined) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          return parsed.map(m => ({
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          this._momentsCache = parsed.map(m => ({
             ...m,
             likes: Array.isArray(m.likes) ? m.likes : [],
             comments: Array.isArray(m.comments) ? m.comments : [],
@@ -113,12 +118,24 @@ const MomentsEngine = {
             content: m.content || '',
             ts: m.ts || Date.now()
           }));
+          return this._momentsCache;
         }
       }
     } catch (e) {
-      console.error('Error loading moments:', e);
+      console.error('Error loading moments from localStorage:', e);
     }
-    // 如果为空，初始化一些精美的初始相伴回忆，显得极具质感
+
+    // 如果 localStorage 无数据，尝试从 IndexedDB (HistoryBackupDB) 读取
+    if (typeof HistoryBackupDB !== 'undefined') {
+      HistoryBackupDB.get('lovestory_moments_backup').then(dbBackup => {
+        if (Array.isArray(dbBackup) && dbBackup.length > 0) {
+          this._momentsCache = dbBackup;
+          this.renderMomentsTab();
+        }
+      }).catch(() => {});
+    }
+
+    // 如果仍为空，初始化一些精美的初始相伴回忆，显得极具质感
     const initMoments = [
       {
         id: 'mom_init_1',
@@ -146,19 +163,24 @@ const MomentsEngine = {
 
   // 保存所有动态
   saveMoments(moments) {
+    this._momentsCache = moments; // 保证内存缓存第一时间同步更新
     const safeMoments = this.stripEmbeddedImages(moments);
+
+    // 优先双写至 IndexedDB (容纳大容量数据)
+    if (typeof HistoryBackupDB !== 'undefined') {
+      HistoryBackupDB.set('lovestory_moments_backup', safeMoments).catch(e => console.error('[Moments] Dual-write backup failed:', e));
+    }
+
     try {
       localStorage.setItem('lovestory_moments', JSON.stringify(safeMoments));
     } catch(e) {
-      console.warn('[Moments] localStorage write failed, retrying metadata-only:', e);
+      console.warn('[Moments] localStorage write failed (quota exceeded), retrying with trimmed metadata:', e);
       try {
-        localStorage.setItem('lovestory_moments', JSON.stringify(safeMoments.map(m => ({ ...m, image: null }))));
+        const trimmed = safeMoments.slice(0, 20).map(m => ({ ...m, image: null }));
+        localStorage.setItem('lovestory_moments', JSON.stringify(trimmed));
       } catch (e2) {
-        console.error('[Moments] localStorage is completely full or disabled:', e2);
+        console.warn('[Moments] localStorage is completely full; moments safely preserved in IndexedDB & memory cache.');
       }
-    }
-    if (typeof HistoryBackupDB !== 'undefined') {
-      HistoryBackupDB.set('lovestory_moments_backup', safeMoments).catch(e => console.error('[Moments] Dual-write backup failed:', e));
     }
   },
 
@@ -712,6 +734,14 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     const userName = localStorage.getItem('user_name') || '我';
     const userAvatar = localStorage.getItem('user_avatar') || '👤';
 
+    const members = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
+    let subAiOptionsHtml = '';
+    members.forEach(mem => {
+      if (!mem.isMain) {
+        subAiOptionsHtml += `<option value="${mem.id}">👥 ${mem.name} (副AI)</option>`;
+      }
+    });
+
     const moments = this.getMoments();
     const momentsBg = this.DEFAULT_HERO_BG;
 
@@ -748,6 +778,8 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
             }
           }
         }
+        
+        const safeAuthorAvatar = String(displayAuthorAvatar || (m.type === 'user' ? '👤' : '🤖'));
         
         // 计算更自然的相对时间描述 (例如: 1分钟前, 2小时前, 昨天, 3天前 等)
         const diffMs = Date.now() - m.ts;
@@ -864,7 +896,7 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
           <div class="wechat-moment-item" style="background: #ffffff; padding: 14px 16px; border-bottom: 0.5px solid #f0f0f0; display: flex; gap: 10px; position: relative;">
             <!-- 左侧：微信扁平正方形头像 (42px) -->
             <div style="width: 42px; height: 42px; border-radius: 4px; overflow: hidden; flex-shrink: 0; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 0.5px solid rgba(0,0,0,0.05);">
-              ${displayAuthorAvatar.startsWith('data:') ? `<img src="${displayAuthorAvatar}" style="width: 100%; height: 100%; object-fit: cover;">` : displayAuthorAvatar}
+              ${safeAuthorAvatar.startsWith('data:') ? `<img src="${safeAuthorAvatar}" style="width: 100%; height: 100%; object-fit: cover;">` : safeAuthorAvatar}
             </div>
 
             <!-- 右侧：正文与交互区域 -->
@@ -952,7 +984,7 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
         </div>
 
         <!-- 微信经典的右上角发布相机图标 -->
-        <button onclick="MomentsEngine.openPublishDialog()" ontouchend="event.preventDefault(); MomentsEngine.openPublishDialog();" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #191919; padding: 6px; display: flex; align-items: center; justify-content: center; touch-action: manipulation;" title="发表动态">
+        <button onclick="MomentsEngine.openPublishDialog()" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #191919; padding: 6px; display: flex; align-items: center; justify-content: center; touch-action: manipulation;" title="发表动态">
           📷
         </button>
       </header>
@@ -980,7 +1012,7 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
           
           <!-- 用户头像：正方形，白色描边，微阴影，经典微信叠加态 -->
           <div style="width: 64px; height: 64px; border-radius: 6px; overflow: hidden; border: 2.5px solid #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 32px;">
-            ${userAvatar.startsWith('data:') ? `<img src="${userAvatar}" style="width: 100%; height: 100%; object-fit: cover;">` : userAvatar}
+            ${(userAvatar || '👤').startsWith('data:') ? `<img src="${userAvatar}" style="width: 100%; height: 100%; object-fit: cover;">` : (userAvatar || '👤')}
           </div>
         </div>
       </div>
@@ -988,9 +1020,20 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
       <!-- 隐藏的文件选择框用于选择朋友圈背景大图 -->
       <input type="file" id="momentsHeroInput" accept="image/*" style="display: none;" onchange="MomentsEngine.handleHeroImage(this)">
 
-      <!-- 用户发布动态对话框 (极简微信卡片面板，默认隐藏) -->
+      <!-- 用户/AI 发布动态对话框 (极简微信卡片面板，默认隐藏) -->
       <div id="moments-publish-dialog" style="display: none; background: #f7f7f7; border-radius: 8px; border: 1px solid #e5e5e5; padding: 14px; margin: 0 16px 16px 16px; flex-direction: column; gap: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); animation: wechatFadeLeft 0.2s ease-out;">
-        <strong style="font-size: 13px; color: #191919; display: flex; align-items: center; gap: 4px;">📝 记录我的这一刻想法</strong>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <strong style="font-size: 13px; color: #191919; display: flex; align-items: center; gap: 4px;">📝 记录这一刻</strong>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <span style="font-size: 11px; color: #666666;">发布身份:</span>
+            <select id="moments-author-select" style="padding: 3px 8px; font-size: 12px; border-radius: 4px; border: 1px solid #dcdcdc; background: #ffffff; color: #333333; outline: none; font-weight: 500; cursor: pointer;">
+              <option value="user">👤 ${userName} (我)</option>
+              <option value="main">🤖 ${aiName} (主AI)</option>
+              ${subAiOptionsHtml}
+            </select>
+          </div>
+        </div>
+
         <textarea id="moments-publish-text" rows="3" placeholder="这一刻的想法是..." style="width: 100%; border-radius: 4px; border: 1px solid #e0e0e0; padding: 8px 10px; font-size: 13px; outline: none; background: #ffffff; resize: none; font-family: inherit; line-height: 1.4; color: #191919;"></textarea>
 
         <!-- 上传图片缩略图 -->
@@ -1000,12 +1043,12 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <button class="footer-btn" onclick="document.getElementById('momentImageInput').click()" ontouchend="event.preventDefault(); document.getElementById('momentImageInput').click();" style="padding: 5px 12px; font-size: 12px; border: 0.5px solid #dcdcdc; border-radius: 4px; background: #ffffff; cursor: pointer; color: #191919; display: flex; align-items: center; gap: 4px; font-weight: 500; touch-action: manipulation;">
+          <button class="footer-btn" onclick="document.getElementById('momentImageInput').click()" style="padding: 5px 12px; font-size: 12px; border: 0.5px solid #dcdcdc; border-radius: 4px; background: #ffffff; cursor: pointer; color: #191919; display: flex; align-items: center; gap: 4px; font-weight: 500; touch-action: manipulation;">
             🖼️ 添加图片
           </button>
           <div style="display: flex; gap: 8px;">
-            <button class="footer-btn" onclick="MomentsEngine.closePublishDialog()" ontouchend="event.preventDefault(); MomentsEngine.closePublishDialog();" style="padding: 5px 12px; font-size: 12px; border: 0.5px solid #dcdcdc; border-radius: 4px; background: #ffffff; cursor: pointer; color: #555555; touch-action: manipulation;">取消</button>
-            <button class="footer-btn" id="momentsPublishBtn" onclick="MomentsEngine.submitPublish()" ontouchend="event.preventDefault(); MomentsEngine.submitPublish();" style="padding: 5px 14px; font-size: 12px; border: none; border-radius: 4px; background: #07c160; color: #ffffff; cursor: pointer; font-weight: 500; touch-action: manipulation;">发表</button>
+            <button class="footer-btn" onclick="MomentsEngine.closePublishDialog()" style="padding: 5px 12px; font-size: 12px; border: 0.5px solid #dcdcdc; border-radius: 4px; background: #ffffff; cursor: pointer; color: #555555; touch-action: manipulation;">取消</button>
+            <button class="footer-btn" id="momentsPublishBtn" onclick="MomentsEngine.submitPublish()" style="padding: 5px 14px; font-size: 12px; border: none; border-radius: 4px; background: #07c160; color: #ffffff; cursor: pointer; font-weight: 500; touch-action: manipulation;">发表</button>
           </div>
         </div>
         <input type="file" id="momentImageInput" accept="image/*" style="display: none;" onchange="MomentsEngine.handleUploadedImage(this)">
@@ -1156,19 +1199,29 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
 
   // 提交发布
   async submitPublish() {
-    const txt = document.getElementById('moments-publish-text')?.value || '';
+    const txt = (document.getElementById('moments-publish-text')?.value || '').trim();
     const imgData = MomentsEngine._uploadedImageBase64;
-    if (!txt.trim() && !imgData) {
+    const authorSelect = document.getElementById('moments-author-select');
+    const selectedAuthor = authorSelect ? authorSelect.value : 'user';
+
+    if (selectedAuthor === 'user' && !txt && !imgData) {
       if (typeof showToast === 'function') showToast('请输入一些想法或选择图片哦');
       return;
     }
+
     const btn = document.getElementById('momentsPublishBtn');
     if (btn) {
       btn.disabled = true;
       btn.textContent = '发布中...';
     }
+
     try {
-      await MomentsEngine.userPublishMoment(txt, imgData);
+      if (selectedAuthor === 'user') {
+        await MomentsEngine.userPublishMoment(txt, imgData);
+      } else {
+        // AI 身份发布 (主 AI 或 副 AI)
+        await MomentsEngine.generateAiMoment(selectedAuthor, txt, 'growth', '🌱 陪伴心情', imgData);
+      }
       MomentsEngine.closePublishDialog();
       if (typeof showToast === 'function') showToast('✨ 朋友圈已成功发布！');
     } catch(e) {

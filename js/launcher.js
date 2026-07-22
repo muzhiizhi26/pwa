@@ -281,6 +281,7 @@ function launcherOpen(action){
         if(typeof renderPersonaSettings==='function') renderPersonaSettings();
       }).catch(err => showToast('加载世界书失败', 'error'));
       break;
+    case 'relationgraph': if(typeof openGroupRelationGraph==='function') openGroupRelationGraph(); break;
     case 'backup':exportChat();break;
     case 'clear':openSettings();settingsMode='provider';selectProvider(currentProviderId);break;
     case 'settings':openSettings();break;

@@ -540,8 +540,12 @@ async function syncLocalStorageAndIndexedDB() {
         }
 
         if (shouldRestore) {
-          originalSetItem.call(localStorage, item.key, item.value);
-          restoredCount++;
+          try {
+            originalSetItem.call(localStorage, item.key, item.value);
+            restoredCount++;
+          } catch(e) {
+            console.warn(`[StorageSync] Quota exceeded restoring key ${item.key}:`, e);
+          }
         }
       }
     }
@@ -572,8 +576,21 @@ async function syncLocalStorageAndIndexedDB() {
           localMoments.forEach(m => { if (m && m.id) momentMap.set(m.id, m); });
         }
         const mergedMoments = Array.from(momentMap.values()).sort((a,b) => (b.ts || 0) - (a.ts || 0));
-        localStorage.setItem('lovestory_moments', JSON.stringify(mergedMoments));
+        
+        try {
+          localStorage.setItem('lovestory_moments', JSON.stringify(mergedMoments));
+        } catch(quotaErr) {
+          console.warn('[StorageSync] localStorage full, using IndexedDB for lovestory_moments backup');
+          try {
+            localStorage.setItem('lovestory_moments', JSON.stringify(mergedMoments.slice(0, 15).map(m => ({ ...m, image: null }))));
+          } catch(e2) {}
+        }
+
         await HistoryBackupDB.set('lovestory_moments_backup', mergedMoments).catch(() => {});
+
+        if (typeof MomentsEngine !== 'undefined') {
+          MomentsEngine._momentsCache = mergedMoments;
+        }
       }
     }
 

@@ -879,6 +879,18 @@ function renderRelationTab() {
       </div>
     </div>
 
+    <!-- 1.5 AI群聊社会网络图谱入口 -->
+    <div onclick="if(typeof openGroupRelationGraph==='function') openGroupRelationGraph();" style="cursor: pointer; background: linear-gradient(135deg, #f5f0ff, #e9d5ff); padding: 12px 14px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #d8b4fe; box-shadow: 0 2px 8px rgba(107,33,168,0.06); transition: transform 0.15s;" title="点击查看 AI 群聊社会网络关系图">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="width: 36px; height: 36px; border-radius: 50%; background: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.08);">🕸️</div>
+        <div>
+          <div style="font-weight: 600; font-size: 13.5px; color: #581c87;">AI 社会关系与情感网络图谱</div>
+          <div style="font-size: 11px; color: #7e22ce; margin-top: 2px;">查看所有 AI 伙伴与我的关联力网与亲密阶段</div>
+        </div>
+      </div>
+      <span style="font-weight: 600; color: #6b21a8; font-size: 13px; background: #ffffff; padding: 4px 10px; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">查看图谱 ›</span>
+    </div>
+
     <!-- 2. 三维亲密指数条 -->
     <div class="r-metrics-panel">
       <h4 class="r-section-subtitle">💓 情感羁绊系数</h4>

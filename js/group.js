@@ -1336,10 +1336,11 @@ function openGroupRelationGraph() {
   // 渲染节点卡片
   let cardsHtml = '';
   nodes.forEach(node => {
+    const safeAvatar = String(node.avatar || (node.isUser ? '👤' : '🤖'));
     if (node.isUser) {
       cardsHtml += `
         <div class="grel-node-card grel-user-card">
-          <div class="grel-avatar">${node.avatar.startsWith('data:') ? `<img src="${node.avatar}">` : node.avatar}</div>
+          <div class="grel-avatar">${safeAvatar.startsWith('data:') ? `<img src="${safeAvatar}">` : safeAvatar}</div>
           <div class="grel-info">
             <div class="grel-name">${node.name} <span class="grel-badge grel-user-badge">我 (中心)</span></div>
             <div class="grel-desc">群聊核心羁绊者，与每位 AI 伴侣共同构筑社会引力网</div>
@@ -1349,7 +1350,7 @@ function openGroupRelationGraph() {
     } else {
       cardsHtml += `
         <div class="grel-node-card" onclick="closeGroupRelationGraph(); if(typeof openRelationshipCard==='function') openRelationshipCard('${node.id}');">
-          <div class="grel-avatar">${node.avatar.startsWith('data:') ? `<img src="${node.avatar}">` : node.avatar}</div>
+          <div class="grel-avatar">${safeAvatar.startsWith('data:') ? `<img src="${safeAvatar}">` : safeAvatar}</div>
           <div class="grel-info">
             <div class="grel-name">${node.name} ${node.isMain ? '<span class="grel-badge grel-main-badge">主伴侣</span>' : '<span class="grel-badge">成员</span>'}</div>
             <div class="grel-stage" style="color: ${node.stageColor};">💖 阶段：${node.stageLabel}</div>
