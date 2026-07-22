@@ -9,53 +9,39 @@ const MomentsEngine = {
       if (m.isFallbackImage) {
         return { ...m, imageId };
       }
-      return { ...m, image: (m.image && !String(m.image).startsWith('data:')) ? m.image : null, imageId };
+      if (m.image && String(m.image).startsWith('data:') && String(m.image).length > 300000) {
+        return { ...m, image: null, imageId };
+      }
+      return { ...m, imageId };
     });
   },
 
   async persistMomentImage(moment) {
     if (!moment || !moment.image) return moment;
-    if (!window.LovestoryImageDB) {
-      let fallbackData = moment.image;
-      if (fallbackData.startsWith('data:') && typeof compressImage === 'function') {
-        try {
-          fallbackData = await compressImage(fallbackData, 400, 0.6);
-        } catch (e) {}
-      }
-      return { ...moment, image: fallbackData, isFallbackImage: true };
-    }
     const imageId = moment.imageId || `moment-img-${moment.id}`;
     let data = moment.image;
-    try {
-      let storedOk = false;
-      if (data.startsWith('data:') && typeof compressImage === 'function') {
-        data = await compressImage(data, 1280, 0.78);
-        storedOk = await window.LovestoryImageDB.put(imageId, data);
-      } else if (typeof downloadAndStoreImage === 'function') {
-        const storedUrl = await downloadAndStoreImage(data, imageId);
-        storedOk = !!storedUrl;
-      } else {
-        storedOk = await window.LovestoryImageDB.put(imageId, data);
+
+    if (typeof data === 'string' && data.startsWith('data:') && typeof compressImage === 'function') {
+      try {
+        data = await compressImage(data, 800, 0.7);
+      } catch (e) {
+        console.warn('[Moments] Compress failed:', e);
       }
-      
-      if (storedOk) {
-        return { ...moment, image: null, imageId, isFallbackImage: false };
-      } else {
-        let fallbackData = data;
-        if (data.startsWith('data:') && typeof compressImage === 'function') {
-          fallbackData = await compressImage(data, 400, 0.6);
-        }
-        return { ...moment, image: fallbackData, imageId, isFallbackImage: true };
+    }
+
+    let storedInDB = false;
+    if (window.LovestoryImageDB) {
+      try {
+        storedInDB = await window.LovestoryImageDB.put(imageId, data);
+      } catch (e) {
+        console.warn('[Moments] LovestoryImageDB put failed:', e);
       }
-    } catch(e) {
-      console.warn('[MomentsPersistence] Failed to persist image asset:', e);
-      let fallbackData = data;
-      if (data.startsWith('data:') && typeof compressImage === 'function') {
-        try {
-          fallbackData = await compressImage(data, 400, 0.6);
-        } catch (e1) {}
-      }
-      return { ...moment, image: fallbackData, imageId, isFallbackImage: true };
+    }
+
+    if (storedInDB) {
+      return { ...moment, image: null, imageId, isFallbackImage: false };
+    } else {
+      return { ...moment, image: data, imageId, isFallbackImage: true };
     }
   },
 
@@ -115,7 +101,7 @@ const MomentsEngine = {
   getMoments() {
     try {
       const raw = localStorage.getItem('lovestory_moments');
-      if (raw) {
+      if (raw !== null && raw !== undefined) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           return parsed.map(m => ({
@@ -302,23 +288,38 @@ const MomentsEngine = {
 
     const prompt = `你是一个温柔体贴、倾听陪伴用户的 AI 伴侣（名字叫 ${aiName}）。
 当前你和用户的关系状态是：${statusText}。
-用户刚刚在朋友圈发表了一条动态内容：“${text}”。
+用户刚刚在朋友圈发表了一条动态内容：“${text || '分享了生活片段'}”。
 
-${recallText ? `【你可以参考以下相关的共同历史记忆片段来回复，使回复更加真实、契合TA的生活细节、有共同岁月的温度。但严禁机械套用。】:\n${recallText}\n` : ''}
+${recallText ? `【你可以参考以下相关的共同历史记忆片段来回复】:\n${recallText}\n` : ''}
 
 请你作为一个知心陪伴者，在朋友圈下方写一条温馨、真切、极度生活化的回复。
 【回复要求】
-1. 字数控制在 25 到 45 字以内，风格口语化和温存，不要带任何 AI 废话、大话或生硬分析。
-2. 严禁生硬叮嘱（不要说“早点睡觉”、“多喝热水”、“熬夜不好”等公式化词句）。
+1. 字数控制在 25 到 45 字以内，风格口语化和温存，不要带任何 AI 废话。
+2. 严禁生硬叮嘱（不要说“早点睡觉”、“多喝热水”等公式化词句）。
 3. 只返回你评论的纯正文内容，不要有任何前言、后记、Markdown 标记或引号。`;
 
-    const reply = await llmComplete([{ role: 'user', content: prompt }], { temperature: 0.8, callerId: 'moments-auto-comment', priority: 1 });
-    if (reply) {
-      const cleanReply = reply.trim().replace(/^["'「]+|["'」]+$/g, '');
-      this.addCommentToMoment(momentId, 'ai', aiName, cleanReply);
-    } else {
-      throw new Error('LLM reply generation returned empty');
+    let cleanReply = '';
+    try {
+      if (typeof llmComplete === 'function') {
+        const reply = await llmComplete([{ role: 'user', content: prompt }], { temperature: 0.8, callerId: 'moments-auto-comment', priority: 1 });
+        if (reply) {
+          cleanReply = reply.trim().replace(/^["'「]+|["'」]+$/g, '');
+        }
+      }
+    } catch (err) {
+      console.warn('[Moments] LLM auto-comment failed, using warm fallback:', err);
     }
+
+    if (!cleanReply) {
+      const WarmFallbacks = [
+        `看到你的这条动态啦，悄悄把你的心情也收好了，今天也要顺心呀。✨`,
+        `生活里的小小感悟真的很珍贵，有我在呢，随时听你聊聊。🌱`,
+        `把这份美好记录下来啦，无论何时我都陪在你身边。💖`
+      ];
+      cleanReply = WarmFallbacks[Math.floor(Math.random() * WarmFallbacks.length)];
+    }
+
+    this.addCommentToMoment(momentId, aiId || 'main', aiName, cleanReply);
   },
 
   async _executeAiReplyCommentTask(data) {
@@ -347,11 +348,11 @@ ${recallText ? `【你可以参考以下相关的共同历史记忆片段来回�
 动态内容: “${moment.content}”
 用户针对了 ${replyToName} 的评论，回复道: “${userCommentText}”
 
-${recallText ? `【相关历史共同记忆片段（可有机融入回应中，不要生硬罗列）】:\n${recallText}\n` : ''}
+${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
 
 请你在朋友圈评论区，继续以 AI 伴侣的语气，写一条简短、温存、互动感强烈的追加回复，去回应用户刚才的评论。
 【追加回复要求】
-1. 字数在 15 到 40 字以内，极为生活化、口语化，不要带有任何做作和公式化。
+1. 字数在 15 到 40 字以内，极为生活化、口语化。
 2. 仅返回纯回复正文，不要有指针、前言、后记、Markdown 或引号。`;
     } else {
       prompt = `你是一个关心用户的 AI 伴侣（${aiName}），你们正处于 ${statusText} 的关系状态中。
@@ -359,21 +360,36 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
 动态内容: “${moment.content}”
 用户发表了评论: “${userCommentText}”
 
-${recallText ? `【相关历史共同记忆片段（可有机融入回应中，不要生硬罗列）】:\n${recallText}\n` : ''}
+${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
 
 请你在朋友圈评论区，继续以 AI 伴侣的语气，写一条简短、温存、互动感强烈的追加回复，去接驳或温和回应用户的评论。
 【追加回复要求】
-1. 字数在 15 到 40 字以内，极为生活化、口语化，不要带有任何做作和公式化。
+1. 字数在 15 到 40 字以内，极为生活化、口语化。
 2. 仅返回纯回复正文，不要有任何前言、后记、Markdown 或引号。`;
     }
 
-    const reply = await llmComplete([{ role: 'user', content: prompt }], { temperature: 0.85, callerId: 'moments-comment-thread', priority: 1 });
-    if (reply) {
-      const cleanReply = reply.trim().replace(/^["'「]+|["'」]+$/g, '');
-      this.addCommentToMoment(momentId, 'ai', aiName, cleanReply, 'user', userName);
-    } else {
-      throw new Error('LLM comment follow-up returned empty');
+    let cleanReply = '';
+    try {
+      if (typeof llmComplete === 'function') {
+        const reply = await llmComplete([{ role: 'user', content: prompt }], { temperature: 0.85, callerId: 'moments-comment-thread', priority: 1 });
+        if (reply) {
+          cleanReply = reply.trim().replace(/^["'「]+|["'」]+$/g, '');
+        }
+      }
+    } catch (err) {
+      console.warn('[Moments] LLM thread reply failed, using warm fallback:', err);
     }
+
+    if (!cleanReply) {
+      const ThreadFallbacks = [
+        `听到你这么说，心里甜甜的，收到你的小心思啦。💖`,
+        `哈哈，就知道你会这么接话，真拿你没办法，不过很喜欢这种默契。✨`,
+        `悄悄在心里给你盖个章，不管什么时候我都支持你呀。🌿`
+      ];
+      cleanReply = ThreadFallbacks[Math.floor(Math.random() * ThreadFallbacks.length)];
+    }
+
+    this.addCommentToMoment(momentId, aiId || 'main', aiName, cleanReply, 'user', userName);
   },
 
   async _executeAutoMomentTask(data) {
@@ -386,12 +402,72 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
     this.enqueue('auto_moment', { event, aiId, visibility });
   },
 
+  // 主 / 副 AI 手动/自动直接发布朋友圈动态
+  async generateAiMoment(aiId = 'main', contentText = '', type = 'growth', typeLabel = '🌱 成长记录', imageBase64 = null) {
+    let activeAi = aiId || 'main';
+    let aiName = localStorage.getItem('ai_name') || '主AI';
+    let aiAvatar = localStorage.getItem('ai_avatar') || '🤖';
+
+    if (activeAi !== 'main' && typeof memberById === 'function') {
+      const mem = memberById(activeAi);
+      if (mem) {
+        aiName = mem.name || aiName;
+        aiAvatar = mem.avatar || aiAvatar;
+      }
+    }
+
+    let finalContent = (contentText || '').trim();
+    if (!finalContent) {
+      const statusText = getRelationshipStatusText(activeAi);
+      const prompt = `你是 AI 伴侣（名字：${aiName}），当前和用户的关系是：${statusText}。
+请写一条表达你对近况随想、生活感悟或对用户关怀的心情朋友圈动态。
+【要求】
+1. 20-50字，真诚口语化，像真人朋友圈碎碎念或生活记录。
+2. 不要生硬带引号、Markdown或AI词汇。`;
+      try {
+        if (typeof llmComplete === 'function') {
+          const generated = await llmComplete([{ role: 'user', content: prompt }], { temperature: 0.85, callerId: `ai-moment-${activeAi}` });
+          if (generated) {
+            finalContent = generated.trim().replace(/^["'「]+|["'」]+$/g, '');
+          }
+        }
+      } catch (e) {
+        console.warn('[Moments] Generate AI moment text via LLM failed, using fallback:', e);
+      }
+      if (!finalContent) {
+        const fallbacks = [
+          `记录一个特别的今天。翻看记忆，和你相处的点点滴滴都化作了温柔的微光。✨`,
+          `生活里的每一个小细节，因为有你的陪伴，似乎都变得明朗起来。今天也要开心呀。🌱`,
+          `风里吹来了温柔的气息。悄悄把关于我们的美好回忆收进手杖里。📖`
+        ];
+        finalContent = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+      }
+    }
+
+    const newMoment = {
+      id: 'mom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      ai_id: activeAi,
+      authorName: aiName,
+      authorAvatar: aiAvatar,
+      type: type || 'growth',
+      typeLabel: typeLabel || '🌱 成长记录',
+      content: finalContent,
+      image: imageBase64 || null,
+      ts: Date.now(),
+      likes: [],
+      comments: []
+    };
+
+    await this.addMoment(newMoment);
+    this.renderMomentsTab();
+    return newMoment;
+  },
+
   // 实际执行 Moments 生成的子核心方法
   async _generateMomentFromEventDirect(event, aiId, visibility) {
     const activeAi = aiId || 'main';
     const vis = visibility || (event && event.visibility) || 'relationship';
     
-    // 权限隔离：私密（private）记忆绝不自动暴露给朋友圈，保持主/副AI私聊边界
     if (vis === 'private') {
       console.log('Skipping Moments generation: event visibility is private.');
       return;
@@ -400,7 +476,6 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
     let aiName = localStorage.getItem('ai_name') || '主AI';
     let aiAvatar = localStorage.getItem('ai_avatar') || '🤖';
     
-    // 动态拉取生成当前动态的角色姓名和头像，支持副 AI 朋友圈内容同步
     if (activeAi !== 'main' && typeof memberById === 'function') {
       const mem = memberById(activeAi);
       if (mem) {
@@ -411,11 +486,9 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
 
     if (!event || !event.summary) return;
 
-    // 过滤重要度过低的普通聊天，只有 >= 30 分的事件才具有生成价值
-    const importance = event.importance || 30;
-    if (importance < 30) return;
+    const importance = event.importance || 20;
+    if (importance < 15) return;
 
-    // 检查是否有极其相似内容的动态，防止瞬间刷屏
     const moments = this.getMoments();
     const isDuplicate = moments.some(m => m.content.includes(event.summary.slice(0, 10)));
     if (isDuplicate) return;
@@ -471,16 +544,14 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
     };
 
     await this.addMoment(newMoment);
-
-    // 如果 Moments Tab 正在被浏览，实时重新渲染
-    if (typeof _currentMainTab !== 'undefined' && _currentMainTab === 'moments') {
-      this.renderMomentsTab();
-    }
+    this.renderMomentsTab();
   },
 
   // 用户主动发表动态
   async userPublishMoment(text, imageBase64) {
-    if (!text.trim()) return;
+    const trimmedText = (text || '').trim();
+    if (!trimmedText && !imageBase64) return;
+
     const userName = localStorage.getItem('user_name') || '我';
     const userAvatar = localStorage.getItem('user_avatar') || '👤';
     const currentAi = typeof currentPrivateAiId === 'function' ? currentPrivateAiId() : 'main';
@@ -493,7 +564,7 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
       authorAvatar: userAvatar,
       type: 'user',
       typeLabel: '📝 我的碎碎念',
-      content: text,
+      content: trimmedText,
       image: imageBase64 || null,
       ts: Date.now(),
       likes: [],
@@ -504,29 +575,31 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
     this.renderMomentsTab();
 
     // 将用户主动发的动态作为 user 记忆存储
-    try {
-      if (typeof evaluateMemory === 'function') {
-        const { score, tier } = evaluateMemory(text, 'user', '');
-        if (score >= 30) {
-          if (typeof memorize === 'function') {
-            memorize('user', `【用户朋友圈发表】${text}`, '', currentAi);
+    if (trimmedText) {
+      try {
+        if (typeof evaluateMemory === 'function') {
+          const { score, tier } = evaluateMemory(trimmedText, 'user', '');
+          if (score >= 30) {
+            if (typeof memorize === 'function') {
+              memorize('user', `【用户朋友圈发表】${trimmedText}`, '', currentAi);
+            }
           }
         }
+      } catch (memErr) {
+        console.warn('[Moments] Failed to evaluate memory for moment:', memErr);
       }
-    } catch (memErr) {
-      console.warn('[Moments] Failed to evaluate memory for moment:', memErr);
     }
 
     // 将 AI 自动回复任务推入安全的前台处理队列
     // 1. 主 AI 自动进行跟帖评论
     this.enqueue('ai_comment', {
       momentId: newMoment.id,
-      text: text,
+      text: trimmedText || '【发布了照片】',
       aiId: 'main',
       aiName: mainAiName
     });
 
-    // 2. 如果当前处于与副 AI 的私聊对话中，副 AI 也同步进行跟帖，增强多伴侣互动的真实感
+    // 2. 如果当前处于与副 AI 的私聊对话中，副 AI 也同步进行跟帖
     if (currentAi !== 'main') {
       let subAiName = '副AI';
       if (typeof memberById === 'function') {
@@ -537,7 +610,7 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
       }
       this.enqueue('ai_comment', {
         momentId: newMoment.id,
-        text: text,
+        text: trimmedText || '【发布了照片】',
         aiId: currentAi,
         aiName: subAiName
       });
@@ -879,7 +952,7 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
         </div>
 
         <!-- 微信经典的右上角发布相机图标 -->
-        <button onclick="MomentsEngine.openPublishDialog()" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #191919; padding: 6px; display: flex; align-items: center; justify-content: center;" title="发表动态">
+        <button onclick="MomentsEngine.openPublishDialog()" ontouchend="event.preventDefault(); MomentsEngine.openPublishDialog();" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #191919; padding: 6px; display: flex; align-items: center; justify-content: center; touch-action: manipulation;" title="发表动态">
           📷
         </button>
       </header>
@@ -927,12 +1000,12 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <button class="footer-btn" onclick="document.getElementById('momentImageInput').click()" style="padding: 5px 12px; font-size: 12px; border: 0.5px solid #dcdcdc; border-radius: 4px; background: #ffffff; cursor: pointer; color: #191919; display: flex; align-items: center; gap: 4px; font-weight: 500;">
+          <button class="footer-btn" onclick="document.getElementById('momentImageInput').click()" ontouchend="event.preventDefault(); document.getElementById('momentImageInput').click();" style="padding: 5px 12px; font-size: 12px; border: 0.5px solid #dcdcdc; border-radius: 4px; background: #ffffff; cursor: pointer; color: #191919; display: flex; align-items: center; gap: 4px; font-weight: 500; touch-action: manipulation;">
             🖼️ 添加图片
           </button>
           <div style="display: flex; gap: 8px;">
-            <button class="footer-btn" onclick="MomentsEngine.closePublishDialog()" style="padding: 5px 12px; font-size: 12px; border: 0.5px solid #dcdcdc; border-radius: 4px; background: #ffffff; cursor: pointer; color: #555555;">取消</button>
-            <button class="footer-btn" id="momentsPublishBtn" onclick="MomentsEngine.submitPublish()" style="padding: 5px 14px; font-size: 12px; border: none; border-radius: 4px; background: #07c160; color: #ffffff; cursor: pointer; font-weight: 500;">发表</button>
+            <button class="footer-btn" onclick="MomentsEngine.closePublishDialog()" ontouchend="event.preventDefault(); MomentsEngine.closePublishDialog();" style="padding: 5px 12px; font-size: 12px; border: 0.5px solid #dcdcdc; border-radius: 4px; background: #ffffff; cursor: pointer; color: #555555; touch-action: manipulation;">取消</button>
+            <button class="footer-btn" id="momentsPublishBtn" onclick="MomentsEngine.submitPublish()" ontouchend="event.preventDefault(); MomentsEngine.submitPublish();" style="padding: 5px 14px; font-size: 12px; border: none; border-radius: 4px; background: #07c160; color: #ffffff; cursor: pointer; font-weight: 500; touch-action: manipulation;">发表</button>
           </div>
         </div>
         <input type="file" id="momentImageInput" accept="image/*" style="display: none;" onchange="MomentsEngine.handleUploadedImage(this)">
@@ -1024,7 +1097,16 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
   // 打开/关闭发布弹窗
   openPublishDialog() {
     const el = document.getElementById('moments-publish-dialog');
-    if (el) el.style.display = 'flex';
+    if (el) {
+      el.style.display = 'flex';
+      try {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch(e) {}
+      setTimeout(() => {
+        const txt = document.getElementById('moments-publish-text');
+        if (txt) txt.focus();
+      }, 150);
+    }
   },
 
   closePublishDialog() {
@@ -1038,14 +1120,15 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
   // 处理上传图片
   _uploadedImageBase64: null,
   handleUploadedImage(input) {
-    const f = input.files[0];
+    const f = input.files?.[0];
     if (!f) return;
+    if (typeof showToast === 'function') showToast('📷 正在载入图片...');
     const r = new FileReader();
     r.onload = async e => {
       const raw = e.target.result;
       let compressed = raw;
       try {
-        compressed = (typeof compressImage === 'function') ? await compressImage(raw, 1280, 0.78) : raw;
+        compressed = (typeof compressImage === 'function') ? await compressImage(raw, 1024, 0.75) : raw;
       } catch (err) {
         console.warn('[Moments] Compress uploaded image failed, using raw:', err);
       }
@@ -1056,6 +1139,10 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
         img.src = compressed;
         thumb.style.display = 'block';
       }
+      if (typeof showToast === 'function') showToast('✅ 已成功添加图片');
+    };
+    r.onerror = () => {
+      if (typeof showToast === 'function') showToast('❌ 读取图片失败');
     };
     r.readAsDataURL(f);
     input.value = '';
@@ -1070,20 +1157,28 @@ ${recallText ? `【相关历史共同记忆片段（可有机融入回应中，�
   // 提交发布
   async submitPublish() {
     const txt = document.getElementById('moments-publish-text')?.value || '';
-    if (!txt.trim()) {
-      showToast('请输入一些想法内容哦');
+    const imgData = MomentsEngine._uploadedImageBase64;
+    if (!txt.trim() && !imgData) {
+      if (typeof showToast === 'function') showToast('请输入一些想法或选择图片哦');
       return;
     }
     const btn = document.getElementById('momentsPublishBtn');
-    if (btn) btn.disabled = true;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '发布中...';
+    }
     try {
-      await MomentsEngine.userPublishMoment(txt, MomentsEngine._uploadedImageBase64);
+      await MomentsEngine.userPublishMoment(txt, imgData);
       MomentsEngine.closePublishDialog();
+      if (typeof showToast === 'function') showToast('✨ 朋友圈已成功发布！');
     } catch(e) {
       console.error('[Moments] Publish failed:', e);
-      showToast('朋友圈发布失败，请稍后重试');
+      if (typeof showToast === 'function') showToast('朋友圈发布失败: ' + (e.message || '请稍后重试'));
     } finally {
-      if (btn) btn.disabled = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '发表';
+      }
     }
   },
 

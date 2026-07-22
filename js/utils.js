@@ -34,9 +34,38 @@ function getImageCompressDim(){
   if(v === 'raw') return 99999;
   return parseInt(v || '768');
 }
-function compressImage(dataUrl,maxDim=768,quality=0.7){
-  if(maxDim === 99999 || maxDim === 'raw') return Promise.resolve(dataUrl);
-  return new Promise(res=>{const img=new Image();img.onload=()=>{let{width,height}=img;const scale=Math.min(1,maxDim/Math.max(width,height));const w=Math.round(width*scale),h=Math.round(height*scale);const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);try{res(cv.toDataURL('image/jpeg',quality));}catch(e){res(dataUrl);}};img.onerror=()=>res(dataUrl);img.src=dataUrl;});}
+function compressImage(dataUrl, maxDim=768, quality=0.7){
+  if (!dataUrl || typeof dataUrl !== 'string') return Promise.resolve(dataUrl);
+  if (maxDim === 99999 || maxDim === 'raw') return Promise.resolve(dataUrl);
+  return new Promise(res => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) { done = true; res(dataUrl); }
+    }, 2500);
+    const img = new Image();
+    img.onload = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      let { width, height } = img;
+      if (!width || !height) { res(dataUrl); return; }
+      const scale = Math.min(1, maxDim / Math.max(width, height));
+      const w = Math.round(width * scale), h = Math.round(height * scale);
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      try {
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        res(cv.toDataURL('image/jpeg', quality));
+      } catch(e) {
+        res(dataUrl);
+      }
+    };
+    img.onerror = () => {
+      if (!done) { done = true; clearTimeout(timer); res(dataUrl); }
+    };
+    img.src = dataUrl;
+  });
+}
 function getImgWH(){
   const base=parseInt(localStorage.getItem('img_res')||(typeof getImgResList==='function'?getImgResList()[0]:'1024')||'1024');
   const ratio=localStorage.getItem('img_ratio')||'1:1';
@@ -531,20 +560,20 @@ async function syncLocalStorageAndIndexedDB() {
         if (localMomentsRaw) localMoments = JSON.parse(localMomentsRaw);
       } catch(e) {}
 
-      const hasLocalMoments = Array.isArray(localMoments) && localMoments.length > 0 && localMoments[0].id !== 'mom_init_1';
+      const hasLocalMoments = Array.isArray(localMoments) && localMoments.length > 0;
       const hasDbMoments = Array.isArray(dbMomentsBackup) && dbMomentsBackup.length > 0;
 
-      if (!hasLocalMoments && hasDbMoments) {
-        localStorage.setItem('lovestory_moments', JSON.stringify(dbMomentsBackup));
-        console.log(`[StorageSync] 🩺 朋友圈容灾：成功从 IndexedDB 备份舱恢复了 ${dbMomentsBackup.length} 条朋友圈动态。`);
-      } else if (hasLocalMoments && !hasDbMoments) {
-        await HistoryBackupDB.set('lovestory_moments_backup', localMoments);
-      } else if (hasLocalMoments && hasDbMoments && localMoments.length !== dbMomentsBackup.length) {
-        if (localMoments.length > dbMomentsBackup.length) {
-          await HistoryBackupDB.set('lovestory_moments_backup', localMoments);
-        } else {
-          localStorage.setItem('lovestory_moments', JSON.stringify(dbMomentsBackup));
+      if (hasLocalMoments || hasDbMoments) {
+        const momentMap = new Map();
+        if (Array.isArray(dbMomentsBackup)) {
+          dbMomentsBackup.forEach(m => { if (m && m.id) momentMap.set(m.id, m); });
         }
+        if (Array.isArray(localMoments)) {
+          localMoments.forEach(m => { if (m && m.id) momentMap.set(m.id, m); });
+        }
+        const mergedMoments = Array.from(momentMap.values()).sort((a,b) => (b.ts || 0) - (a.ts || 0));
+        localStorage.setItem('lovestory_moments', JSON.stringify(mergedMoments));
+        await HistoryBackupDB.set('lovestory_moments_backup', mergedMoments).catch(() => {});
       }
     }
 

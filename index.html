@@ -182,7 +182,7 @@
         <span class="cf-title">👥 群聊</span>
         <div style="display:flex;align-items:center;gap:6px;">
             <button class="g-auto-btn" id="gAutoBtn" onclick="groupAutoChat()" title="让AI们自由接话聊天"><span>🤖</span> 让AI聊聊</button>
-            <button class="icon-btn" onclick="openGroupRelationGraph()" title="AI社会网络关系图" style="width:38px;height:38px;font-size:16px;">🕸️</button>
+            <button class="icon-btn" onclick="openGroupRelationGraph()" ontouchend="event.preventDefault(); openGroupRelationGraph();" title="AI社会网络关系图" style="width:38px;height:38px;font-size:16px;touch-action:manipulation;cursor:pointer;">🕸️</button>
             <button class="icon-btn" onclick="startGroupVoiceCall()" title="群聊语音通话" style="width:38px;height:38px;font-size:16px;">📞</button>
             <button class="icon-btn" onclick="openSettings();settingsMode='group';renderProviderList();renderGroupSettings();" style="width:38px;height:38px;font-size:16px;" title="群设置">⚙️</button>
         </div>

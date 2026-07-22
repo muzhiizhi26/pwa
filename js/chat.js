@@ -129,55 +129,73 @@ function isStrictSingleApiChatMode() {
 
 async function sendMessage(){
   if(chatReplying) return;
-  if (typeof applyRelationshipDecay === 'function') {
-    try {
-      applyRelationshipDecay();
-    } catch (e) {
-      console.error('[sendMessage] applyRelationshipDecay failed:', e);
-    }
-  }
-  markActivity();
-  if (typeof triggerHaptic === 'function') triggerHaptic('medium');
-  const input=document.getElementById('messageInput');
-  let text=input.value.trim();
-  if(!text&&!pendingImage)return;
-  if(text&&typeof handleMusicCommand==='function'&&handleMusicCommand(text)){input.value='';autoResize(input);return;}
   chatReplying = true;
   try {
+    if (typeof applyRelationshipDecay === 'function') {
+      try { applyRelationshipDecay(); } catch (e) { console.error('[sendMessage] applyRelationshipDecay failed:', e); }
+    }
+    if (typeof markActivity === 'function') { try { markActivity(); } catch (e) {} }
+    if (typeof triggerHaptic === 'function') { try { triggerHaptic('medium'); } catch (e) {} }
+    const input=document.getElementById('messageInput');
+    if (!input) {
+      chatReplying = false;
+      return;
+    }
+    let text=input.value.trim();
+    if(!text&&!pendingImage) {
+      chatReplying = false;
+      return;
+    }
+    if(text&&typeof handleMusicCommand==='function'&&handleMusicCommand(text)){
+      input.value='';
+      if (typeof autoResize === 'function') autoResize(input);
+      chatReplying = false;
+      return;
+    }
     if(quotedText){text=`> ${quotedText}\n\n${text}`;clearQuote();}
     const img=pendingImage;pendingImage=null;
     let emotion='calm';
-    if(text&&localStorage.getItem('emotion_enabled')!=='false'){emotion=detectEmotion(text);updateEmotionState(emotion);renderEmotionPills();}
+    if(text&&localStorage.getItem('emotion_enabled')!=='false'){
+      try {
+        if (typeof detectEmotion === 'function') emotion=detectEmotion(text);
+        if (typeof updateEmotionState === 'function') updateEmotionState(emotion);
+        if (typeof renderEmotionPills === 'function') renderEmotionPills();
+      } catch (e) {
+        console.error('[sendMessage] Emotion detection failed:', e);
+      }
+    }
     if(text){
       const uid=genUid();
       const ts=Date.now();
       conversationHistory.push({role:'user',content:text,uid,emotion,ts});
       renderTextMessage('user',text,uid,null,null,false,ts);
       saveHistory();
-      memorize('user',text,emotion);
+      if (typeof memorize === 'function') { try { memorize('user',text,emotion); } catch (e) { console.error('memorize failed:', e); } }
       if (typeof updateRelationshipState === 'function') {
-        updateRelationshipState({ userEmotion: emotion, text: text });
+        try { updateRelationshipState({ userEmotion: emotion, text: text }); } catch (e) { console.error('updateRelationshipState failed:', e); }
       }
       if (typeof processProactiveFeedback === 'function') {
-        try {
-          processProactiveFeedback(text);
-        } catch (e) {
-          console.error('[sendMessage] processProactiveFeedback failed:', e);
-        }
+        try { processProactiveFeedback(text); } catch (e) { console.error('[sendMessage] processProactiveFeedback failed:', e); }
       }
-      bumpMsgCounter();
-      if(!isStrictSingleApiChatMode()&&typeof maybeUpdateLongTerm==='function')maybeUpdateLongTerm(text);
-      if(typeof bumpPrivateChatCount==='function')bumpPrivateChatCount(currentPrivateAiId());
+      if (typeof bumpMsgCounter === 'function') { try { bumpMsgCounter(); } catch (e) {} }
+      if(!isStrictSingleApiChatMode()&&typeof maybeUpdateLongTerm==='function') {
+        try { maybeUpdateLongTerm(text); } catch (e) {}
+      }
+      if(typeof bumpPrivateChatCount==='function') {
+        try { bumpPrivateChatCount(currentPrivateAiId()); } catch (e) {}
+      }
     }
-    input.value='';autoResize(input);
+    input.value='';
+    if (typeof autoResize === 'function') autoResize(input);
     if(text && typeof handleDirectImageCommand === 'function' && await handleDirectImageCommand(text, img, { source:'chat-send' })) {
       return;
     }
     await requestAI(img,text);
-    maybeAutoCompress();
-    if(!isStrictSingleApiChatMode()&&typeof maybeUpdateMidterm==='function')maybeUpdateMidterm();
+    if (typeof maybeAutoCompress === 'function') { try { maybeAutoCompress(); } catch(e) {} }
+    if(!isStrictSingleApiChatMode()&&typeof maybeUpdateMidterm==='function') { try { maybeUpdateMidterm(); } catch(e) {} }
   } catch (err) {
     console.error('Error in sendMessage:', err);
+    try { if (typeof showToast === 'function') showToast('❌ 发送遇到异常: ' + (err.message || err)); } catch(e){}
   } finally {
     chatReplying = false;
   }
@@ -326,6 +344,10 @@ async function requestAI(currentImage=null,queryText=''){
     }
   }
   const provider=useProvider;
+  if (!provider || !provider.id) {
+    addMessage('assistant','❌ 未能获取有效的模型服务商配置，请在设置中重新选择服务商并填入 API Key',genUid());
+    return;
+  }
   const apiKey=localStorage.getItem(`apikey_${provider.id}`)||'';
   if(!apiKey&&provider.auth!=='none'){
     addMessage('assistant','❌ 请先在设置中填入 API Key',genUid());

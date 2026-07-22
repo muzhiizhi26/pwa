@@ -1281,3 +1281,231 @@ function refreshGroupOrPersonaSettings() {
   }
 }
 window.refreshGroupOrPersonaSettings = refreshGroupOrPersonaSettings;
+
+/* ===== 🕸️ AI群聊社会网络与情感羁绊图谱 Modal ===== */
+function openGroupRelationGraph() {
+  injectGroupRelationStyles();
+
+  let modal = document.getElementById('groupRelationModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'groupRelationModal';
+    modal.className = 'grel-modal';
+    modal.onclick = (e) => {
+      if (e.target === modal) closeGroupRelationGraph();
+    };
+    document.body.appendChild(modal);
+  }
+
+  const members = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
+  const userName = localStorage.getItem('user_name') || '我';
+  const userAvatar = localStorage.getItem('user_avatar') || '👤';
+
+  // 节点集合
+  const nodes = [
+    { id: 'user', name: userName, avatar: userAvatar, isUser: true, stageLabel: '核心契约', intimacy: 100 }
+  ];
+
+  members.forEach(mem => {
+    const id = mem.id;
+    let metrics = { intimacy: 50, trust: 50, familiarity: 50 };
+    let stageKey = 'acquaintance';
+    if (typeof getRelationshipMetrics === 'function') {
+      metrics = getRelationshipMetrics(id) || metrics;
+    }
+    if (typeof getCharacterRelationshipStage === 'function') {
+      stageKey = getCharacterRelationshipStage(id) || 'acquaintance';
+    }
+    const stageCfg = (typeof RELATION_STAGES_CONFIG !== 'undefined' && RELATION_STAGES_CONFIG[stageKey])
+      ? RELATION_STAGES_CONFIG[stageKey]
+      : { label: '相识', color: '#8d6e63' };
+
+    nodes.push({
+      id: id,
+      name: mem.name,
+      avatar: mem.avatar,
+      isMain: mem.isMain,
+      stageLabel: stageCfg.label,
+      stageColor: stageCfg.color || '#e91e63',
+      intimacy: metrics.intimacy,
+      trust: metrics.trust,
+      familiarity: metrics.familiarity
+    });
+  });
+
+  // 渲染节点卡片
+  let cardsHtml = '';
+  nodes.forEach(node => {
+    if (node.isUser) {
+      cardsHtml += `
+        <div class="grel-node-card grel-user-card">
+          <div class="grel-avatar">${node.avatar.startsWith('data:') ? `<img src="${node.avatar}">` : node.avatar}</div>
+          <div class="grel-info">
+            <div class="grel-name">${node.name} <span class="grel-badge grel-user-badge">我 (中心)</span></div>
+            <div class="grel-desc">群聊核心羁绊者，与每位 AI 伴侣共同构筑社会引力网</div>
+          </div>
+        </div>
+      `;
+    } else {
+      cardsHtml += `
+        <div class="grel-node-card" onclick="closeGroupRelationGraph(); if(typeof openRelationshipCard==='function') openRelationshipCard('${node.id}');">
+          <div class="grel-avatar">${node.avatar.startsWith('data:') ? `<img src="${node.avatar}">` : node.avatar}</div>
+          <div class="grel-info">
+            <div class="grel-name">${node.name} ${node.isMain ? '<span class="grel-badge grel-main-badge">主伴侣</span>' : '<span class="grel-badge">成员</span>'}</div>
+            <div class="grel-stage" style="color: ${node.stageColor};">💖 阶段：${node.stageLabel}</div>
+            <div class="grel-bars">
+              <div class="grel-bar-item"><span>亲密 ${node.intimacy}</span><div class="grel-bar"><div class="grel-fill" style="width:${node.intimacy}%; background:${node.stageColor};"></div></div></div>
+              <div class="grel-bar-item"><span>信任 ${node.trust}</span><div class="grel-bar"><div class="grel-fill" style="width:${node.trust}%; background:#42a5f5;"></div></div></div>
+            </div>
+          </div>
+          <button class="grel-action-btn">查看关系 ›</button>
+        </div>
+      `;
+    }
+  });
+
+  // 构建 SVG 关系连线图 (极简节点图形)
+  const svgWidth = 320;
+  const svgHeight = 220;
+  const cx = svgWidth / 2;
+  const cy = svgHeight / 2;
+  const radius = 75;
+
+  const aiNodes = nodes.filter(n => !n.isUser);
+  let svgEdges = '';
+  let svgNodeElems = '';
+
+  // 中心用户节点
+  const userInitials = userName.slice(0, 2) || '我';
+  svgNodeElems += `
+    <g transform="translate(${cx}, ${cy})">
+      <circle r="22" fill="#8B5A4B" stroke="#ffffff" stroke-width="2.5" />
+      <text y="4" text-anchor="middle" font-size="11" fill="#ffffff" font-weight="bold">${userInitials}</text>
+    </g>
+  `;
+
+  aiNodes.forEach((node, i) => {
+    const angle = (2 * Math.PI / Math.max(1, aiNodes.length)) * i - (Math.PI / 2);
+    const nx = cx + radius * Math.cos(angle);
+    const ny = cy + radius * Math.sin(angle);
+
+    // 用户 -> AI 连线
+    svgEdges += `
+      <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${node.stageColor || '#d7ccc8'}" stroke-width="2" stroke-dasharray="4,2" opacity="0.8" />
+      <text x="${(cx + nx)/2}" y="${(cy + ny)/2 - 3}" text-anchor="middle" font-size="9" fill="${node.stageColor || '#8B5A4B'}" font-weight="600">${node.stageLabel}</text>
+    `;
+
+    // AI-to-AI 连线
+    if (aiNodes.length > 1) {
+      const nextIdx = (i + 1) % aiNodes.length;
+      const nextAngle = (2 * Math.PI / aiNodes.length) * nextIdx - (Math.PI / 2);
+      const nnx = cx + radius * Math.cos(nextAngle);
+      const nny = cy + radius * Math.sin(nextAngle);
+      svgEdges += `
+        <line x1="${nx}" y1="${ny}" x2="${nnx}" y2="${nny}" stroke="#e0e0e0" stroke-width="1" opacity="0.6" />
+      `;
+    }
+
+    const aiInitials = node.name.slice(0, 2) || 'AI';
+    svgNodeElems += `
+      <g transform="translate(${nx}, ${ny})" style="cursor:pointer;" onclick="closeGroupRelationGraph(); if(typeof openRelationshipCard==='function') openRelationshipCard('${node.id}');">
+        <circle r="18" fill="#ffffff" stroke="${node.stageColor || '#8B5A4B'}" stroke-width="2" />
+        <text y="4" text-anchor="middle" font-size="10" font-weight="bold" fill="#333333">${aiInitials}</text>
+      </g>
+    `;
+  });
+
+  modal.innerHTML = `
+    <div class="grel-container">
+      <div class="grel-header">
+        <div class="grel-title">🕸️ 群聊社会关系网络</div>
+        <button class="grel-close" onclick="closeGroupRelationGraph()">✕</button>
+      </div>
+
+      <div class="grel-graph-box">
+        <div class="grel-sub-tip">💡 点击 AI 节点或卡片查看深度情感档案与微调阶段</div>
+        <svg class="grel-svg" viewBox="0 0 ${svgWidth} ${svgHeight}">
+          ${svgEdges}
+          ${svgNodeElems}
+        </svg>
+      </div>
+
+      <div class="grel-list">
+        ${cardsHtml}
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+}
+
+function closeGroupRelationGraph() {
+  document.getElementById('groupRelationModal')?.classList.remove('show');
+}
+
+function injectGroupRelationStyles() {
+  if (document.getElementById('grel-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'grel-styles';
+  style.textContent = `
+    .grel-modal {
+      position: fixed; top:0; left:0; right:0; bottom:0;
+      background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+      z-index: 10000; display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+      padding: 16px;
+    }
+    .grel-modal.show { opacity: 1; pointer-events: auto; }
+    .grel-container {
+      background: #ffffff; border-radius: 16px; width: 100%; max-width: 440px;
+      max-height: 85vh; display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.18); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    }
+    .grel-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 18px; border-bottom: 0.5px solid #eaeaea; background: #fafafa;
+    }
+    .grel-title { font-size: 15px; font-weight: 700; color: #2c2c2c; }
+    .grel-close { background: none; border: none; font-size: 18px; color: #888; cursor: pointer; padding: 4px; }
+    .grel-graph-box {
+      background: #fdfbf7; padding: 12px; border-bottom: 0.5px solid #f0f0f0;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    .grel-sub-tip { font-size: 11px; color: #8C7B70; margin-bottom: 6px; }
+    .grel-svg { width: 100%; max-width: 320px; height: auto; }
+    .grel-list { padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+    .grel-node-card {
+      display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+      background: #fdfdfd; border: 1px solid #eeeeee; border-radius: 12px;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .grel-node-card:active { background: #f0f0f0; }
+    .grel-user-card { background: #fbf7f4; border-color: #eedcd0; cursor: default; }
+    .grel-avatar {
+      width: 42px; height: 42px; border-radius: 50%; background: #eee;
+      display: flex; align-items: center; justify-content: center; font-size: 22px;
+      overflow: hidden; flex-shrink: 0;
+    }
+    .grel-avatar img { width:100%; height:100%; object-fit:cover; }
+    .grel-info { flex: 1; min-width: 0; }
+    .grel-name { font-size: 13px; font-weight: 600; color: #222; display: flex; align-items: center; gap: 6px; }
+    .grel-badge { font-size: 9px; padding: 1px 6px; border-radius: 8px; background: #e0e0e0; color: #555; font-weight: normal; }
+    .grel-main-badge { background: #e8f5e9; color: #2e7d32; }
+    .grel-user-badge { background: #efebe9; color: #6d4c41; }
+    .grel-stage { font-size: 11px; font-weight: 500; margin-top: 2px; }
+    .grel-desc { font-size: 11px; color: #777; margin-top: 2px; }
+    .grel-bars { display: flex; gap: 8px; margin-top: 4px; }
+    .grel-bar-item { font-size: 10px; color: #666; display: flex; align-items: center; gap: 4px; flex: 1; }
+    .grel-bar { flex: 1; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden; }
+    .grel-fill { height: 100%; border-radius: 2px; }
+    .grel-action-btn {
+      border: none; background: #8B5A4B; color: #ffffff; font-size: 10.5px;
+      padding: 4px 10px; border-radius: 12px; cursor: pointer; flex-shrink: 0; font-weight: 500;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+window.openGroupRelationGraph = openGroupRelationGraph;
+window.closeGroupRelationGraph = closeGroupRelationGraph;
+
