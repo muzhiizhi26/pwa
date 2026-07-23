@@ -818,6 +818,12 @@ ContextAggregator.registerProvider('user_profile', { priority: 20, budget: 1200 
   return section;
 });
 
+// 2.1. Semantic Life Summary (语义人生摘要)
+ContextAggregator.registerProvider('life_summary', { priority: 22, budget: 600 }, async (ctx) => {
+  const summaryPrompt = (typeof injectLifeSummary === 'function') ? injectLifeSummary() : '';
+  return summaryPrompt ? summaryPrompt : '';
+});
+
 // 3. Current Relationship State Machine & Vibes (亲密关系成长阶段与微观氛围)
 ContextAggregator.registerProvider('personality', { priority: 25, budget: 500 }, async (ctx) => {
   if (typeof getAiPersonality !== 'function') return '';
@@ -951,6 +957,30 @@ ContextAggregator.registerProvider('environment', { priority: 60, budget: 400 },
 ContextAggregator.registerProvider('communication_style', { priority: 65, budget: 300 }, async (ctx) => {
   const stylePrompt = (typeof injectCommunicationStyle === 'function') ? injectCommunicationStyle() : '';
   return stylePrompt ? `【交流风格与偏好指导】\n${stylePrompt}` : '';
+});
+
+// 6.6. User Cognitive Profile Adaptor (用户认知特征画像)
+ContextAggregator.registerProvider('cognitive_profile', { priority: 66, budget: 350 }, async (ctx) => {
+  const cogPrompt = (typeof injectCognitiveProfile === 'function') ? injectCognitiveProfile() : '';
+  return cogPrompt ? `${cogPrompt}` : '';
+});
+
+// 6.7. Experience Recommendation Engine (关联共同经历推荐)
+ContextAggregator.registerProvider('experience_recommendation', { priority: 67, budget: 350 }, async (ctx) => {
+  const recPrompt = (typeof injectExperienceRecommendation === 'function') ? injectExperienceRecommendation(ctx.userEmotion, ctx.userQuery) : '';
+  return recPrompt ? `${recPrompt}` : '';
+});
+
+// 6.8. User Life Rhythm Context (用户生活节奏契合)
+ContextAggregator.registerProvider('life_rhythm', { priority: 68, budget: 300 }, async (ctx) => {
+  const rhythmPrompt = (typeof injectLifeRhythmContext === 'function') ? injectLifeRhythmContext() : '';
+  return rhythmPrompt ? `${rhythmPrompt}` : '';
+});
+
+// 6.9. Care Strategy Learning (最优陪伴策略学习与指导)
+ContextAggregator.registerProvider('care_strategy', { priority: 69, budget: 350 }, async (ctx) => {
+  const strategyPrompt = (typeof getCareStrategyPromptAuto === 'function') ? getCareStrategyPromptAuto(ctx.userEmotion, ctx.intentCategory) : '';
+  return strategyPrompt ? `${strategyPrompt}` : '';
 });
 
 // 7. Functional Features & Extra Directives (表达约束与附加指令)

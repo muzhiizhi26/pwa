@@ -687,6 +687,13 @@ function formatRecall(items){
   const main=items.filter(i=>!i.assoc),rel=items.filter(i=>i.assoc);
   let out='\n【记忆网络核心召回（Memory Package 2.0）】\n';
   out+=main.map(it=>{
+    if (it.status === 'superseded' || it.supersededBy) {
+      const oldTime = it.supersededAt ? `，${new Date(it.supersededAt).toLocaleDateString('zh-CN')}` : '';
+      return `· 【偏好变化/历史偏好】用户曾记录（已被取代${oldTime}）：${it.text}`;
+    }
+    if (it.supersedes) {
+      return `· 【偏好变化/当前最新偏好】用户最新偏好：${it.text}`;
+    }
     const who=it.role==='user'?'用户曾说':'AI曾说';
     const emo=it.emotion?emotionLabelOf(it.emotion):'';
     const emoStr=emo?`，情绪：${emo}`:'';
@@ -813,6 +820,10 @@ async function checkAndMergeMemories() {
 async function resolveMemoryConflicts(newRec) {
   try {
     const store = await VDB.all();
+    if (typeof detectSemanticContradiction === 'function') {
+      const handled = await detectSemanticContradiction(newRec, store);
+      if (handled) return;
+    }
     const newText = newRec.text.toLowerCase();
     
     // Check if the new record indicates a change, correction, or denial

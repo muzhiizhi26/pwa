@@ -189,6 +189,15 @@ async function sendMessage(){
           console.error('updateCommunicationProfile failed:', e);
         }
       }
+      if (typeof updateCognitiveProfile === 'function') {
+        try { updateCognitiveProfile({ text }); } catch (e) { console.error('updateCognitiveProfile failed:', e); }
+      }
+      if (typeof recordLifeRhythmSignal === 'function') {
+        try { recordLifeRhythmSignal(text, emotion); } catch (e) { console.error('recordLifeRhythmSignal failed:', e); }
+      }
+      if (typeof updateCareStrategyFeedback === 'function') {
+        try { updateCareStrategyFeedback(text); } catch (e) { console.error('updateCareStrategyFeedback failed:', e); }
+      }
       if (typeof processProactiveFeedback === 'function') {
         try { processProactiveFeedback(text); } catch (e) { console.error('[sendMessage] processProactiveFeedback failed:', e); }
       }

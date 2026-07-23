@@ -506,6 +506,232 @@ function renderMemorySettings(){
   document.getElementById('detailBody').appendChild(healthMonitorContainer);
   setTimeout(() => renderMemoryHealthCard(), 50);
 
+  // Lovestory Companion OS: User Cognitive Profile Card
+  const cogProfileContainer = document.createElement('div');
+  cogProfileContainer.id = 'user-cognitive-profile-dashboard';
+  cogProfileContainer.style.marginTop = '20px';
+
+  const profile = (typeof getUserCognitiveProfile === 'function') ? getUserCognitiveProfile() : { confidence: 0.3 };
+  const labelMap = {
+    decisionStyle: { analytical: "理性分析型", intuitive: "直觉感知型", mixed: "均衡多维型" },
+    stressResponse: { sharing: "倾诉表达型", solo: "独立消化型", mixed: "适度平衡型" },
+    learningPreference: { principle_first: "先原理后步骤", practice_first: "先实践后理论", mixed: "灵动穿插型" },
+    socialTendency: { outgoing: "热衷社交分享", private: "注重私密边界", mixed: "兼顾社交与专注" }
+  };
+
+  const confPercent = Math.round((profile.confidence || 0.3) * 100);
+
+  cogProfileContainer.innerHTML = `
+    <div class="model-section-header">
+      <span>🧠 用户认知画像 (User Cognitive Profile)</span>
+      <button class="btn btn-danger" style="padding: 2px 8px; font-size: 11px; border-radius: 6px;" onclick="if(confirm('重置认知画像并重新学习？')){resetUserCognitiveProfile();renderMemorySettings();showToast('✅ 认知画像已重置');}">🔄 重置画像</button>
+    </div>
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <span style="font-size:12px; color:var(--text-sub);">画像可信度 (Confidence)</span>
+        <span style="font-size:12px; font-weight:bold; color:var(--primary);">${confPercent}%</span>
+      </div>
+      <div style="width:100%; height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-bottom:12px;">
+        <div style="width:${confPercent}%; height:100%; background:var(--primary); transition:width 0.3s;"></div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:4px;">⚖️ 决策风格</div>
+          <div style="font-size:13px; font-weight:bold;">${labelMap.decisionStyle[profile.decisionStyle] || '分析与直觉均衡'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:4px;">🌧️ 压力反应</div>
+          <div style="font-size:13px; font-weight:bold;">${labelMap.stressResponse[profile.stressResponse] || '倾诉与独处平衡'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:4px;">📖 学习偏好</div>
+          <div style="font-size:13px; font-weight:bold;">${labelMap.learningPreference[profile.learningPreference] || '原理与实践结合'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:4px;">🌱 社交倾向</div>
+          <div style="font-size:13px; font-weight:bold;">${labelMap.socialTendency[profile.socialTendency] || '社交与私密兼顾'}</div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('detailBody').appendChild(cogProfileContainer);
+
+  // Lovestory Companion OS: User Life Rhythm Profile Card
+  const rhythmContainer = document.createElement('div');
+  rhythmContainer.id = 'user-life-rhythm-dashboard';
+  rhythmContainer.style.marginTop = '20px';
+
+  const rhythm = (typeof getLifeRhythmProfile === 'function') ? getLifeRhythmProfile() : { confidence: 0 };
+  const rhythmConfPercent = Math.round((rhythm.confidence || 0) * 100);
+
+  const stressMap = { weekday_stress: "工作日压力集中", weekend_stress: "周末压力集中", evenly: "压力均匀分布", unknown: "待分析" };
+  const patternMap = { regular: "规律互动型", burst: "爆发倾诉型", scattered: "随机分散型", unknown: "待分析" };
+
+  rhythmContainer.innerHTML = `
+    <div class="model-section-header">
+      <span>⏰ 用户生活节奏模型 (User Life Rhythm Profile)</span>
+      <button class="btn btn-info" style="padding: 2px 8px; font-size: 11px; border-radius: 6px;" onclick="analyzeLifeRhythm(true); renderMemorySettings(); showToast('✅ 已重新分析生活节奏');">🔍 重新分析</button>
+    </div>
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <span style="font-size:12px; color:var(--text-sub);">节奏感知度 (Confidence)</span>
+        <span style="font-size:12px; font-weight:bold; color:var(--primary);">${rhythmConfPercent}%</span>
+      </div>
+      <div style="width:100%; height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-bottom:12px;">
+        <div style="width:${rhythmConfPercent}%; height:100%; background:var(--info, #7D9D9C); transition:width 0.3s;"></div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:4px;">☀️ 活跃时段</div>
+          <div style="font-size:12px; font-weight:bold;">${(rhythm.activeHours || []).join(', ') || '08:00-10:00, 21:00-23:00'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:4px;">💬 深度倾诉时段</div>
+          <div style="font-size:12px; font-weight:bold;">${(rhythm.deepTalkHours || []).join(', ') || '22:00-00:00'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:4px;">🌧️ 压力周期</div>
+          <div style="font-size:12px; font-weight:bold;">${stressMap[rhythm.stressCycle] || '平稳分布'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:4px;">⚡ 互动节奏模式</div>
+          <div style="font-size:12px; font-weight:bold;">${patternMap[rhythm.chatPattern] || '自然互动'}</div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('detailBody').appendChild(rhythmContainer);
+
+  // Lovestory Companion OS: Semantic Life Summary Card
+  const summaryContainer = document.createElement('div');
+  summaryContainer.id = 'semantic-life-summary-dashboard';
+  summaryContainer.style.marginTop = '20px';
+
+  const sumData = (typeof getLifeSummary === 'function') ? getLifeSummary() : {};
+  const genTime = sumData.generatedAt ? new Date(sumData.generatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '未生成';
+  const memCount = sumData.memoryCountAtGeneration || 0;
+
+  summaryContainer.innerHTML = `
+    <div class="model-section-header">
+      <span>📖 语义人生摘要 (Semantic Life Summary)</span>
+      <div style="display:flex; gap:6px;">
+        <button class="btn btn-primary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px;" onclick="generateLifeSummary(true).then(() => { renderMemorySettings(); showToast('✅ 语义人生摘要已重新生成'); });">♻️ 重新生成</button>
+        <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px;" onclick="if(confirm('确认清除语义人生摘要？')){ resetLifeSummary(); renderMemorySettings(); }">🗑️ 清除</button>
+      </div>
+    </div>
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <span style="font-size:11px; color:var(--text-sub);">上次提炼时间：${genTime}</span>
+        <span style="font-size:11px; color:var(--primary); font-weight:600;">基于 ${memCount} 条记忆提炼</span>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:2px;">🧘 核心性格特征 (Core Traits)</div>
+          <div style="font-size:12px; font-weight:600; color:var(--text-main); line-height:1.4;">${sumData.coreTraits || '尚未形成完整特征提炼，点击上方【重新生成】手动触发。'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:2px;">☕ 长期稳定偏好 (Long-term Preferences)</div>
+          <div style="font-size:12px; font-weight:500; color:var(--text-main); line-height:1.4;">${sumData.longTermPreferences || '尚无稳定偏好提炼。'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:2px;">💞 关系互动模式 (Relationship Pattern)</div>
+          <div style="font-size:12px; font-weight:500; color:var(--text-main); line-height:1.4;">${sumData.relationshipPattern || '尚无关系模式提炼。'}</div>
+        </div>
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:2px;">🌱 共同成长轨迹 (Growth Trajectory)</div>
+          <div style="font-size:12px; font-weight:500; color:var(--text-main); line-height:1.4;">${sumData.growthTrajectory || '尚无成长轨迹记录。'}</div>
+        </div>
+        ${sumData.evolutionTrends ? `
+        <div style="background:var(--bg-hover); padding:10px; border-radius:8px;">
+          <div style="font-size:11px; color:var(--text-sub); margin-bottom:2px;">🔄 偏好演变趋势 (Evolution Trends)</div>
+          <div style="font-size:12px; font-weight:500; color:var(--primary); line-height:1.4;">${sumData.evolutionTrends}</div>
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+  document.getElementById('detailBody').appendChild(summaryContainer);
+
+  // Lovestory Companion OS: Care Strategy Learning Card
+  const careContainer = document.createElement('div');
+  careContainer.id = 'care-strategy-dashboard';
+  careContainer.style.marginTop = '20px';
+
+  const scenarios = (typeof getCareStrategyWeights === 'function') ? getCareStrategyWeights() : {};
+  const sceneNameMap = {
+    emotional_support: "情绪共情与支持",
+    decision_support: "决策辅导与逻辑",
+    anxiety_soothing: "焦虑关怀与平复",
+    celebration: "喜悦同频与庆祝",
+    exploration: "深度思想探索"
+  };
+
+  const stratNameMap = {
+    quiet_presence: "🌸 安静陪伴",
+    active_listening: "🎧 倾听共情",
+    gentle_encouragement: "☀️ 温和鼓励",
+    distraction: "🎈 轻松转移",
+    structured_analysis: "📊 结构化分析",
+    intuitive_guidance: "🧭 直觉引导",
+    empowerment: "💪 赋能决定",
+    reassurance: "🛡️ 确认安全",
+    grounding: "⚓ 落地实践",
+    future_reframing: "🌅 积极重构",
+    shared_excitement: "🎉 共同欢庆",
+    quiet_appreciation: "🍵 静谧欣赏",
+    depth_expansion: "📖 深度扩展",
+    breadth_expansion: "🌌 广度拓展"
+  };
+
+  let sceneRowsHtml = '';
+  Object.keys(scenarios).forEach(sceneKey => {
+    const stratObj = scenarios[sceneKey] || {};
+    const keys = Object.keys(stratObj);
+    if (keys.length === 0) return;
+
+    keys.forEach(k => {
+      const item = stratObj[k];
+      item.score = (item.positive + 1) / (item.attempts + 2);
+    });
+
+    const sorted = keys.sort((a, b) => stratObj[b].score - stratObj[a].score);
+    const topKey = sorted[0];
+    const topItem = stratObj[topKey];
+    const scorePercent = Math.round((topItem.score || 0.5) * 100);
+
+    const subList = sorted.map(k => {
+      const it = stratObj[k];
+      const pct = Math.round(it.score * 100);
+      return `<div style="display:flex; justify-content:space-between; font-size:11px; padding:2px 0; color:var(--text-sub);">
+        <span>${stratNameMap[k] || k}</span>
+        <span>成功率 ${pct}% (${it.positive}/${it.attempts}次)</span>
+      </div>`;
+    }).join('');
+
+    sceneRowsHtml += `
+      <div style="background:var(--bg-hover); border-radius:8px; padding:10px; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <span style="font-size:12px; font-weight:bold; color:var(--text-main);">${sceneNameMap[sceneKey] || sceneKey}</span>
+          <span style="font-size:11px; font-weight:bold; color:var(--primary);">优选: ${stratNameMap[topKey] || topKey} (${scorePercent}%)</span>
+        </div>
+        <div style="border-top:1px dashed var(--border); margin-top:6px; padding-top:6px;">
+          ${subList}
+        </div>
+      </div>
+    `;
+  });
+
+  careContainer.innerHTML = `
+    <div class="model-section-header">
+      <span>💖 陪伴策略学习 (Care Strategy Learning)</span>
+      <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px;" onclick="if(confirm('确认重置陪伴策略学习数据？')){ resetCareStrategyWeights(); renderMemorySettings(); }">🔄 重置学习</button>
+    </div>
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+      <div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">根据历史陪伴互动反馈，自动在对应场景下优选成功率最高且最舒适的陪伴沟通策略：</div>
+      ${sceneRowsHtml || '<div style="font-size:12px; color:var(--text-sub);">暂无策略学习数据。</div>'}
+    </div>
+  `;
+  document.getElementById('detailBody').appendChild(careContainer);
+
   // Lovestory Companion OS: Append Growth and Experience Dashboard
   const container = document.createElement('div');
   container.id = 'companion-dashboard';

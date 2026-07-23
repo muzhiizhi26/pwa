@@ -930,6 +930,8 @@ function renderTimeline() {
   if (!body) return;
 
   const timeline = (typeof getLifeEventTimeline === 'function') ? getLifeEventTimeline() : [];
+  const recommendations = (typeof getExperienceRecommendations === 'function') ? getExperienceRecommendations('happy', '', 3) : [];
+  const recIds = new Set(recommendations.map(r => r.id));
 
   if (!timeline || timeline.length === 0) {
     body.innerHTML = `
@@ -961,23 +963,42 @@ function renderTimeline() {
     const participant = m.aiParticipant || 'AI伴侣';
     const stage = m.relationshipStage || '知心伴侣';
 
+    const isRec = recIds.has(m.id);
+
+    const emotionBadges = (Array.isArray(m.emotionTags) && m.emotionTags.length > 0)
+      ? `<div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;">
+          ${m.emotionTags.map(tag => {
+            let bg = 'rgba(168,148,130,0.12)';
+            let color = 'var(--text-sub)';
+            if (tag === '温暖') { bg = 'rgba(255,159,67,0.15)'; color = '#D35400'; }
+            else if (tag === '感动') { bg = 'rgba(255,107,107,0.15)'; color = '#C0392B'; }
+            else if (tag === '开心') { bg = 'rgba(254,202,87,0.2)'; color = '#B7950B'; }
+            else if (tag === '平静') { bg = 'rgba(84,160,255,0.15)'; color = '#2980B9'; }
+            else if (tag === '陪伴') { bg = 'rgba(29,209,161,0.15)'; color = '#117864'; }
+            return `<span style="font-size: 10px; padding: 1px 6px; border-radius: 6px; background: ${bg}; color: ${color}; font-weight: 500;">🏷️ ${tag}</span>`;
+          }).join('')}
+        </div>`
+      : '';
+
     return `
       <div style="display: flex; gap: 12px; position: relative;">
         <!-- Left Axis -->
         <div style="display: flex; flex-direction: column; align-items: center; min-width: 32px;">
-          <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--bg-hover, #F0EAE1); border: 2px solid var(--primary, #A89482); display: flex; align-items: center; justify-content: center; font-size: 13px; z-index: 2;">
+          <div style="width: 28px; height: 28px; border-radius: 50%; background: ${isRec ? 'rgba(212,175,55,0.15)' : 'var(--bg-hover, #F0EAE1)'}; border: 2px solid ${isRec ? '#D4AF37' : 'var(--primary, #A89482)'}; display: flex; align-items: center; justify-content: center; font-size: 13px; z-index: 2;">
             ${catIcon}
           </div>
           ${!isLast ? '<div style="width: 2px; flex: 1; background: var(--border, #E0D8CE); margin: 4px 0;"></div>' : ''}
         </div>
         <!-- Right Content Card -->
-        <div style="flex: 1; background: var(--bg-card, #FFFFFF); border: 1px solid var(--border, #E6E0D8); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
+        <div style="flex: 1; background: var(--bg-card, #FFFFFF); border: 1px solid ${isRec ? 'rgba(212,175,55,0.4)' : 'var(--border, #E6E0D8)'}; border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.02); position: relative;">
+          ${isRec ? '<div style="position: absolute; top: -8px; right: 12px; background: #D4AF37; color: #FFF; font-size: 10px; font-weight: bold; padding: 1px 6px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">✨ 推荐温存</div>' : ''}
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
             <span style="font-size: 11px; font-weight: 600; color: var(--primary, #8C7B6C); background: rgba(168,148,130,0.12); padding: 2px 8px; border-radius: 10px;">${dateDisplay}</span>
             <span style="font-size: 10px; color: var(--text-sub); font-weight: 500;">与 ${participant} • ${stage}</span>
           </div>
           <div style="font-size: 13px; font-weight: bold; color: var(--text-main); margin-bottom: 4px;">${m.title}</div>
           <div style="font-size: 12px; color: var(--text-sub); line-height: 1.5;">${m.desc}</div>
+          ${emotionBadges}
         </div>
       </div>
     `;
