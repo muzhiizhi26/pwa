@@ -979,7 +979,7 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
       <!-- 微信朋友圈顶部导航栏 -->
       <header class="tab-view-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 0.5px solid #e5e5e5; background: #ffffff; padding: 12px 16px; position: sticky; top: 0; z-index: 100;">
         <div class="tab-view-title-area" style="display: flex; align-items: center; gap: 8px;">
-          <button class="icon-btn" onclick="switchMainTab('chat')" title="返回聊天" style="margin-right: 4px; width: 30px; height: 30px; font-size: 18px; display: flex; align-items: center; justify-content: center; background: none; border: none; color: #191919; cursor: pointer;">‹</button>
+          <button class="icon-btn" onclick="goBackFromMainTab()" title="返回" style="margin-right: 4px; width: 30px; height: 30px; font-size: 18px; display: flex; align-items: center; justify-content: center; background: none; border: none; color: #191919; cursor: pointer;">‹</button>
           <h2 class="tab-view-title" style="font-size: 16px; font-weight: 600; color: #191919; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">朋友圈</h2>
         </div>
 

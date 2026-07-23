@@ -48,7 +48,14 @@ function openSettings(){
     alert('打开设置失败：' + err.message + '\n' + err.stack);
   }
 }
-function closeSettings(){saveCurrentSection(true);document.getElementById('settingsOverlay').classList.remove('show');}
+function closeSettings(){
+  saveCurrentSection(true);
+  document.getElementById('settingsOverlay').classList.remove('show');
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
+}
 function closeSettingsOnOverlay(e){if(e.target===document.getElementById('settingsOverlay'))closeSettings();}
 function renderProviderList(){const list=document.getElementById('providerList');list.innerHTML='';[['general','⚙️','通用设置'],
  ['launcher','🖼️','桌面外观'],

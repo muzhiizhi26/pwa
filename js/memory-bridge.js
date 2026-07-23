@@ -925,6 +925,16 @@ function openTimeline() {
 }
 window.openTimeline = openTimeline;
 
+function closeTimeline() {
+  const panel = document.getElementById('timelinePanel');
+  if (panel) panel.classList.remove('show');
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
+}
+window.closeTimeline = closeTimeline;
+
 function renderTimeline() {
   const body = document.getElementById('timelineBody');
   if (!body) return;

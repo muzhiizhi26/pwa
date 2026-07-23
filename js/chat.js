@@ -4,13 +4,31 @@ function performAutoBackup(){if(!autoBackupEnabled())return;const t=new Date().t
 function generateBackupContent(){let c=`AI 聊天备份\n📅 ${new Date().toLocaleString('zh-CN')}\n💬 ${conversationHistory.length} 条\n\n`;conversationHistory.forEach(m=>c+=`【${m.role==='user'?'我':'AI'}】 ${m.ts?new Date(m.ts).toLocaleString('zh-CN'):''}\n${m.content}\n\n`);const memo=localStorage.getItem('user_memo');if(memo)c+=`\n=== 备忘录 ===\n${memo}\n`;return c;}
 function manualBackup(){if(!conversationHistory.length){alert('暂无记录');return;}const b=new Blob(['\uFEFF'+generateBackupContent()],{type:'text/plain;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`AI备份_${Date.now()}.txt`;a.click();showToast('✅ 备份完成');toggleActionMenu();}
 function openMemo(){document.getElementById('memoPanel').classList.add('show');const ta=document.getElementById('memoText');ta.value=localStorage.getItem('user_memo')||'';ta.oninput=()=>{localStorage.setItem('user_memo',ta.value);document.getElementById('memoStatus').textContent='已保存';};}
-function closeMemo(){document.getElementById('memoPanel').classList.remove('show');}
+function closeMemo(){
+  document.getElementById('memoPanel').classList.remove('show');
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
+}
 function closeMemoOnOverlay(e){if(e.target===document.getElementById('memoPanel'))closeMemo();}
 function saveMemo(){localStorage.setItem('user_memo',document.getElementById('memoText')?.value||'');}
 
 /* ===== 搜索 ===== */
 let searchMatches=[],searchIdx=-1;
-function toggleSearch(){const b=document.getElementById('searchBar');b.classList.toggle('show');if(b.classList.contains('show')){document.getElementById('searchInput').focus();}else{clearSearch();}}
+function toggleSearch(){
+  const b=document.getElementById('searchBar');
+  b.classList.toggle('show');
+  if(b.classList.contains('show')){
+    document.getElementById('searchInput').focus();
+  }else{
+    clearSearch();
+    if (window.launchedFromLauncher) {
+      window.launchedFromLauncher = false;
+      if (typeof showLauncher === 'function') showLauncher();
+    }
+  }
+}
 
 function clearSearch(){
   document.getElementById('searchInput').value='';

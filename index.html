@@ -125,14 +125,14 @@
 </div>
 
 <!-- ===== 生图 ===== -->
-<div class="imggen-panel" id="imgGenPanel" onclick="if(event.target===this)this.classList.remove('show')">
+<div class="imggen-panel" id="imgGenPanel" onclick="if(event.target===this)closeImgGen()">
     <div class="imggen-box">
         <h3>🎨 生成图片</h3>
         <textarea id="imgGenPrompt" placeholder="描述要生成的图片（建议英文，效果更好）"></textarea>
         <div class="imggen-initprev" id="imgInitPrev"><img id="imgInitThumb" src=""><span style="font-size:11px;color:var(--text-sub);">图生图原图（保持原图不压缩）</span><button class="del-x" onclick="clearGenInit()">✕</button></div>
         <div class="imggen-actions">
             <button class="footer-btn footer-btn-secondary" onclick="triggerFileInput('genInitInput')">🖼️ 上传原图</button>
-            <button class="footer-btn footer-btn-secondary" onclick="document.getElementById('imgGenPanel').classList.remove('show')">取消</button>
+            <button class="footer-btn footer-btn-secondary" onclick="closeImgGen()">取消</button>
             <button class="footer-btn footer-btn-primary" onclick="runImgGen()">生成</button>
         </div>
         <div class="form-hint" style="margin-top:8px;" id="imgGenModeHint"></div>
@@ -281,11 +281,11 @@
 <input type="file" id="caZipFileInput" accept=".zip" style="display: none;" onchange="handleCaZipUpload(this)">
 
 <!-- ===== 关系成长时间线面板 ===== -->
-<div class="memo-panel" id="timelinePanel" onclick="if(event.target===this)this.classList.remove('show')">
+<div class="memo-panel" id="timelinePanel" onclick="if(event.target===this)closeTimeline()">
   <div class="memo-container" style="max-width:520px;">
     <div class="memo-header">
       <h3>📜 关系成长时间线</h3>
-      <button class="icon-btn" onclick="document.getElementById('timelinePanel').classList.remove('show')">✕</button>
+      <button class="icon-btn" onclick="closeTimeline()">✕</button>
     </div>
     <div class="memo-body" id="timelineBody" style="max-height:65vh;overflow-y:auto;padding:16px;">
     </div>

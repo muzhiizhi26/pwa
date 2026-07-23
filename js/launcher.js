@@ -145,13 +145,14 @@ function buildLauncher(){
 }
 
 /* 打开/隐藏启动器 */
-function showLauncher(){buildLauncher();document.getElementById('launcher').classList.add('show');document.querySelector('.chat-app').classList.add('behind');}
+function showLauncher(){window.launchedFromLauncher=false;buildLauncher();document.getElementById('launcher').classList.add('show');document.querySelector('.chat-app').classList.add('behind');}
 function hideLauncher(){document.getElementById('launcher').classList.remove('show');document.querySelector('.chat-app').classList.remove('behind');}
 function launcherHideConfig(){localStorage.setItem('launcher_show_config','false');const c=document.getElementById('lcConfig');if(c)c.remove();}
 
 /* 图标动作分发 */
 function launcherOpen(action){
   if (typeof triggerHaptic === 'function') triggerHaptic('light');
+  window.launchedFromLauncher = true;
   hideLauncher();
   switch(action){
     case 'chat':

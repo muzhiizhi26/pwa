@@ -61,7 +61,13 @@ return {put,del,all};})();
 
 let diaryFilter='all'; // all | user | 具体作者名
 function openDiary(){document.getElementById('diaryPanel').classList.add('show');buildDiaryTabs();renderDiaryList();}
-function closeDiary(){document.getElementById('diaryPanel').classList.remove('show');}
+function closeDiary(){
+  document.getElementById('diaryPanel').classList.remove('show');
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
+}
 function setDiaryFilter(f){diaryFilter=f;document.querySelectorAll('.diary-tab').forEach(t=>t.classList.toggle('active',t.dataset.f===f));renderDiaryList();}
 
 /* 作者标签页：全部 / 我的 / 各 AI（主AI + 群成员） */

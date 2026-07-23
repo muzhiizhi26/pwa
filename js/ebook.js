@@ -14,7 +14,13 @@ let curBook=null; // {id,title,chapters:[{title,body}],idx}
 let ebookView='shelf'; // shelf | reader | notes
 
 function openEbook(){document.getElementById('ebookPanel').classList.add('show');showShelf();}
-function closeEbook(){document.getElementById('ebookPanel').classList.remove('show');}
+function closeEbook(){
+  document.getElementById('ebookPanel').classList.remove('show');
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
+}
 function triggerEbookFile(){document.getElementById('ebookFileInput').click();}
 
 /* ---- 导入 TXT ---- */

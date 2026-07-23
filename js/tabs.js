@@ -49,6 +49,18 @@ function initTabsEngine() {
   switchMainTab('chat');
 }
 
+function goBackFromMainTab() {
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') {
+      showLauncher();
+      return;
+    }
+  }
+  switchMainTab('chat');
+}
+window.goBackFromMainTab = goBackFromMainTab;
+
 // 主 Tab 切换函数
 function switchMainTab(tabId) {
   if (typeof triggerHaptic === 'function') triggerHaptic('light');
@@ -532,7 +544,7 @@ async function renderMemoryTab() {
   container.innerHTML = `
     <header class="tab-view-header">
       <div class="tab-view-title-area" style="display: flex; align-items: center; gap: 8px;">
-        <button class="icon-btn" onclick="switchMainTab('chat')" title="返回聊天" style="margin-right: 4px; width: 30px; height: 30px; font-size: 14px;">‹</button>
+        <button class="icon-btn" onclick="goBackFromMainTab()" title="返回" style="margin-right: 4px; width: 30px; height: 30px; font-size: 14px;">‹</button>
         <span class="tab-view-emoji">🧠</span>
         <h2 class="tab-view-title">忆海 · 伙伴的长期记忆</h2>
       </div>
@@ -713,7 +725,7 @@ function renderCreateTab() {
   container.innerHTML = `
     <header class="tab-view-header">
       <div class="tab-view-title-area" style="display: flex; align-items: center; gap: 8px;">
-        <button class="icon-btn" onclick="switchMainTab('chat')" title="返回聊天" style="margin-right: 4px; width: 30px; height: 30px; font-size: 14px;">‹</button>
+        <button class="icon-btn" onclick="goBackFromMainTab()" title="返回" style="margin-right: 4px; width: 30px; height: 30px; font-size: 14px;">‹</button>
         <span class="tab-view-emoji">🎨</span>
         <h2 class="tab-view-title">共创 · 与伙伴一起创作</h2>
       </div>
@@ -852,7 +864,7 @@ function renderRelationTab() {
   container.innerHTML = `
     <header class="tab-view-header">
       <div class="tab-view-title-area" style="display: flex; align-items: center; gap: 8px;">
-        <button class="icon-btn" onclick="switchMainTab('chat')" title="返回聊天" style="margin-right: 4px; width: 30px; height: 30px; font-size: 14px;">‹</button>
+        <button class="icon-btn" onclick="goBackFromMainTab()" title="返回" style="margin-right: 4px; width: 30px; height: 30px; font-size: 14px;">‹</button>
         <span class="tab-view-emoji">💖</span>
         <h2 class="tab-view-title">我们 · 羁绊与系统设定</h2>
       </div>

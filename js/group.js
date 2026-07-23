@@ -71,6 +71,10 @@ function openGroupChat(){
 function closeGroupChat(){
   document.getElementById('groupPanel').classList.remove('show');
   if(typeof stopGroupAutoLoop === 'function') stopGroupAutoLoop();
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
 }
 function applyGroupBg(){const el=document.getElementById('groupMessages');const bg=groupBg();if(el){if(bg){el.style.backgroundImage=`url(${bg})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';}else el.style.backgroundImage='';}}
 
@@ -1465,6 +1469,10 @@ function openGroupRelationGraph() {
 
 function closeGroupRelationGraph() {
   document.getElementById('groupRelationModal')?.classList.remove('show');
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
 }
 
 function injectGroupRelationStyles() {

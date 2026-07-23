@@ -274,6 +274,14 @@ function getEffectiveImageEndpoint(iface) {
   return 'Pollinations direct image URL';
 }
 function openImgGen(){document.getElementById('actionMenu').classList.remove('show');if(!imgEnabled()){showToast('🎨 生图已关闭，请在生图设置开启');return;}const curr=getActiveImgInterface();const model=(curr.selectedModel||(curr.models&&curr.models[0])||'').trim();const hint=`当前：${curr.name}${model?' · '+model:''} · ${getEffectiveImageEndpoint(curr)}`;document.getElementById('imgGenModeHint').textContent=hint;clearGenInit();document.getElementById('imgGenPrompt').value='';document.getElementById('imgGenPanel').classList.add('show');}
+function closeImgGen(){
+  document.getElementById('imgGenPanel').classList.remove('show');
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
+}
+window.closeImgGen = closeImgGen;
 function handleGenInit(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=e=>{pendingGenInit=e.target.result;document.getElementById('imgInitThumb').src=pendingGenInit;document.getElementById('imgInitPrev').classList.add('show');};r.readAsDataURL(f);input.value='';}
 function clearGenInit(){pendingGenInit=null;document.getElementById('imgInitPrev').classList.remove('show');document.getElementById('imgInitThumb').src='';}
 
@@ -350,7 +358,7 @@ async function runImgGen(){
     return;
   }
   const initImg=pendingGenInit;
-  document.getElementById('imgGenPanel').classList.remove('show');
+  closeImgGen();
   addMessage('user','🎨 '+promptText+(initImg?'（图生图）':''));
   if(initImg){
     const uid=genUid();

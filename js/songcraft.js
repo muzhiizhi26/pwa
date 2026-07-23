@@ -6,7 +6,13 @@ function songModel(){return localStorage.getItem('song_model')||'music-2.6';}
 
 let lastLyrics='';
 function openSongCraft(){document.getElementById('songPanel').classList.add('show');document.getElementById('songLyrics').value=lastLyrics;}
-function closeSongCraft(){document.getElementById('songPanel').classList.remove('show');}
+function closeSongCraft(){
+  document.getElementById('songPanel').classList.remove('show');
+  if (window.launchedFromLauncher) {
+    window.launchedFromLauncher = false;
+    if (typeof showLauncher === 'function') showLauncher();
+  }
+}
 
 /* 让 AI 写/改歌词 */
 async function aiWriteLyrics(){
