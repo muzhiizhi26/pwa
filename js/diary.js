@@ -94,7 +94,13 @@ async function saveDiaryEntry(author,name,content){
   // AI 写日记后自动生成朋友圈动态
   if (author === 'ai' && typeof MomentsEngine !== 'undefined' && typeof MomentsEngine.generateAiMoment === 'function') {
     try {
-      const aiId = name === (localStorage.getItem('ai_name') || '主AI') ? 'main' : name;
+      // 根据 AI 名字查找成员 ID，确保朋友圈正确归属
+      let aiId = 'main';
+      if (name !== (localStorage.getItem('ai_name') || '主AI') && typeof getGroupMembers === 'function') {
+        const members = getGroupMembers();
+        const mem = members.find(m => m.name === name);
+        if (mem) aiId = mem.id;
+      }
       MomentsEngine.generateAiMoment(aiId, `📔 日记：${content.trim().slice(0, 50)}...`, 'growth', '📔 日记心情');
     } catch(e) {
       console.warn('[Diary] Auto moment failed:', e);
