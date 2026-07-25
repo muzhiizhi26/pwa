@@ -357,7 +357,19 @@ async function processExtractedEvent(event, sourceAi) {
 
   // 联动朋友圈 Moments 模块：自动提炼生成朋友圈动态
   if (typeof MomentsEngine !== 'undefined' && typeof MomentsEngine.generateMomentFromEvent === 'function') {
-    MomentsEngine.generateMomentFromEvent(event, sourceAi);
+    if (sourceAi === 'group' && typeof getGroupMembers === 'function') {
+      // 群聊事件：为每个群成员分别生成朋友圈动态
+      const members = getGroupMembers();
+      const nonMainMembers = members.filter(m => !m.isMain);
+      // 为主AI生成一个
+      MomentsEngine.generateMomentFromEvent(event, 'main');
+      // 为每个副AI生成
+      nonMainMembers.forEach(m => {
+        MomentsEngine.generateMomentFromEvent(event, m.id);
+      });
+    } else {
+      MomentsEngine.generateMomentFromEvent(event, sourceAi);
+    }
   }
 
   if (typeof CompanionEvents !== 'undefined') {
