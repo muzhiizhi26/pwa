@@ -412,6 +412,16 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     }
 
     this.addCommentToMoment(momentId, aiId || 'main', aiName, cleanReply, 'user', userName);
+
+    // 将 AI 的朋友圈互动记录到记忆库，供日记素材引用
+    if (typeof memorize === 'function') {
+      try {
+        const replyContext = replyToName ? `，回复了「${replyToName}」的评论` : '';
+        memorize('assistant', `【AI在朋友圈互动】${aiName}在动态“${moment.content.slice(0, 30)}...”下评论${replyContext}：“${cleanReply}”`, '', aiId || 'main');
+      } catch(e) {
+        console.warn('[Moments] AI comment memory failed:', e);
+      }
+    }
   },
 
   async _executeAutoMomentTask(data) {

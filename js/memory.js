@@ -688,6 +688,44 @@ async function recall(query,aiId){
     }
     if(top.length+assoc.length>=cap)break;
   }
+  // 加载近期日记内容注入 RAG 上下文
+  try {
+    if (typeof DIARY_DB !== 'undefined') {
+      const diaries = await DIARY_DB.all();
+      const recentDiaries = (diaries || []).filter(d => {
+        // 只取最近7天的日记
+        const daysOld = (Date.now() - (d.ts || 0)) / 86400000;
+        if (daysOld > 7) return false;
+        // 根据可见性过滤：用户日记仅自己可见，AI日记对当前AI可见
+        if (d.author === 'user') return true; // 用户日记对所有AI可见
+        if (d.author === 'ai') {
+          if (!query) return true;
+          const q = query.toLowerCase();
+          return (d.content || '').toLowerCase().includes(q) || (d.name || '').toLowerCase().includes(q);
+        }
+        return false;
+      }).slice(-5); // 最多5篇
+
+      recentDiaries.forEach(d => {
+        const diaryItem = {
+          id: 'diary_' + (d.id || ''),
+          text: d.author === 'user' 
+            ? `【用户日记】${d.content || ''}`
+            : `【${d.name || 'AI'}日记】${d.content || ''}`,
+          role: d.author === 'user' ? 'user' : 'assistant',
+          sim: 0.6,
+          emotion: 'love',
+          ts: d.ts || Date.now(),
+          source: 'diary'
+        };
+        if (!top.some(t => t.id === diaryItem.id)) {
+          top.push(diaryItem);
+        }
+      });
+    }
+  } catch(e) {
+    console.warn('[Recall] Diary recall failed:', e);
+  }
   return top.concat(assoc);
 }
 

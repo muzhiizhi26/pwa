@@ -87,7 +87,20 @@ async function renderDiaryList(){
       <div class="diary-actions"><button onclick="deleteDiary('${d.id}')">🗑️ 删除</button></div>
     </div>`).join('');
 }
-async function saveDiaryEntry(author,name,content){if(!content||!content.trim())return;await DIARY_DB.put({id:'d_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),author,name:name||'',content:content.trim(),ts:Date.now()});if(document.getElementById('diaryPanel').classList.contains('show')){buildDiaryTabs();renderDiaryList();}}
+async function saveDiaryEntry(author,name,content){
+  if(!content||!content.trim())return;
+  await DIARY_DB.put({id:'d_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),author,name:name||'',content:content.trim(),ts:Date.now()});
+  if(document.getElementById('diaryPanel').classList.contains('show')){buildDiaryTabs();renderDiaryList();}
+  // AI 写日记后自动生成朋友圈动态
+  if (author === 'ai' && typeof MomentsEngine !== 'undefined' && typeof MomentsEngine.generateAiMoment === 'function') {
+    try {
+      const aiId = name === (localStorage.getItem('ai_name') || '主AI') ? 'main' : name;
+      MomentsEngine.generateAiMoment(aiId, `📔 日记：${content.trim().slice(0, 50)}...`, 'growth', '📔 日记心情');
+    } catch(e) {
+      console.warn('[Diary] Auto moment failed:', e);
+    }
+  }
+}
 async function deleteDiary(id){if(!confirm('删除这篇日记？'))return;await DIARY_DB.del(id);renderDiaryList();}
 async function writeUserDiary(){
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{name:'主AI'}];
@@ -187,40 +200,44 @@ async function checkAutoDiary(){
   const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(today) : today.toISOString().slice(0, 10);
   const h = today.getHours();
   
-  // 1. 获取所有已经写过的 AI 日记，做精确的排重
-  let diaries = [];
-  try {
-    diaries = await DIARY_DB.all();
-  } catch (e) {
-    console.error('Failed to get diaries', e);
-  }
-  const writtenDates = new Set(
-    diaries
-      .filter(d => d.author === 'ai')
-      .map(d => {
-        const dateObj = new Date(d.ts);
-        return (typeof getLocalDateString === 'function') ? getLocalDateString(dateObj) : dateObj.toISOString().slice(0, 10);
-      })
-  );
+  // 获取所有 AI 成员（主AI + 所有副AI）
+  const members=(typeof getGroupMembers==='function')?getGroupMembers():[{id:'main',name:'主AI',isMain:true}];
+  
+  for (const mem of members) {
+    // 1. 获取该 AI 已经写过的日记日期
+    let diaries = [];
+    try {
+      diaries = await DIARY_DB.all();
+    } catch (e) {
+      console.error('Failed to get diaries', e);
+    }
+    const writtenDates = new Set(
+      diaries
+        .filter(d => d.author === 'ai' && d.name === mem.name)
+        .map(d => {
+          const dateObj = new Date(d.ts);
+          return (typeof getLocalDateString === 'function') ? getLocalDateString(dateObj) : dateObj.toISOString().slice(0, 10);
+        })
+    );
 
-  // 2. 检查过去 3 天内（包括今天，如果今天已过18点），是否存在聊天过、但是没有 AI 日记的日期
-  for (let i = 0; i < 3; i++) {
-    const targetDate = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
-    const targetKey = (typeof getLocalDateString === 'function') ? getLocalDateString(targetDate) : targetDate.toISOString().slice(0, 10);
-    
-    // 如果是今天，但还没到 18 点，说明还没到写今天日记的时间，先跳过
-    if (i === 0 && h < 18) {
-      continue;
-    }
-    
-    // 如果这一天已经写过了，跳过
-    if (writtenDates.has(targetKey)) {
-      continue;
-    }
-    
-    // 检查这一天是否有过对话 (用户消息或 AI 消息，包括私聊与群聊)
-    const privateKey = mem.isMain ? 'chatHistory' : `chatHistory_${mem.id}`;
-    let pHistory = [];
+    // 2. 检查过去 3 天内，是否存在聊天过、但没有该 AI 日记的日期
+    for (let i = 0; i < 3; i++) {
+      const targetDate = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+      const targetKey = (typeof getLocalDateString === 'function') ? getLocalDateString(targetDate) : targetDate.toISOString().slice(0, 10);
+      
+      // 如果是今天，但还没到 18 点，说明还没到写今天日记的时间，先跳过
+      if (i === 0 && h < 18) {
+        continue;
+      }
+      
+      // 如果这一天该 AI 已经写过了，跳过
+      if (writtenDates.has(targetKey)) {
+        continue;
+      }
+      
+      // 检查这一天是否有过对话 (用户消息或 AI 消息，包括私聊与群聊)
+      const privateKey = mem.isMain ? 'chatHistory' : `chatHistory_${mem.id}`;
+      let pHistory = [];
     try {
       const rawP = localStorage.getItem(privateKey);
       if (rawP) pHistory = JSON.parse(rawP);
@@ -296,4 +313,6 @@ async function checkAutoDiary(){
       console.error('Auto diary write failed', e);
     }
   }
+}
+
 }
