@@ -623,30 +623,28 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     }
 
     // 将 AI 自动回复任务推入安全的前台处理队列
-    // 1. 主 AI 自动进行跟帖评论
+    // 所有 AI（主AI + 所有副AI）都自动进行跟帖评论
+    const allAiMembers = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
+    
+    // 主AI
     this.enqueue('ai_comment', {
       momentId: newMoment.id,
       text: trimmedText || '【发布了照片】',
       aiId: 'main',
       aiName: mainAiName
     });
-
-    // 2. 如果当前处于与副 AI 的私聊对话中，副 AI 也同步进行跟帖
-    if (currentAi !== 'main') {
-      let subAiName = '副AI';
-      if (typeof memberById === 'function') {
-        const mem = memberById(currentAi);
-        if (mem) {
-          subAiName = mem.name || subAiName;
-        }
+    
+    // 所有副AI
+    allAiMembers.forEach(mem => {
+      if (!mem.isMain) {
+        this.enqueue('ai_comment', {
+          momentId: newMoment.id,
+          text: trimmedText || '【发布了照片】',
+          aiId: mem.id,
+          aiName: mem.name || '副AI'
+        });
       }
-      this.enqueue('ai_comment', {
-        momentId: newMoment.id,
-        text: trimmedText || '【发布了照片】',
-        aiId: currentAi,
-        aiName: subAiName
-      });
-    }
+    });
   },
 
   // 认可/点赞 toggle
