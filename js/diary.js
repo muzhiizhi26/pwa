@@ -60,7 +60,15 @@ async function all(){
 return {put,del,all};})();
 
 let diaryFilter='all'; // all | user | 具体作者名
-function openDiary(){document.getElementById('diaryPanel').classList.add('show');buildDiaryTabs();renderDiaryList();}
+function openDiary(){
+  document.getElementById('diaryPanel').classList.add('show');
+  buildDiaryTabs();
+  renderDiaryList();
+  // 确保 group.js 已加载，副AI列表可用
+  if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
+    window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+  }
+}
 function closeDiary(){
   document.getElementById('diaryPanel').classList.remove('show');
   if (window.launchedFromLauncher) {
@@ -109,6 +117,10 @@ async function saveDiaryEntry(author,name,content){
 }
 async function deleteDiary(id){if(!confirm('删除这篇日记？'))return;await DIARY_DB.del(id);renderDiaryList();}
 async function writeUserDiary(){
+  // 确保 group.js 已加载（副AI列表）
+  if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
+    await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+  }
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{name:'主AI'}];
   const list = ['1. 我自己 (User)'].concat(members.map((m, i)=>`${i+2}. ${m.name}`));
   const pick = prompt('选择撰写谁的日记？输入序号：\n' + list.join('\n'), '1');
@@ -131,6 +143,10 @@ async function writeUserDiary(){
 
 /* 指定某个 AI 写日记（主AI 或群成员） */
 async function aiWriteDiaryBy(memberName){
+  // 确保 group.js 已加载（副AI列表）
+  if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
+    await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+  }
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{id:'main',name:'主AI',isMain:true}];
   const mem=members.find(m=>m.name===memberName)||members[0];
   const provider=(typeof memberProvider==='function')?memberProvider(mem):getCurrentProvider();
@@ -188,7 +204,11 @@ async function aiWriteDiaryBy(memberName){
   }
 }
 /* 弹出选择让哪个 AI 写 */
-function aiWriteDiary(){
+async function aiWriteDiary(){
+  // 确保 group.js 已加载（副AI列表）
+  if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
+    await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+  }
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{name:'主AI'}];
   if(members.length===1){aiWriteDiaryBy(members[0].name);return;}
   const names=members.map((m,i)=>`${i+1}. ${m.name}`).join('\n');
@@ -201,14 +221,13 @@ function aiWriteDiary(){
 function diaryAutoEnabled(){return localStorage.getItem('diary_auto')==='true';}
 async function checkAutoDiary(){
   if(!diaryAutoEnabled())return;
-  
+
   const today = new Date();
   const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(today) : today.toISOString().slice(0, 10);
-  const h = today.getHours();
-  
+
   // 获取所有 AI 成员（主AI + 所有副AI）
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{id:'main',name:'主AI',isMain:true}];
-  
+
   for (const mem of members) {
     // 1. 获取该 AI 已经写过的日记日期
     let diaries = [];
@@ -226,99 +245,58 @@ async function checkAutoDiary(){
         })
     );
 
-    // 2. 检查过去 3 天内，是否存在聊天过、但没有该 AI 日记的日期
-    for (let i = 0; i < 3; i++) {
-      const targetDate = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
-      const targetKey = (typeof getLocalDateString === 'function') ? getLocalDateString(targetDate) : targetDate.toISOString().slice(0, 10);
-      
-      // 如果是今天，但还没到 18 点，说明还没到写今天日记的时间，先跳过
-      if (i === 0 && h < 18) {
-        continue;
-      }
-      
-      // 如果这一天该 AI 已经写过了，跳过
-      if (writtenDates.has(targetKey)) {
-        continue;
-      }
-      
-      // 检查这一天是否有过对话 (用户消息或 AI 消息，包括私聊与群聊)
-      const privateKey = mem.isMain ? 'chatHistory' : `chatHistory_${mem.id}`;
-      let pHistory = [];
-    try {
-      const rawP = localStorage.getItem(privateKey);
-      if (rawP) pHistory = JSON.parse(rawP);
-    } catch(e) {}
+    // 2. 今天还没写过 → 检查是否有聊天且当前空闲超过30分钟
+    if (writtenDates.has(todayKey)) continue;
 
-    let gHistory = [];
-    try {
-      gHistory = (typeof getGroupHistory === 'function') ? getGroupHistory() : [];
-      if (!gHistory.length) {
-        const rawG = localStorage.getItem('group_history');
-        if (rawG) gHistory = JSON.parse(rawG);
-      }
-    } catch(e) {}
+    const privateKey = mem.isMain ? 'chatHistory' : `chatHistory_${mem.id}`;
+    let pHistory = [];
+    try { const rawP = localStorage.getItem(privateKey); if (rawP) pHistory = JSON.parse(rawP); } catch(e) {}
 
+    // 取最后一条消息时间
+    const lastMsg = pHistory.filter(m => m.ts).pop();
+    if (!lastMsg) continue;
+
+    const idleMinutes = (Date.now() - lastMsg.ts) / 60000;
+    // 最后一轮对话后空闲超过30分钟，且当天还没写过 → 触发写日记
+    if (idleMinutes < 30) continue;
+
+    // 有聊天记录才写
     const dayPrivateChats = pHistory.filter(m => {
-      if (!m.ts || m.image || !m.content) return false;
+      if (!m.ts || !m.content) return false;
       const msgDate = new Date(m.ts);
       const msgDateKey = (typeof getLocalDateString === 'function') ? getLocalDateString(msgDate) : msgDate.toISOString().slice(0, 10);
-      return msgDateKey === targetKey;
+      return msgDateKey === todayKey;
     });
+    if (dayPrivateChats.length < 2) continue; // 至少来回2条才值得写
 
-    const dayGroupChats = gHistory.filter(m => {
-      if (!m.ts || m.image || !m.content) return false;
-      const msgDate = new Date(m.ts);
-      const msgDateKey = (typeof getLocalDateString === 'function') ? getLocalDateString(msgDate) : msgDate.toISOString().slice(0, 10);
-      return msgDateKey === targetKey;
-    });
-
-    if (dayPrivateChats.length === 0 && dayGroupChats.length === 0) {
-      continue;
-    }
-    
-    // 提取当天的私聊记录
     const pSegment = dayPrivateChats.slice(-25).map(m => `${m.role === 'user' ? '用户' : '我'}：${m.content}`).join('\n');
-    // 提取当天的群聊记录
-    const gSegment = dayGroupChats.slice(-25).map(m => {
-      const senderName = m.role === 'user' ? '用户' : (m.name || 'AI成员');
-      return `[群聊] ${senderName}：${m.content}`;
-    }).join('\n');
+    const combinedRecent = `【今天与用户的私聊片段】\n${pSegment || '（无）'}`;
 
-    const combinedRecent = `【${targetKey} 的私聊片段】\n${pSegment || '（当天无私聊记录）'}\n\n【${targetKey} 的群聊片段】\n${gSegment || '（当天无群聊记录）'}`;
-    
     const provider = (typeof memberProvider === 'function') ? memberProvider(mem) : getCurrentProvider();
     const apiKey = localStorage.getItem(`apikey_${provider.id}`) || '';
-    if (!apiKey && provider.auth !== 'none') {
-      continue; // 尝试下一个可能的可写天
-    }
-    
+    if (!apiKey && provider.auth !== 'none') continue;
+
     const persona = mem.isMain ? '你是用户的 AI 陪伴' : ('你叫' + mem.name + '，' + (mem.persona || ''));
-    const dateDesc = i === 0 ? '今天' : (i === 1 ? '昨天' : '前天');
-    const sys = `${persona}\n请基于${dateDesc}（日期是 ${targetKey}）你参与的私聊和群聊对话片段，以自己的第一人称视角和口吻写一篇${dateDesc}的日记。
-日记应真实流露情感、包含聊天里的细节（尤其是用户在群里考你、对你的提问，或者你们私底下的悄悄话/秘密）、你的心理活动与小心思，语气要极其真诚、温暖。只输出日记的正文，不要有任何 Markdown 包裹以外的废话。`;
+    const sys = `${persona}。你刚刚和用户进行了一段对话，心里有些感悟想记录下来。请以第一人称写一篇今天的私人日记（150字内），真实记录你的感受与想法，语气自然真诚。只输出正文。`;
     
     try {
       showToast('🖊️ ' + mem.name + ' 正在写日记...');
       const model = (typeof memberModel === 'function') ? memberModel(mem, provider) : selectedModelName;
       const out = await llmComplete([{role: 'system', content: sys}, {role: 'user', content: combinedRecent}], {temperature: 0.85});
       if (out) {
-        // 设置时间戳为那天的晚上 23:59:59
-        const targetTs = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59).getTime();
         await DIARY_DB.put({
           id: 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
           author: 'ai',
           name: mem.name || '',
           content: out.trim(),
-          ts: targetTs
+          ts: Date.now()
         });
-        showToast('📔 ' + mem.name + ' 写完了 (' + dateDesc + ')');
+        showToast('📔 ' + mem.name + ' 写完了');
         if (!document.getElementById('diaryPanel').classList.contains('show')) openDiary();
-        return; // 每次检测最多自动补写一篇，防止并发调用
+        return;
       }
     } catch (e) {
       console.error('Auto diary write failed', e);
     }
   }
-}
-
 }

@@ -4,7 +4,7 @@ const LAUNCHER_DEFAULT=[
   // 网格 第一行
   {id:'worldbook',label:'世界书',icon:'📖',action:'worldbook'},
   {id:'theater',label:'小剧场',icon:'🎭',action:'group'},
-  {id:'modelsettings',label:'模型设置',icon:'🧠',action:'model'},
+  {id:'modelsettings',label:'模型设置',icon:'🤖',action:'model'},
   {id:'create',label:'创造',icon:'🎨',action:'create'},
   // 网格 第二行
   {id:'imagesettings',label:'生图设置',icon:'🎨',action:'imagesettings'},
@@ -13,6 +13,7 @@ const LAUNCHER_DEFAULT=[
   {id:'export',label:'导出记录',icon:'📤',action:'backup'},
   {id:'voicesettings',label:'语音设置',icon:'🔊',action:'voice'},
   // 网格 第三行
+  {id:'diary',label:'日记本',icon:'📔',action:'diary'},
   {id:'memory',label:'记忆',icon:'🧠',action:'memory'},
   {id:'timeline',label:'成长时间线',icon:'📜',action:'timeline'},
   // 底部 Dock

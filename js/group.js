@@ -57,6 +57,57 @@ async function initGroupHistory() {
 }
 let groupReplying=false,groupQuote=null,gCtxUid=null;
 
+/* ─── Phase 1: Conversation Director（群聊导演）─── */
+const ConversationDirector = {
+  // 状态
+  lastUserMsgTs: 0,         // 用户最后一条消息时间戳
+  aiStreak: 0,              // AI连续发言次数（用户不说话时）
+  isAiInterChat: false,     // 是否正在AI互聊模式
+  maxAiStreak: 3,           // AI连续互聊最大轮次
+  
+  // 用户发消息时调用
+  onUserMessage() {
+    this.lastUserMsgTs = Date.now();
+    this.aiStreak = 0;
+    this.isAiInterChat = false;
+    // 打断AI互聊
+    if (window.groupIsAutoPlaying) {
+      window.groupAutoInterrupted = true;
+      window.groupIsAutoPlaying = false;
+      groupReplying = false;
+    }
+  },
+  
+  // AI每发一条消息时调用
+  onAiMessage() {
+    this.aiStreak++;
+    if (this.aiStreak >= this.maxAiStreak) {
+      this.isAiInterChat = false;
+    }
+  },
+  
+  // 判断是否允许AI继续互聊
+  canAiContinue() {
+    // 用户最近有消息 → 停止AI互聊
+    if (Date.now() - this.lastUserMsgTs < 5000) return false;
+    // 超过3轮上限 → 停止
+    if (this.aiStreak >= this.maxAiStreak) return false;
+    return true;
+  },
+  
+  // 获取随机延迟（毫秒）
+  getRandomDelay() {
+    return 800 + Math.random() * 4200; // 0.8 - 5.0 秒
+  },
+  
+  // 重置状态
+  reset() {
+    this.lastUserMsgTs = 0;
+    this.aiStreak = 0;
+    this.isAiInterChat = false;
+  }
+};
+
 /* ---- 面板开合 ---- */
 let _groupRenderLimit = 50; // 默认首次加载 50 条
 
@@ -337,6 +388,10 @@ async function groupMemberReplyWithImage(mem,img){
 async function sendGroupMessage(){
   if (typeof triggerHaptic === 'function') triggerHaptic('medium');
   const inp=document.getElementById('groupInput');let text=inp.value.trim();
+  
+  // Phase 1: Conversation Director — 用户发消息，打断AI互聊
+  ConversationDirector.onUserMessage();
+  
   if(window.groupIsAutoPlaying){
     window.groupAutoInterrupted=true;
     window.groupIsAutoPlaying=false;
@@ -373,6 +428,12 @@ async function groupMemberReply(mem,userText){
   const provider=memberProvider(mem);const apiKey=localStorage.getItem(`apikey_${provider.id}`)||'';
   if(!apiKey&&provider.auth!=='none'){pushGroup({uid:genUid(),role:'assistant',memberId:mem.id,name:mem.name,avatar:mem.avatar,content:'（'+mem.name+'：请先配置 API Key）',ts:Date.now()});return;}
   const model=memberModel(mem,provider);
+
+  // Phase 1: 随机延迟 + 导演状态跟踪
+  if (userText === '（AI 之间自由接话）' && ConversationDirector.canAiContinue()) {
+    await new Promise(res => setTimeout(res, ConversationDirector.getRandomDelay()));
+  }
+  ConversationDirector.onAiMessage();
 
   // 保证 groupHistory 为最新状态
   getGroupHistory();
@@ -808,6 +869,8 @@ function startGroupAutoLoop(){
   groupAutoTimer=setInterval(()=>{
     if(!document.getElementById('groupPanel').classList.contains('show'))return;
     if(groupReplying || window.groupIsAutoPlaying)return;
+    // Phase 1: 导演判断是否允许AI互聊
+    if (!ConversationDirector.canAiContinue()) return;
     const last=groupHistory[groupHistory.length-1];
     // 距上一条超过 12 秒且开着自动，就接一轮
     if(last&&Date.now()-last.ts>12000)groupAutoChat(1);

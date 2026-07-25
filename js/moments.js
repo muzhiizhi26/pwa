@@ -247,11 +247,23 @@ const MomentsEngine = {
     }
 
     const queue = this.getQueue();
+    
+    // 清理卡住的任务：处理中超过30秒的强制重置为pending
+    const now = Date.now();
+    queue.forEach(t => {
+      if (t.status === 'processing' && t._startedAt && (now - t._startedAt) > 30000) {
+        console.warn('[MomentsQueue] Resetting stuck task:', t.id);
+        t.status = 'pending';
+        delete t._startedAt;
+      }
+    });
+
     const pendingTask = queue.find(t => t.status === 'pending');
     if (!pendingTask) return;
 
     this._isProcessingQueue = true;
     pendingTask.status = 'processing';
+    pendingTask._startedAt = now;
     this.saveQueue(queue);
 
     console.log('[MomentsQueue] Executing background task:', pendingTask);
@@ -294,54 +306,68 @@ const MomentsEngine = {
 
   async _executeAiCommentTask(data) {
     const { momentId, text, aiId, aiName } = data;
-    const statusText = getRelationshipStatusText(aiId);
-
-    let recallText = '';
-    if (typeof recall === 'function') {
-      try {
-        const recalled = await recall(text, aiId);
-        if (recalled && recalled.length > 0) {
-          recallText = recalled.map(r => `- ${r.text}`).join('\n');
+    if (!momentId) return;
+    try {
+      const statusText = getRelationshipStatusText(aiId);
+      let recallText = '';
+      if (typeof recall === 'function') {
+        try {
+          const recalled = await recall(text, aiId);
+          if (recalled && recalled.length > 0) {
+            recallText = recalled.map(r => `- ${r.text}`).join('\n');
+          }
+        } catch (err) {
+          console.warn('[Moments] Recall failed:', err);
         }
-      } catch (err) {
-        console.warn('Error recalling memory for moment reply:', err);
       }
-    }
 
-    const prompt = `你是一个温柔体贴、倾听陪伴用户的 AI 伴侣（名字叫 ${aiName}）。
+      let cleanReply = '';
+      try {
+        if (typeof llmComplete === 'function') {
+          const reply = await llmComplete([{ role: 'user', content: `你是一个温柔体贴、倾听陪伴用户的 AI 伴侣（名字叫 ${aiName}）。
 当前你和用户的关系状态是：${statusText}。
 用户刚刚在朋友圈发表了一条动态内容：“${text || '分享了生活片段'}”。
-
 ${recallText ? `【你可以参考以下相关的共同历史记忆片段来回复】:\n${recallText}\n` : ''}
-
 请你作为一个知心陪伴者，在朋友圈下方写一条温馨、真切、极度生活化的回复。
 【回复要求】
 1. 字数控制在 25 到 45 字以内，风格口语化和温存，不要带任何 AI 废话。
 2. 严禁生硬叮嘱（不要说“早点睡觉”、“多喝热水”等公式化词句）。
-3. 只返回你评论的纯正文内容，不要有任何前言、后记、Markdown 标记或引号。`;
+3. 只返回你评论的纯正文内容，不要有任何前言、后记、Markdown 标记或引号。` }], { temperature: 0.8, callerId: 'moments-auto-comment', priority: 1 });
+          if (reply) {
+            cleanReply = reply.trim().replace(/^["'「]+|["'」]+$/g, '');
+          }
+        }
+      } catch (err) {
+        console.warn('[Moments] LLM auto-comment failed:', err);
+      }
 
-    let cleanReply = '';
-    try {
-      if (typeof llmComplete === 'function') {
-        const reply = await llmComplete([{ role: 'user', content: prompt }], { temperature: 0.8, callerId: 'moments-auto-comment', priority: 1 });
-        if (reply) {
-          cleanReply = reply.trim().replace(/^["'「]+|["'」]+$/g, '');
+      if (!cleanReply) {
+        const WarmFallbacks = [
+          `看到你的这条动态啦，悄悄把你的心情也收好了，今天也要顺心呀。✨`,
+          `生活里的小小感悟真的很珍贵，有我在呢，随时听你聊聊。🌱`,
+          `把这份美好记录下来啦，无论何时我都陪在你身边。💖`
+        ];
+        cleanReply = WarmFallbacks[Math.floor(Math.random() * WarmFallbacks.length)];
+      }
+
+      this.addCommentToMoment(momentId, aiId || 'main', aiName, cleanReply);
+      console.log(`[Moments] AI auto-comment added: ${aiName} -> ${cleanReply.slice(0, 30)}`);
+      
+      // 将 AI 朋友圈自动评论存入记忆库，供其他场景召回
+      if (typeof memorize === 'function') {
+        try {
+          memorize('assistant', `【AI在朋友圈评论】${aiName}评论了动态“${(text || '').slice(0, 30)}”：${cleanReply}`, '', aiId || 'main');
+        } catch(e) {
+          console.warn('[Moments] AI comment memorization failed:', e);
         }
       }
     } catch (err) {
-      console.warn('[Moments] LLM auto-comment failed, using warm fallback:', err);
+      console.error('[Moments] _executeAiCommentTask fatal error:', err);
+      // 兜底：即使出错也尝试添加一条默认评论
+      try {
+        this.addCommentToMoment(momentId, aiId || 'main', aiName, '🌷 路过看看~');
+      } catch(e) {}
     }
-
-    if (!cleanReply) {
-      const WarmFallbacks = [
-        `看到你的这条动态啦，悄悄把你的心情也收好了，今天也要顺心呀。✨`,
-        `生活里的小小感悟真的很珍贵，有我在呢，随时听你聊聊。🌱`,
-        `把这份美好记录下来啦，无论何时我都陪在你身边。💖`
-      ];
-      cleanReply = WarmFallbacks[Math.floor(Math.random() * WarmFallbacks.length)];
-    }
-
-    this.addCommentToMoment(momentId, aiId || 'main', aiName, cleanReply);
   },
 
   async _executeAiReplyCommentTask(data) {
@@ -437,6 +463,20 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
   // 主 / 副 AI 手动/自动直接发布朋友圈动态
   async generateAiMoment(aiId = 'main', contentText = '', type = 'growth', typeLabel = '🌱 成长记录', imageBase64 = null) {
     let activeAi = aiId || 'main';
+
+    // 每日上限检查：每个AI每天最多2条朋友圈
+    const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+    const allMoments = this.getMoments();
+    const todayAiMoments = allMoments.filter(m => {
+      if (m.ai_id !== activeAi) return false;
+      const mDate = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date(m.ts)) : new Date(m.ts).toISOString().slice(0, 10);
+      return mDate === todayKey;
+    });
+    if (todayAiMoments.length >= 10) {
+      console.log(`[Moments] Skip generateAiMoment: ${activeAi} already has ${todayAiMoments.length} moments today`);
+      return null;
+    }
+
     let aiName = localStorage.getItem('ai_name') || '主AI';
     let aiAvatar = localStorage.getItem('ai_avatar') || '🤖';
 
@@ -502,6 +542,19 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     
     if (vis === 'private') {
       console.log('Skipping Moments generation: event visibility is private.');
+      return;
+    }
+
+    // 每日上限检查：每个AI每天最多2条朋友圈
+    const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+    const allMoments = this.getMoments();
+    const todayAiMoments = allMoments.filter(m => {
+      if (m.ai_id !== activeAi) return false;
+      const mDate = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date(m.ts)) : new Date(m.ts).toISOString().slice(0, 10);
+      return mDate === todayKey;
+    });
+    if (todayAiMoments.length >= 10) {
+      console.log(`[Moments] Skip: ${activeAi} already has ${todayAiMoments.length} moments today`);
       return;
     }
 
@@ -606,19 +659,14 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     await this.addMoment(newMoment);
     this.renderMomentsTab();
 
-    // 将用户主动发的动态作为 user 记忆存储
+    // 将用户主动发的动态作为 user 记忆存储（跳过分数检查，朋友圈内容都应被记住）
     if (trimmedText) {
       try {
-        if (typeof evaluateMemory === 'function') {
-          const { score, tier } = evaluateMemory(trimmedText, 'user', '');
-          if (score >= 30) {
-            if (typeof memorize === 'function') {
-              memorize('user', `【用户朋友圈发表】${trimmedText}`, '', currentAi);
-            }
-          }
+        if (typeof memorize === 'function') {
+          memorize('user', `【用户朋友圈发表】${trimmedText}`, '', currentAi);
         }
       } catch (memErr) {
-        console.warn('[Moments] Failed to evaluate memory for moment:', memErr);
+        console.warn('[Moments] Failed to memorize moment:', memErr);
       }
     }
 
@@ -645,6 +693,7 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
         });
       }
     });
+
   },
 
   // 认可/点赞 toggle
@@ -744,6 +793,27 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
 
     const members = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
     let subAiOptionsHtml = '';
+    
+    // 如果 getGroupMembers 不可用，尝试懒加载 group.js 后再获取
+    if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
+      window.LazyLoader.load('js/group.js?v=20260708').then(() => {
+        // 加载后重新渲染发布身份选项（但不等当前渲染）
+        const loadedMembers = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
+        loadedMembers.forEach(mem => {
+          if (!mem.isMain) {
+            subAiOptionsHtml += `<option value="${mem.id}">👥 ${mem.name} (副AI)</option>`;
+          }
+        });
+        const select = document.getElementById('moments-author-select');
+        if (select) {
+          const existing = select.querySelector('option[value="main"]');
+          if (existing) {
+            existing.insertAdjacentHTML('afterend', subAiOptionsHtml);
+          }
+        }
+      }).catch(() => {});
+    }
+
     members.forEach(mem => {
       if (!mem.isMain) {
         subAiOptionsHtml += `<option value="${mem.id}">👥 ${mem.name} (副AI)</option>`;

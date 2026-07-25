@@ -372,6 +372,25 @@ async function processExtractedEvent(event, sourceAi) {
     }
   }
 
+  // 情感事件触发日记：事件重要性≥40 且为情感/分享类时，触发AI写日记
+  if (event.importance >= 40 && (event.type === 'emotional_disclosure' || event.type === 'preference_sharing' || event.type === 'joint_activity')) {
+    if (typeof aiWriteDiaryBy === 'function') {
+      try {
+        let aiName = '主AI';
+        if (sourceAi !== 'main' && typeof memberById === 'function') {
+          const mem = memberById(sourceAi);
+          if (mem) aiName = mem.name || aiName;
+        }
+        // 异步触发写日记，不阻塞主流程
+        setTimeout(() => {
+          aiWriteDiaryBy(aiName).catch(() => {});
+        }, 1000);
+      } catch(e) {
+        console.warn('[MemoryBridge] Emotional diary trigger failed:', e);
+      }
+    }
+  }
+
   if (typeof CompanionEvents !== 'undefined') {
     const visLabels = { private: '🔒 私有', relationship: '💞 共享', group: '👥 群聊' };
     CompanionEvents.record(sourceAi, 'PROFILE_UPDATE', { summary: event.summary, type: event.type }, `📝 发现长期偏好/事实: ${event.summary} [${visLabels[finalVisibility] || '共享'}]`);

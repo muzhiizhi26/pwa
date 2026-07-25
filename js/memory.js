@@ -542,6 +542,7 @@ async function memorize(role,content,emotion,aiId){
     window_id:dayBucket(ts),
     boost:1,
     ai_id:activeAi,
+    visibility: activeAi === 'group' ? 'group' : 'relationship',
     tier,
     importance_score:score,
     expiry_ts,
@@ -657,6 +658,16 @@ async function recall(query,aiId){
   }).filter(r=>r.sim>=ragThreshold() && r.keepRecall !== false).sort((a,b)=>b.score-a.score);
   
   const top=scored.slice(0,ragTopK());
+  
+  // 近期记忆保底：最近2分钟内的记忆跳过语义匹配，直接纳入召回
+  const recentCutoff = Date.now() - 120000;
+  const recentMemories = filtered.filter(r => (r.ts || 0) > recentCutoff && !top.some(t => t.id === r.id));
+  recentMemories.forEach(r => {
+    r.sim = Math.max(r.sim || 0, 0.5);
+    r.score = 0.8;
+    top.push(r);
+  });
+  
   const chosen=new Set(top.map(t=>t.id));
   const assoc=[];
   const cap=ragTopK()+4; // Bring up to 4 associated memories in the package
@@ -688,31 +699,32 @@ async function recall(query,aiId){
     }
     if(top.length+assoc.length>=cap)break;
   }
-  // 加载近期日记内容注入 RAG 上下文
+  // 加载近期日记内容注入 RAG 上下文（权限：各AI只看到自己的日记）
   try {
     if (typeof DIARY_DB !== 'undefined') {
+      // 获取当前 AI 的名字用于匹配日记作者
+      let currentAiName = localStorage.getItem('ai_name') || '主AI';
+      if (activeAi !== 'main' && typeof memberById === 'function') {
+        const mem = memberById(activeAi);
+        if (mem) currentAiName = mem.name || currentAiName;
+      }
+
       const diaries = await DIARY_DB.all();
       const recentDiaries = (diaries || []).filter(d => {
-        // 只取最近7天的日记
         const daysOld = (Date.now() - (d.ts || 0)) / 86400000;
         if (daysOld > 7) return false;
-        // 根据可见性过滤：用户日记仅自己可见，AI日记对当前AI可见
-        if (d.author === 'user') return true; // 用户日记对所有AI可见
+        // 权限规则：各AI只能看到自己署名的日记，看不到user和其他AI的日记
         if (d.author === 'ai') {
-          if (!query) return true;
-          const q = query.toLowerCase();
-          return (d.content || '').toLowerCase().includes(q) || (d.name || '').toLowerCase().includes(q);
+          return d.name === currentAiName;
         }
-        return false;
-      }).slice(-5); // 最多5篇
+        return false; // user日记对AI不可见
+      }).slice(-5);
 
       recentDiaries.forEach(d => {
         const diaryItem = {
           id: 'diary_' + (d.id || ''),
-          text: d.author === 'user' 
-            ? `【用户日记】${d.content || ''}`
-            : `【${d.name || 'AI'}日记】${d.content || ''}`,
-          role: d.author === 'user' ? 'user' : 'assistant',
+          text: `【我的日记】${d.content || ''}`,
+          role: 'assistant',
           sim: 0.6,
           emotion: 'love',
           ts: d.ts || Date.now(),

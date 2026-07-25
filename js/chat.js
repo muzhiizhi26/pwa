@@ -624,6 +624,11 @@ function addLoadingWithIntroDOM(introText) {
   return div;
 }
 async function requestAI(currentImage=null,queryText='',currentAudio=null){
+  // Phase E: Trace Center — 开始链路追踪
+  const _traceId = typeof TraceCenter !== 'undefined' && TraceCenter.isEnabled()
+    ? TraceCenter.begin('chat', { query: (queryText || '').slice(0, 40), hasImage: !!currentImage, hasAudio: !!currentAudio })
+    : '';
+
   if (currentAudio && !currentAudio.base64 && currentAudio.audioId && typeof AudioStorageDB !== 'undefined') {
     try {
       const rec = await AudioStorageDB.getAudio(currentAudio.audioId);
@@ -651,11 +656,13 @@ async function requestAI(currentImage=null,queryText='',currentAudio=null){
   }
   const provider=useProvider;
   if (!provider || !provider.id) {
+    if (_traceId && typeof TraceCenter !== 'undefined') TraceCenter.fail(_traceId, '未配置服务商');
     addMessage('assistant','❌ 未能获取有效的模型服务商配置，请在设置中重新选择服务商并填入 API Key',genUid());
     return;
   }
   const apiKey=localStorage.getItem(`apikey_${provider.id}`)||'';
   if(!apiKey&&provider.auth!=='none'){
+    if (_traceId && typeof TraceCenter !== 'undefined') TraceCenter.fail(_traceId, '未配置 API Key');
     addMessage('assistant',`❌ 「${provider.name}」需要配置 API Key。请点击左侧/右侧设置 ⚙️ -> 服务商设置 填入 API Key（或切换为“免费模型”/其他已配置的服务商）。`,genUid());
     return;
   }

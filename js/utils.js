@@ -103,8 +103,60 @@ function applyBackground(){const bg=localStorage.getItem('chat_bg');const el=doc
 
 /* 时间感知 / 联网提示 */
 function fmtGap(ms){const s=Math.floor(ms/1000);if(s<60)return '刚刚';const m=Math.floor(s/60);if(m<60)return m+' 分钟';const h=Math.floor(m/60);if(h<24)return h+' 小时'+(m%60?(m%60)+' 分钟':'');const day=Math.floor(h/24);return day+' 天'+(h%24?(h%24)+' 小时':'');}
-function generateTimeContext(){if(!timeAwareEnabledFn())return'';const n=new Date();const wd=['日','一','二','三','四','五','六'][n.getDay()];const h=n.getHours();const period=h<5?'凌晨':h<8?'清晨':h<11?'上午':h<13?'中午':h<17?'下午':h<19?'傍晚':h<23?'晚上':'深夜';const season=['冬','冬','春','春','春','夏','夏','夏','秋','秋','秋','冬'][n.getMonth()];const isWeekend=n.getDay()===0||n.getDay()===6;const dateStr=`${n.getFullYear()}年${n.getMonth()+1}月${n.getDate()}日 星期${wd} ${h}:${String(n.getMinutes()).padStart(2,'0')}`;let gapStr='';try{const lu=[...conversationHistory].reverse().find(m=>m.role==='user'&&m.ts);if(lu){const gap=Date.now()-lu.ts;if(gap>30*60*1000)gapStr=`距用户上次说话已过 ${fmtGap(gap)}，可自然表达久违或关心。`;}}catch(e){}let care='';if(h>=23||h<5)care='现在已是深夜，若用户还醒着可适度提醒早点休息。';else if(h>=5&&h<8)care='清晨时分，可送上早安。';else if(h>=11&&h<13)care='临近/正值午餐时间，可关心是否吃饭。';else if(h>=18&&h<20)care='临近晚餐时间，可关心用餐。';else if(h>=20&&h<23)care='夜晚时段，语气可放轻松。';const wkStr=isWeekend?'今天是周末，氛围可更放松。':'今天是工作日，可适度关心工作/学习状态。';return `\n【时间感知】当前 ${dateStr}（${period}·${season}季·${isWeekend?'周末':'工作日'}）。${wkStr}${care}${gapStr}请让回应自然贴合此刻情境，但不要每句都强调时间。`;}
-function webSearchInstruction(){if(!webSearchEnabled())return'';return '\n【联网提示】你可以联网检索最新信息。若问题涉及实时或最新内容，请使用你的联网/搜索能力获取并引用最新结果作答。';}
+function generateTimeContext(){if(!timeAwareEnabledFn())return'';const n=new Date();const wd=['日','一','二','三','四','五','六'][n.getDay()];const h=n.getHours();const m=n.getMinutes();const month=n.getMonth();const date=n.getDate();
+
+// 时段细分
+const period=h<5?'🌙 深夜':h<7?'🌅 清晨':h<9?'☀️ 早晨':h<11?'🌤️ 上午':h<13?'🌞 中午':h<15?'☀️ 午后':h<17?'🌇 下午':h<19?'🌆 傍晚':h<21?'🌃 晚上':'🌙 深夜';
+
+// 季节详细描述
+const seasonMap=[
+  {name:'❄️ 深冬',temp:'寒冷',weather:'气温低，多晴朗干燥'},
+  {name:'🌱 初春',temp:'乍暖还寒',weather:'气温回升，春雨绵绵'},
+  {name:'🌸 仲春',temp:'温暖宜人',weather:'春暖花开，微风和煦'},
+  {name:'🌿 晚春',temp:'温和',weather:'春末夏初，阳光明媚'},
+  {name:'🌺 初夏',temp:'渐热',weather:'气温升高，偶尔阵雨'},
+  {name:'🌻 盛夏',temp:'炎热',weather:'高温多雨，常有雷阵雨'},
+  {name:'🍉 夏末',temp:'仍热',weather:'炎热中带一丝秋风'},
+  {name:'🌾 初秋',temp:'凉爽',weather:'秋高气爽，天朗气清'},
+  {name:'🍁 仲秋',temp:'微凉',weather:'金风送爽，桂花飘香'},
+  {name:'🍂 深秋',temp:'渐冷',weather:'秋风萧瑟，落叶纷飞'},
+  {name:'🌨️ 初冬',temp:'寒冷',weather:'气温下降，偶有霜雪'},
+  {name:'⛄ 隆冬',temp:'严寒',weather:'天寒地冻，雪花纷飞'}
+];
+const season=seasonMap[month];
+
+// 特殊日期检测
+const isWeekend=n.getDay()===0||n.getDay()===6;
+const isHoliday=(month===0&&date===1)||(month===4&&date===1)||(month===9&&date===1); // 简单节日检测
+
+const dateStr=`${n.getFullYear()}年${month+1}月${date}日 星期${wd} ${h}:${String(m).padStart(2,'0')}`;
+
+// 时间间隔感知
+let gapStr='';try{const lu=[...conversationHistory].reverse().find(m=>m.role==='user'&&m.ts);if(lu){const gap=Date.now()-lu.ts;if(gap>30*60*1000)gapStr=`距用户上次说话已过 ${fmtGap(gap)}，可自然表达久违或关心。`;}}catch(e){}
+
+// 时段关怀话术
+let care='';
+if(h>=23||h<5)care='夜深了，语气温柔轻缓，可提醒用户早点休息。';
+else if(h>=5&&h<7)care='清晨刚醒，送上清新的早安问候。';
+else if(h>=7&&h<9)care='早晨好，可关心今天有什么安排。';
+else if(h>=11&&h<13)care='临近午餐时间，可关心是否按时吃饭。';
+else if(h>=14&&h<15)care='午后容易犯困，可提醒适当休息。';
+else if(h>=17&&h<19)care='傍晚时分，可关心一天过得怎么样。';
+else if(h>=19&&h<21)care='晚上好，夜幕降临，氛围可更温柔放松。';
+else if(h>=21&&h<23)care='夜晚时段，语气可放轻，适合聊聊心事或放松话题。';
+
+// 工作日/周末感知
+const wkStr=isWeekend?'今天是周末，氛围可更轻松愉快，适合聊聊休闲话题。':'今天是工作日，可适度关心工作/学习状态。';
+
+// 季节与天气感知
+const weatherStr=`${season.name}，${season.temp}，${season.weather}。`;
+const seasonCare=month>=2&&month<=4?'🌱 春季万物复苏，可聊聊新计划或踏青。':month>=5&&month<=7?'☀️ 夏季炎热，可提醒防暑降温，聊聊夏日时光。':month>=8&&month<=10?'🍂 秋高气爽，适合聊聊收获与沉淀。':'❄️ 冬季寒冷，可提醒保暖，聊聊温暖的话题。';
+
+// 节日检测
+const holidayStr=isHoliday?'今日是特殊节日，可送上节日祝福。':'';
+
+return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n天气与季节：${weatherStr}${seasonCare}${wkStr}${holidayStr}${care}${gapStr}\n💡 请让回应自然贴合此刻的时间、季节与天气情境，语气与之呼应，但不要生硬报时。`;}
+function webSearchInstruction(){if(!webSearchEnabled())return'';return '\n【联网提示】你可以联网检索最新信息。若问题涉及实时或最新内容，请使用你的联网/搜索能力获取并获取最新结果作答。';}
 
 /* 小工具 */
 function triggerHaptic(type = 'light') {
