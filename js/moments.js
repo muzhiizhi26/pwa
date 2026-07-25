@@ -672,6 +672,10 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
 
     // 将 AI 自动回复任务推入安全的前台处理队列
     // 所有 AI（主AI + 所有副AI）都自动进行跟帖评论
+    // 确保 group.js 已加载（副AI列表）
+    if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
+      try { await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {}); } catch(e) {}
+    }
     const allAiMembers = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
     
     // 主AI
