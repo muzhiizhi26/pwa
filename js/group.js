@@ -2,9 +2,9 @@
 
 /* 成员：主AI固定存在(id=main，用系统提示词=世界书)，其余为自定义角色 */
 function defaultGroupMembers(){return [
-  {id:'main',name:'主AI',persona:'',avatar:'🤖',providerId:'',model:'',voice:'',isMain:true},
-  {id:'g1',name:'小暖',persona:'温柔体贴的知心姐姐，说话轻声细语，善于安慰。',avatar:'🌸',providerId:'',model:'',voice:''},
-  {id:'g2',name:'阿灿',persona:'幽默活泼的损友，爱开玩笑，语气跳脱。',avatar:'😎',providerId:'',model:'',voice:''}
+  {id:'main',name:'主AI',persona:'',avatar:'🌟',providerId:'',model:'',voice:'',isMain:true},
+  {id:'g1',name:'小暖',persona:'温柔体贴的知心姐姐，说话轻声细语，善于安慰。',avatar:'🌷',providerId:'',model:'',voice:''},
+  {id:'g2',name:'阿灿',persona:'幽默活泼的损友，爱开玩笑，语气跳脱。',avatar:'🦊',providerId:'',model:'',voice:''}
 ];}
 function getGroupMembers(){try{const l=JSON.parse(localStorage.getItem('group_members'));if(Array.isArray(l)&&l.length){let mainMem=l.find(m=>m.isMain);if(!mainMem){mainMem={id:'main',name:localStorage.getItem('ai_name')||'主AI',persona:'',avatar:localStorage.getItem('ai_avatar')||'🤖',isMain:true};l.unshift(mainMem);}else{mainMem.name=localStorage.getItem('ai_name')||'主AI';const customAv=localStorage.getItem('ai_avatar');if(customAv)mainMem.avatar=customAv;}return l;}}catch(e){console.warn('[Group] getGroupMembers parse failed, using defaults:',e);}const def=defaultGroupMembers();const mainMem=def.find(m=>m.isMain);if(mainMem){mainMem.name=localStorage.getItem('ai_name')||'主AI';const customAv=localStorage.getItem('ai_avatar');if(customAv)mainMem.avatar=customAv;}return def;}
 function saveGroupMembers(l){try{localStorage.setItem('group_members',JSON.stringify(l));}catch(e){console.error('[Group] saveGroupMembers failed:',e);showToast('❌ 保存成员配置失败，存储空间可能已满');}}

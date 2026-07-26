@@ -18,7 +18,7 @@ const LAUNCHER_DEFAULT=[
   {id:'timeline',label:'成长时间线',icon:'📜',action:'timeline'},
   // 底部 Dock
   {id:'chat',label:'聊天',icon:'💬',action:'chat'},
-  {id:'group',label:'群聊',icon:'👥',action:'group'},
+  {id:'group',label:'群聊',icon:'🗪',action:'group'},
   {id:'moments',label:'朋友圈',icon:'🌸',action:'moments'},
   {id:'settings',label:'设置',icon:'⚙️',action:'settings'}
 ];
@@ -96,28 +96,28 @@ function buildLauncher(){
   const dock=dockIds.map(id=>icons.find(i=>i.id===id)).filter(Boolean);
   
   const gradients = {
-    worldbook: 'linear-gradient(135deg, #F5EBE6, #E4D5C9)', // Morandi sand
-    theater: 'linear-gradient(135deg, #F2E4EC, #DEC5D4)', // Morandi mauve
-    clear: 'linear-gradient(135deg, #E4EFE9, #B9D1C4)', // Morandi soft mint
-    modelsettings: 'linear-gradient(135deg, #F4EDFA, #CCB9DE)', // Morandi iris violet
-    settings: 'linear-gradient(135deg, #ECEFF1, #CFD8DC)', // Morandi blue grey
-    imagesettings: 'linear-gradient(135deg, #FDECE6, #F1CDBE)', // Morandi peach
-    image: 'linear-gradient(135deg, #FDECE6, #F1CDBE)', // Morandi peach
-    video: 'linear-gradient(135deg, #FDE8E8, #E2B6B6)', // Morandi coral pink
-    song: 'linear-gradient(135deg, #EBF3F9, #C1D5E5)', // Morandi powder blue
-    voicesettings: 'linear-gradient(135deg, #E4EFE9, #B9D1C4)', // Morandi soft mint
-    export: 'linear-gradient(135deg, #FAF2E3, #E6D0B0)', // Morandi warm beige
-    reading: 'linear-gradient(135deg, #EFF4EF, #C3D5C0)', // Morandi pale green
-    netease: 'linear-gradient(135deg, #FAECEC, #DEB8B8)', // Morandi red
-    diarybook: 'linear-gradient(135deg, #F2EBF9, #CDBCDF)', // Morandi lavender
-    chat: 'linear-gradient(135deg, #EBF7F2, #B3DCBE)', // Morandi sage green
-    group: 'linear-gradient(135deg, #EAF3F9, #ADCDE1)', // Morandi steel blue
-    model: 'linear-gradient(135deg, #F4EDFA, #CCB9DE)', // Morandi iris violet
-    backup: 'linear-gradient(135deg, #FAF5ED, #E6D5BD)', // Morandi clay
-    codeanalyzer: 'linear-gradient(135deg, #E6EEF4, #B0C4DE)', // Morandi soft steel blue
-    create: 'linear-gradient(135deg, #FDECE6, #F1CDBE)', // Morandi peach
-    memory: 'linear-gradient(135deg, #F4EDFA, #CCB9DE)', // Morandi iris violet
-    moments: 'linear-gradient(135deg, #FFF0F5, #FFD1DC)', // Morandi soft pink
+    worldbook: 'linear-gradient(135deg, #E8DED0, #D4C4B0)',
+    theater: 'linear-gradient(135deg, #EAD4DC, #D8BDC8)',
+    clear: 'linear-gradient(135deg, #D6E4DC, #BDD4C8)',
+    modelsettings: 'linear-gradient(135deg, #E4DCEA, #CFC2DC)',
+    settings: 'linear-gradient(135deg, #E4E6E8, #CCD0D4)',
+    imagesettings: 'linear-gradient(135deg, #F0DCD0, #E0C4B4)',
+    image: 'linear-gradient(135deg, #F0DCD0, #E0C4B4)',
+    video: 'linear-gradient(135deg, #F2D4D4, #DDB4B4)',
+    song: 'linear-gradient(135deg, #D8E4EE, #C0D0E0)',
+    voicesettings: 'linear-gradient(135deg, #D6E4DC, #BDD4C8)',
+    export: 'linear-gradient(135deg, #F0E6D4, #DCCCB4)',
+    reading: 'linear-gradient(135deg, #DCE8DC, #C6D4C6)',
+    netease: 'linear-gradient(135deg, #F0DEDE, #D8BEBE)',
+    diarybook: 'linear-gradient(135deg, #E6DEEE, #D0C4DC)',
+    chat: 'linear-gradient(135deg, #D6E4DA, #C0D4C8)',
+    group: 'linear-gradient(135deg, #D4E2E8, #BCCED6)',
+    model: 'linear-gradient(135deg, #E4DCEA, #CFC2DC)',
+    backup: 'linear-gradient(135deg, #F0E6D4, #DCCCB4)',
+    codeanalyzer: 'linear-gradient(135deg, #D4E2E8, #BCCED6)',
+    create: 'linear-gradient(135deg, #F0DCD0, #E0C4B4)',
+    memory: 'linear-gradient(135deg, #E4DCEA, #CFC2DC)',
+    moments: 'linear-gradient(135deg, #F4DEE2, #E4C8CE)',
   };
 
   const iconHtml=it=>{
@@ -127,7 +127,7 @@ function buildLauncher(){
   };
   const cfg=launcherShowConfig()?`
     <div class="lc-config" id="lcConfig">
-      <button class="lc-config-close" onclick="launcherHideConfig()" title="隐藏（可在设置重新调出）">◈</button>
+      <button class="lc-config-close" onclick="launcherHideConfig()" title="关闭">✕</button>
       <div class="lc-config-title">当前配置</div>
       <div class="lc-config-row">模型：${(typeof selectedModelName!=='undefined'&&selectedModelName)||'未选择'}</div>
       <div class="lc-config-row">上下文：${getContextLimit()===Infinity?'不限制':'最近 '+getContextLimit()+' 条'}</div>

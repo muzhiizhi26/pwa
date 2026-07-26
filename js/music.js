@@ -34,12 +34,12 @@ function showMusicBar(show){if(musicBarEl)musicBarEl.classList.toggle('show',!!s
 
 async function musicSearch(keyword){
   const base=musicApiBase();
-  if(!base)throw new Error('未配置搜索 API 地址');
-  const url=`${base}/cloudsearch?keywords=${encodeURIComponent(keyword)}&limit=8${musicCookieParam()}`;
-  const r=await fetch(url);if(!r.ok)throw new Error('搜索失败 '+r.status);
+  const url=base?`${base}/cloudsearch?keywords=${encodeURIComponent(keyword)}&limit=8${musicCookieParam()}`:`https://music.163.com/api/search/get/web?csrf_token=&type=1&s=${encodeURIComponent(keyword)}&limit=8&offset=0`;
+  const controller=new AbortController();const tm=setTimeout(()=>controller.abort(),5000);
+  try{var r=await fetch(url,{signal:controller.signal,headers:base?{}:{"Referer":"https://music.163.com/","User-Agent":"Mozilla/5.0"}});}catch(e){clearTimeout(tm);throw new Error('搜索服务连接超时，请检查网络');}
+  clearTimeout(tm);if(!r.ok)throw new Error('搜索失败 '+r.status);
   const d=await r.json();
-  // 兼容本地后端 {songs: [...]} 和网易原始 {result:{songs:[...]}}
-  const songs = d.songs || (d.result && d.result.songs) || [];
+  const songs = d.songs || (d.result && d.result.songs) || (d.result&&d.result.song)||[];
   return songs.map(s=>({id:s.id,name:s.name,artist:s.artist||(s.artists||s.ar||[]).map(a=>a.name).join('/')}));
 }
 async function musicApiUrl(id){
@@ -55,18 +55,20 @@ async function musicApiUrl(id){
   }catch(e){return null;}
 }
 
-/* 候选播放源：API直链 → 音频代理 → 外链兜底 */
+/* 候选播放源：Worker 代理包装（你 Cloudflare Worker 方案） */
 async function musicResolveSources(id){
   const list=[];
-  const apiU=await musicApiUrl(id);if(apiU)list.push(apiU);
-  const proxy=musicAudioProxy();if(proxy)list.push(`${proxy}?id=${id}`);
-  list.push(musicOuterUrl(id));
-  return [...new Set(list)];
+  const apiU=await musicApiUrl(id);         // 已是 /proxy?u= 包装
+  if(apiU)list.push(apiU);
+  const base=musicApiBase();                 // 用同一个 Worker
+  if(base)list.push(`${base}/proxy?u=`+encodeURIComponent('https://music.163.com/song/media/outer/url?id='+id+'.mp3'));
+  return [...new Set(list.filter(Boolean))];
 }
 function playWithFallback(sources,i,song){
+  if(!sources.length){showToast('❌ 未配置音乐源，请在设置中配置 API 地址');return;}
   if(i>=sources.length){showToast('无法播放（可能无版权）：'+song.name);setTimeout(musicNext,600);return;}
-  musicAudio.onerror=()=>playWithFallback(sources,i+1,song);
-  try{musicAudio.src=sources[i];const p=musicAudio.play();if(p&&p.catch)p.catch(()=>playWithFallback(sources,i+1,song));}
+  musicAudio.onerror=()=>{musicAudio.onerror=null;playWithFallback(sources,i+1,song);};
+  try{musicAudio.src=sources[i];const p=musicAudio.play();if(p&&p.catch)p.catch(()=>{musicAudio.onerror=null;playWithFallback(sources,i+1,song);});}
   catch(e){playWithFallback(sources,i+1,song);}
 }
 async function musicPlayCurrent(){
