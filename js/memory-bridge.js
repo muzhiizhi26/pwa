@@ -825,9 +825,11 @@ async function triggerSleepConsolidation() {
         }
       }
       
-      // 2. 局部拼音哈希相似度去重与压缩
-      const freshStore = await VDB.all();
-      const unlockedFresh = freshStore.filter(r => !(r.boost && r.boost >= 3.0));
+      // 2. 局部拼音哈希相似度去重与压缩（复用 store，避免第二次 VDB.all()）
+      const unlockedFresh = unlocked.filter(r => {
+        // 排除已删除的（从 store 中移除不掉，但用已删除列表追踪）
+        return !(r.boost && r.boost < 0.22);
+      });
       const deletedIds = new Set();
       
       for (let i = 0; i < unlockedFresh.length; i++) {

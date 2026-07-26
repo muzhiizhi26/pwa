@@ -54,8 +54,12 @@ return {put,del,all,count,clear,latest,get,deleteBatch};})();
 function memMaxLocal(){const s=localStorage.getItem('mem_max_local');if(s===null||s==='')return 0;const v=parseInt(s);return isNaN(v)?10000:v;}
 function memMaxRemote(){const s=localStorage.getItem('mem_max_remote');if(s===null||s==='')return 0;const v=parseInt(s);return isNaN(v)?5000:v;}
 function currentMemMax(){return (localStorage.getItem('embed_mode')||'local')==='remote'?memMaxRemote():memMaxLocal();}
+let _lastTrimTime = 0; // trimVectorStore 节流时间戳
 async function trimVectorStore(){
   try{
+    // 节流：至少间隔 30 秒才执行一次全量修剪，避免频繁全表扫描
+    if (_lastTrimTime && Date.now() - _lastTrimTime < 30000) return;
+    _lastTrimTime = Date.now();
     const now = Date.now();
     const all = await VDB.all();
     
@@ -560,13 +564,13 @@ async function memorize(role,content,emotion,aiId){
       try {
         await writeDedupedMemory(rec);
         await trimVectorStore();
-      } catch(e) {}
+      } catch(e) { console.warn('[Memorize] writeDedupedMemory/trim failed:', e); }
     });
   } else {
     try {
       await writeDedupedMemory(rec);
       await trimVectorStore();
-    } catch(e) {}
+    } catch(e) { console.warn('[Memorize] writeDedupedMemory/trim failed:', e); }
   }
 }
 
@@ -619,7 +623,27 @@ async function recall(query,aiId){
   const qv=await embed(query);const lam=forgetLambda();const now=Date.now();
   const queryTags = extractTopicTags(query);
   
-  const scored=filtered.map(r=>{
+  // 🔍 向量搜索加速：候选集过大时按话题预过滤
+  // 余弦相似度 O(n) 全量遍历，随着记忆增多会越来越慢
+  // 先用话题标签缩小候选集，只有未命中话题的才回退到最新记忆
+  let candidates = filtered;
+  if (filtered.length > 200 && queryTags.length > 0) {
+    const tagMatched = filtered.filter(r => {
+      const rTags = r.topicTags || (r.metadata && r.metadata.topicTags) || [];
+      return rTags.some(t => queryTags.includes(t));
+    });
+    if (tagMatched.length >= 5) {
+      candidates = tagMatched;
+    } else {
+      // 话题匹配太少，取最新的 200 条兜底
+      candidates = filtered.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 200);
+    }
+  } else if (filtered.length > 200) {
+    // 没有话题标签时，取最新 200 条
+    candidates = filtered.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 200);
+  }
+  
+  const scored=candidates.map(r=>{
     const sim=cosine(qv,r.vector);
     const ageDays=(now-(r.ts||now))/(24*3600*1000);
     const decay=Math.exp(-lam*Math.max(0,ageDays));

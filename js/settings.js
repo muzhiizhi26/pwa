@@ -43,6 +43,12 @@ function openSettings(){
     settingsMode='general';
     renderProviderList();
     renderGeneralSettings();
+    // 用户手势触发 → 尝试订阅推送通知（iOS PWA 需要）
+    try {
+      if (window.pushClient && typeof window.pushClient.ensureSubscription === 'function') {
+        window.pushClient.ensureSubscription();
+      }
+    } catch (e) {}
   } catch (err) {
     console.error('打开设置失败 Error opening settings:', err);
     alert('打开设置失败：' + err.message + '\n' + err.stack);
@@ -121,7 +127,23 @@ function renderGeneralSettings(){settingsMode='general';document.getElementById(
         <span class="switch-slider"></span>
       </label>
     </div> 
-    <div class="action-buttons"><button class="btn btn-warning" onclick="exportChat()">📥 导出记录</button><button class="btn btn-danger" onclick="clearChat()">🗑️ 清对话</button><button class="btn btn-info" onclick="resetProviders()">⟳ 重置服务商</button></div>
+    <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--border);">
+      <label class="form-label" style="margin-bottom:6px;">⌚ 手环与健康</label>
+      <div id="bandSettingsPanel">
+      <div id="bandStatusText" style="font-size:13px; padding:8px 10px; border-radius:6px; background:var(--bg-hover); color:var(--text-sub); margin-bottom:8px;">${typeof bandBridge !== 'undefined' ? bandBridge.getStatusText() : '⚪ 浏览器不支持蓝牙'}</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="connectBandBtn()" id="bandConnectBtn" style="flex:1;">🔗 连接手环</button>
+        <button class="btn btn-secondary" onclick="connectBandBtn('all')" id="bandConnectAllBtn" style="flex:1; display:none;">📡 扫描全部设备</button>
+        <button class="btn btn-danger" onclick="disconnectBandBtn()" id="bandDisconnectBtn" style="flex:1; display:none;">🔌 断开</button>
+      </div>
+      <div id="bandConnectHint" style="font-size:11px; color:var(--text-sub); margin-top:4px;">💡 如果列表中看不到手环，点「扫描全部设备」重试</div>
+        <div id="bandHeartRateDisplay" style="display:none; margin-top:8px; padding:8px 10px; border-radius:6px; background:var(--bg-hover);">
+          <div style="font-size:13px; font-weight:600; color:var(--text);">❤️ <span id="bandHRValue">--</span> <span style="font-weight:400; font-size:11px; color:var(--text-sub);">bpm</span></div>
+          <div id="bandHRSummary" style="font-size:11px; color:var(--text-sub); margin-top:2px;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="action-buttons" style="margin-top:16px;"><button class="btn btn-warning" onclick="exportChat()">📥 导出记录</button><button class="btn btn-danger" onclick="clearChat()">🗑️ 清对话</button><button class="btn btn-info" onclick="resetProviders()">⟳ 重置服务商</button></div>
     <div class="action-buttons" style="margin-top: 10px; gap: 8px;">
       <button class="btn btn-success" style="background:#28a745;color:white;border:none;" onclick="exportAllDataJSON()">💾 备份完整配置与聊天 (JSON)</button>
       <button class="btn btn-secondary" style="background:#546e7a;color:white;border:none;" onclick="triggerFullRecoveryImport()">🔄 恢复备份 (JSON/TXT/MD)</button>
@@ -1604,3 +1626,112 @@ window.deleteExperience = deleteExperience;
 window.toggleLifecycleTab = toggleLifecycleTab;
 window.manuallyArchiveMemory = manuallyArchiveMemory;
 window.manuallyDeleteMemory = manuallyDeleteMemory;
+
+// ═══════════════════════════════════════
+// 手环连接按钮函数
+// ═══════════════════════════════════════
+
+// 刷新手环状态 UI
+function updateBandUI() {
+  const statusEl = document.getElementById('bandStatusText');
+  const connectBtn = document.getElementById('bandConnectBtn');
+  const disconnectBtn = document.getElementById('bandDisconnectBtn');
+  const hrDisplay = document.getElementById('bandHeartRateDisplay');
+  const hrValue = document.getElementById('bandHRValue');
+  const hrSummary = document.getElementById('bandHRSummary');
+
+  if (!statusEl) return; // 设置面板未打开
+
+  if (typeof bandBridge === 'undefined') {
+    statusEl.textContent = '⚪ 浏览器不支持蓝牙';
+    return;
+  }
+
+  statusEl.textContent = bandBridge.getStatusText();
+
+  if (bandBridge.isConnected()) {
+    connectBtn.style.display = 'none';
+    disconnectBtn.style.display = '';
+    hrDisplay.style.display = '';
+
+    const summary = bandBridge.getSummary();
+    if (summary && summary.current) {
+      hrValue.textContent = summary.current;
+      hrSummary.textContent = `平均 ${summary.avg} | 最低 ${summary.min} | 最高 ${summary.max} bpm (${summary.samples} 个采样)`;
+    } else {
+      hrValue.textContent = '--';
+      hrSummary.textContent = '等待数据...';
+    }
+  } else {
+    connectBtn.style.display = '';
+    disconnectBtn.style.display = 'none';
+    hrDisplay.style.display = 'none';
+  }
+}
+
+// 连接手环按钮
+async function connectBandBtn(mode) {
+  if (typeof bandBridge === 'undefined') {
+    alert('当前浏览器不支持 Web Bluetooth，请使用桌面 Chrome 或 Android Chrome');
+    return;
+  }
+
+  const btn = document.getElementById('bandConnectBtn');
+  const allBtn = document.getElementById('bandConnectAllBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ 正在连接...';
+  }
+
+  try {
+    const result = await bandBridge.connect(mode || 'auto');
+    // 注册心率更新回调
+    bandBridge.onHeartRate(() => {
+      updateBandUI();
+    });
+    showToast('⌚ 手环已连接: ' + (result.name || '未知'));
+  } catch (err) {
+    console.error('[Band] 连接失败:', err);
+    // 如果是"找不到设备"，提示用户用第二种模式
+    if (err.message && err.message.includes('未找到')) {
+      showToast('💡 ' + err.message);
+      if (allBtn) allBtn.style.display = '';
+    } else {
+      showToast('❌ 连接失败: ' + err.message);
+    }
+    // 如果手环不支持标准心率服务，显示它实际有的服务列表
+    if (err.discoveredServices && err.discoveredServices.length > 0) {
+      const list = err.discoveredServices.map(s =>
+        `  ${s.name}${s.uuid ? ' (' + s.uuid.slice(4, 8) + '...)' : ''}`
+      ).join('\n');
+      console.log('[Band] 设备可用服务:\n' + list);
+      showToast('📋 该手环没有标准心率服务，可用服务已输出到控制台');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🔗 连接手环';
+    }
+    updateBandUI();
+  }
+}
+
+// 断开手环按钮
+async function disconnectBandBtn() {
+  if (typeof bandBridge === 'undefined') return;
+
+  try {
+    await bandBridge.disconnect();
+    showToast('⌚ 手环已断开');
+  } catch (err) {
+    console.error('[Band] 断开失败:', err);
+  }
+  updateBandUI();
+}
+
+// 定期刷新手环 UI（每 2 秒）
+setInterval(() => {
+  if (document.getElementById('settingsOverlay')?.classList.contains('show')) {
+    updateBandUI();
+  }
+}, 2000);

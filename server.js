@@ -1,8 +1,10 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 import { GoogleGenAI } from '@google/genai';
+import webPush from 'web-push';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -332,6 +334,117 @@ app.post(['/api/free-chat', '/api/free-chat/chat/completions'], express.json({ l
     console.error('Failed to connect to free model upstream:', err);
     res.status(500).json({ error: { message: `免费模型连接失败: ${err.message}` } });
   }
+});
+
+// ── PWA Push Notification (VAPID) Setup ──
+const VAPID_KEYS_FILE = path.join(__dirname, '.vapid.json');
+let vapidKeys;
+
+// Load or generate VAPID keys
+try {
+  vapidKeys = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf8'));
+} catch {
+  console.log('[Push] Generating new VAPID keys...');
+  vapidKeys = webPush.generateVAPIDKeys();
+  fs.writeFileSync(VAPID_KEYS_FILE, JSON.stringify(vapidKeys, null, 2));
+  console.log('[Push] VAPID keys saved to .vapid.json');
+}
+
+webPush.setVapidDetails(
+  'mailto:admin@morandi-ai.local',
+  vapidKeys.publicKey,
+  vapidKeys.privateKey
+);
+
+// In-memory subscription store (persists across server restarts)
+// For production, use a database or file-based store
+const SUBSCRIPTIONS_FILE = path.join(__dirname, '.push-subscriptions.json');
+let pushSubscriptions = [];
+try {
+  pushSubscriptions = JSON.parse(fs.readFileSync(SUBSCRIPTIONS_FILE, 'utf8'));
+  if (!Array.isArray(pushSubscriptions)) pushSubscriptions = [];
+} catch {
+  pushSubscriptions = [];
+}
+
+function saveSubscriptions() {
+  try {
+    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(pushSubscriptions, null, 2));
+  } catch (err) {
+    console.error('[Push] Failed to save subscriptions:', err);
+  }
+}
+
+// ── Push API Endpoints ──
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: vapidKeys.publicKey });
+});
+
+app.post('/api/push/subscribe', express.json(), (req, res) => {
+  const sub = req.body;
+  if (!sub || !sub.endpoint) {
+    return res.status(400).json({ error: 'Invalid subscription' });
+  }
+
+  // Replace existing subscription with same endpoint
+  const idx = pushSubscriptions.findIndex(s => s.endpoint === sub.endpoint);
+  if (idx >= 0) {
+    pushSubscriptions[idx] = sub;
+  } else {
+    pushSubscriptions.push(sub);
+  }
+  saveSubscriptions();
+  console.log(`[Push] Subscribed (${pushSubscriptions.length} total): ${sub.endpoint.slice(0, 50)}...`);
+  res.json({ success: true, count: pushSubscriptions.length });
+});
+
+app.post('/api/push/unsubscribe', express.json(), (req, res) => {
+  const { endpoint } = req.body || {};
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+
+  const before = pushSubscriptions.length;
+  pushSubscriptions = pushSubscriptions.filter(s => s.endpoint !== endpoint);
+  saveSubscriptions();
+  console.log(`[Push] Unsubscribed (${pushSubscriptions.length} remaining, removed ${before - pushSubscriptions.length})`);
+  res.json({ success: true, count: pushSubscriptions.length });
+});
+
+app.post('/api/push/send', express.json(), (req, res) => {
+  const { title, body, tag, url } = req.body || {};
+
+  if (!pushSubscriptions.length) {
+    return res.status(200).json({ success: true, sent: 0, total: 0, message: 'No subscribers' });
+  }
+
+  const payload = JSON.stringify({
+    title: title || 'AI 陪伴',
+    body: body || '',
+    tag: tag || 'proactive-care',
+    url: url || '/',
+    icon: '/emotions/calm.webp'
+  });
+
+  let sentCount = 0;
+  let failCount = 0;
+
+  const sendPromises = pushSubscriptions.map((sub) => {
+    return webPush.sendNotification(sub, payload).then(() => {
+      sentCount++;
+    }).catch((err) => {
+      // If subscription is expired/invalid, remove it
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        console.log(`[Push] Removing expired subscription: ${sub.endpoint.slice(0, 50)}...`);
+        pushSubscriptions = pushSubscriptions.filter(s => s.endpoint !== sub.endpoint);
+        saveSubscriptions();
+      }
+      failCount++;
+      console.warn(`[Push] Send failed: ${err.statusCode || err.message}`);
+    });
+  });
+
+  Promise.all(sendPromises).then(() => {
+    res.json({ success: true, sent: sentCount, failed: failCount, total: pushSubscriptions.length });
+  });
 });
 
 // Serve static files from root directory

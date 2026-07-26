@@ -199,7 +199,7 @@ async function maybeUpdateLongTerm(userText){
     const prompt=`你是记忆管理器。现有用户长期档案：\n${cur||'（空）'}\n\n用户刚说："${userText}"\n若其中包含需长期记住的稳定事实，请输出合并去重后的完整档案（每行一条要点，简短中文）；若无，只输出 NONE。不要解释。`;
     const out=await llmComplete([{role:'user',content:prompt}],{temperature:0});
     if(out&&out.toUpperCase()!=='NONE'){setLongTermProfile(out,'ai');showToast('🗂️ 长期记忆已更新');}
-  }catch(e){}
+  }catch(e){console.warn('[LongTerm] maybeUpdateLongTerm failed:',e);}
 }
 
 /* ---- 确认机制 + 关系标记 + 回忆标记：统一处理 AI 回复 ---- */
@@ -955,7 +955,17 @@ ContextAggregator.registerProvider('environment', { priority: 60, budget: 400 },
   const timeCtx = generateTimeContext();
   const emoCtx = emotionContext();
   const rhythmPrompt = (typeof RhythmEngine !== 'undefined') ? RhythmEngine.getRhythmContextPrompt() : '';
-  return `【6. 即时环境与情绪感知 (REAL-TIME SENSING & CONTEXT)】\n- 当前对话时间环境: ${timeCtx || '未知时间'}\n- 当前实时情绪感知: ${emoCtx || '平静'}${rhythmPrompt}`;
+  // 手环心率数据（如果有）
+  let bandCtx = '';
+  if (typeof bandBridge !== 'undefined' && bandBridge.isConnected()) {
+    const summary = bandBridge.getSummary();
+    if (summary && summary.current) {
+      bandCtx = `\n- 用户实时心率: ❤️ ${summary.current} bpm (平均 ${summary.avg}，最低 ${summary.min}，最高 ${summary.max})`;
+    } else {
+      bandCtx = '\n- 手环已连接，正在获取心率数据...';
+    }
+  }
+  return `【6. 即时环境与情绪感知 (REAL-TIME SENSING & CONTEXT)】\n- 当前对话时间环境: ${timeCtx || '未知时间'}\n- 当前实时情绪感知: ${emoCtx || '平静'}${rhythmPrompt}${bandCtx}`;
 });
 
 // 6.5. Communication Style Adaptor (用户交流风格感知与指导)

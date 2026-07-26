@@ -439,11 +439,20 @@ async function playUserVoice(uid){
     return;
   }
   let base64 = m.audio.base64;
-  if (!base64 && m.audio.audioId && typeof AudioStorageDB !== 'undefined') {
-    try {
-      const rec = await AudioStorageDB.getAudio(m.audio.audioId);
-      if (rec && rec.base64) base64 = rec.base64;
-    } catch(e){}
+  if (!base64 && m.audio.audioId) {
+    // 优先从 StorageManager 读取（新存储层），兼容旧 AudioStorageDB
+    if (typeof StorageManager !== 'undefined') {
+      try {
+        const rec = await StorageManager.getAudio(m.audio.audioId);
+        if (rec && rec.base64) base64 = rec.base64;
+      } catch(e){}
+    }
+    if (!base64 && typeof AudioStorageDB !== 'undefined') {
+      try {
+        const rec = await AudioStorageDB.getAudio(m.audio.audioId);
+        if (rec && rec.base64) base64 = rec.base64;
+      } catch(e){}
+    }
   }
   if (!base64) {
     if (typeof showToast === 'function') showToast('音频数据未找到或已被移出');
@@ -466,10 +475,26 @@ async function playUserVoice(uid){
   }
   try {
     const mime = m.audio.mimeType || 'audio/webm';
-    const src = base64.startsWith('data:') 
-      ? base64 
-      : `data:${mime};base64,${base64}`;
-    currentUserAudio = new Audio(src);
+    // Safari 对大数据 URL 支持不佳，改用 Blob + Object URL
+    let audioSrc;
+    if (base64.startsWith('data:')) {
+      audioSrc = base64;
+    } else {
+      // base64 → Blob → Object URL（Safari 兼容）
+      try {
+        const byteStr = atob(base64);
+        const byteArr = new Uint8Array(byteStr.length);
+        for (let i = 0; i < byteStr.length; i++) {
+          byteArr[i] = byteStr.charCodeAt(i);
+        }
+        const blob = new Blob([byteArr], { type: mime });
+        audioSrc = URL.createObjectURL(blob);
+      } catch(e) {
+        // fallback: data URL
+        audioSrc = `data:${mime};base64,${base64}`;
+      }
+    }
+    currentUserAudio = new Audio(audioSrc);
     currentUserAudioUid = uid;
     if(badge) badge.classList.add('playing');
     currentUserAudio.onended = () => {
@@ -629,11 +654,20 @@ async function requestAI(currentImage=null,queryText='',currentAudio=null){
     ? TraceCenter.begin('chat', { query: (queryText || '').slice(0, 40), hasImage: !!currentImage, hasAudio: !!currentAudio })
     : '';
 
-  if (currentAudio && !currentAudio.base64 && currentAudio.audioId && typeof AudioStorageDB !== 'undefined') {
-    try {
-      const rec = await AudioStorageDB.getAudio(currentAudio.audioId);
-      if (rec && rec.base64) currentAudio.base64 = rec.base64;
-    } catch(e){}
+  if (currentAudio && !currentAudio.base64 && currentAudio.audioId) {
+    // 优先从 StorageManager 读取，兼容旧 AudioStorageDB
+    if (typeof StorageManager !== 'undefined') {
+      try {
+        const rec = await StorageManager.getAudio(currentAudio.audioId);
+        if (rec && rec.base64) currentAudio.base64 = rec.base64;
+      } catch(e){}
+    }
+    if (!currentAudio.base64 && typeof AudioStorageDB !== 'undefined') {
+      try {
+        const rec = await AudioStorageDB.getAudio(currentAudio.audioId);
+        if (rec && rec.base64) currentAudio.base64 = rec.base64;
+      } catch(e){}
+    }
   }
   // 一次性清除引导AI跟进的本地标记，确保对话是单次高优触发而不会递归跟进
   if (localStorage.getItem('pending_thread_checkin_title')) {
@@ -686,7 +720,7 @@ async function requestAI(currentImage=null,queryText='',currentAudio=null){
     }
   }
 
-  if(ragEnabled()&&q){try{recallItems=await recall(q);}catch(e){}}const recallNote=recallItems.length?`召回 ${recallItems.length} 条相关记忆`:'';
+  if(ragEnabled()&&q){try{recallItems=await recall(q);}catch(e){console.warn('[Recall] failed:',e);}}const recallNote=recallItems.length?`召回 ${recallItems.length} 条相关记忆`:'';
 
 // 1. 叙事愿警与轨迹自动检测
 if (typeof NarrativeManager !== 'undefined') {
@@ -766,8 +800,9 @@ if(currentImage){
 } else if(currentAudio && currentAudio.base64) {
   const audioMime = currentAudio.mimeType || 'audio/webm';
   const audioFormat = (typeof extForMime === 'function') ? extForMime(currentAudio.mimeType) : 'webm';
-  const isGoogle = provider.id === 'google' || provider.id === 'gemini' || provider.id === 'gemini_proxy' || (url && (url.includes('googleapis.com') || url.includes('/api/chat')));
+  const isGoogle = provider.id === 'google' || provider.id === 'gemini' || provider.id === 'gemini_proxy' || (useModel && useModel.toLowerCase().includes('gemini')) || (url && (url.includes('googleapis.com') || url.includes('/api/chat')));
   const isAudioModel = useModel && (useModel.toLowerCase().includes('audio-preview') || useModel.toLowerCase().includes('audio'));
+  console.log(`[AudioDebug] base64长度=${currentAudio.base64.length}, mime=${audioMime}, format=${audioFormat}, isGoogle=${isGoogle}, isAudioModel=${isAudioModel}, provider=${provider.id}, model=${useModel}`);
 
   if (isGoogle) {
     const audioPromptText = `【多模态语音交互说明】你拥有直接感知和倾听用户真实录音音频的能力（用户录音音频数据已作为原生二进制流随本条消息附带）。语音识别（STT）辅助文本为：“${queryText}”。请你结合音频中的语气、情绪以及文本内容，以自然、亲切的人设态度直接与用户对话回应。切记：你拥有直接倾听音频的能力，不要宣称自己“听不到声音”或“只能看到文字”。`;
@@ -793,12 +828,17 @@ if(currentImage){
       messages.push({ role: 'user', content: audioContent });
     }
   } else {
-    // 纯文本模型：只发送文字转录，不嵌入音频数据（避免 token 暴涨）
-    const textPrompt = queryText ? `🎤 [语音消息]: "${queryText}"` : '🎤 [语音消息]';
+    // 所有模型：同时发送文字 + input_audio 音频数据
+    // 支持多模态的模型可以处理音频，不支持的模型会忽略此字段
+    const textPrompt = queryText ? `🎤 [语音消息]: "${queryText}"` : '请按你的人设态度回应用户。';
+    const audioContent = [
+      { type: 'text', text: textPrompt },
+      { type: 'input_audio', input_audio: { data: currentAudio.base64, format: audioFormat } }
+    ];
     if(messages.length > 0 && messages[messages.length - 1].role === 'user'){
-      messages[messages.length - 1].content = textPrompt;
+      messages[messages.length - 1].content = audioContent;
     } else {
-      messages.push({ role: 'user', content: textPrompt });
+      messages.push({ role: 'user', content: audioContent });
     }
   }
 }
@@ -1111,9 +1151,16 @@ function saveHistory(){
       HistoryBackupDB.set(key, cleanHistory);
     }
   }catch(e){
-    if(conversationHistory.length>20){
-      conversationHistory.splice(0,Math.ceil(conversationHistory.length*0.1));
+    console.warn('[SaveHistory] localStorage overflow, trimming history:', e.name);
+    if(conversationHistory.length>10 && !window._savingHistoryRetry){
+      window._savingHistoryRetry = true;
+      // 溢出时截断最旧的 30%，释放空间
+      conversationHistory.splice(0,Math.max(1, Math.ceil(conversationHistory.length*0.3)));
       saveHistory();
+      window._savingHistoryRetry = false;
+    } else if (typeof HistoryBackupDB !== 'undefined') {
+      // localStorage 实在存不下，至少保 IndexedDB
+      try { HistoryBackupDB.set(key, cleanHistory.slice(-200)); } catch(ee) {}
     }
   }
 }
@@ -1311,4 +1358,3 @@ function exportChatMarkdown(){
   downloadBlob(fm+body+extra,`${sessionId}.md`,'text/markdown;charset=utf-8');
 }
 function downloadBlob(text,filename,mime){const b=new Blob([text],{type:mime});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=filename;a.click();}
-

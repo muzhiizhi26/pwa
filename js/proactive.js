@@ -395,6 +395,38 @@ async function triggerProactive(extraInstruction){
     localStorage.setItem('lastProactiveTime', String(Date.now()));
     
     showToast('💌 AI 主动发来一条消息');
+
+    // 纯前端弹窗（无需后端，电脑 Chrome 直接弹）
+    try {
+      const notifSupported = 'Notification' in window;
+      const notifPerm = Notification.permission;
+      console.log('[Proactive] Notification check - supported:', notifSupported, 'permission:', notifPerm);
+      if (notifSupported && notifPerm === 'granted') {
+        const pushBody = reply.length > 80 ? reply.slice(0, 77) + '...' : reply;
+        const n = new Notification('💌 AI 陪伴', {
+          body: pushBody,
+          icon: '/emotions/calm.webp',
+          tag: 'proactive-care'
+        });
+        console.log('[Proactive] Notification sent successfully');
+        // 3秒后自动关闭
+        setTimeout(() => n.close(), 5000);
+      } else {
+        console.log('[Proactive] Notification skipped - not granted:', notifPerm);
+      }
+    } catch (e) {
+      console.warn('[Proactive] Notification API error:', e);
+    }
+
+    // 后端推送（手机 PWA 场景，需 node server.js 运行）
+    try {
+      if (window.pushClient && typeof window.pushClient.sendProactive === 'function') {
+        window.pushClient.sendProactive('💌 AI 陪伴', reply);
+      }
+    } catch (e) {
+      // 后端不存在时静默降级
+    }
+
     if(autoSpeakEnabled()&&voiceEnabled())playTTS(reply,localStorage.getItem('tts_voice_ai'));
   }catch(e){
     console.error('[Proactive System] triggerProactive error:', e);

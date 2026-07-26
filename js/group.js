@@ -6,8 +6,8 @@ function defaultGroupMembers(){return [
   {id:'g1',name:'小暖',persona:'温柔体贴的知心姐姐，说话轻声细语，善于安慰。',avatar:'🌸',providerId:'',model:'',voice:''},
   {id:'g2',name:'阿灿',persona:'幽默活泼的损友，爱开玩笑，语气跳脱。',avatar:'😎',providerId:'',model:'',voice:''}
 ];}
-function getGroupMembers(){try{const l=JSON.parse(localStorage.getItem('group_members'));if(Array.isArray(l)&&l.length){let mainMem=l.find(m=>m.isMain);if(!mainMem){mainMem={id:'main',name:localStorage.getItem('ai_name')||'主AI',persona:'',avatar:localStorage.getItem('ai_avatar')||'🤖',isMain:true};l.unshift(mainMem);}else{mainMem.name=localStorage.getItem('ai_name')||'主AI';const customAv=localStorage.getItem('ai_avatar');if(customAv)mainMem.avatar=customAv;}return l;}}catch(e){}const def=defaultGroupMembers();const mainMem=def.find(m=>m.isMain);if(mainMem){mainMem.name=localStorage.getItem('ai_name')||'主AI';const customAv=localStorage.getItem('ai_avatar');if(customAv)mainMem.avatar=customAv;}return def;}
-function saveGroupMembers(l){localStorage.setItem('group_members',JSON.stringify(l));}
+function getGroupMembers(){try{const l=JSON.parse(localStorage.getItem('group_members'));if(Array.isArray(l)&&l.length){let mainMem=l.find(m=>m.isMain);if(!mainMem){mainMem={id:'main',name:localStorage.getItem('ai_name')||'主AI',persona:'',avatar:localStorage.getItem('ai_avatar')||'🤖',isMain:true};l.unshift(mainMem);}else{mainMem.name=localStorage.getItem('ai_name')||'主AI';const customAv=localStorage.getItem('ai_avatar');if(customAv)mainMem.avatar=customAv;}return l;}}catch(e){console.warn('[Group] getGroupMembers parse failed, using defaults:',e);}const def=defaultGroupMembers();const mainMem=def.find(m=>m.isMain);if(mainMem){mainMem.name=localStorage.getItem('ai_name')||'主AI';const customAv=localStorage.getItem('ai_avatar');if(customAv)mainMem.avatar=customAv;}return def;}
+function saveGroupMembers(l){try{localStorage.setItem('group_members',JSON.stringify(l));}catch(e){console.error('[Group] saveGroupMembers failed:',e);showToast('❌ 保存成员配置失败，存储空间可能已满');}}
 function groupBg(){return localStorage.getItem('group_bg')||'';}
 function groupReplyMode(){return localStorage.getItem('group_reply_mode')||'round';} // round=依次 | random=随机1人
 
@@ -292,7 +292,7 @@ function gMsgCopy(uid){const m=gGetMsg(uid);if(m)navigator.clipboard.writeText(m
 function gMsgDelete(uid){if(!confirm('删除该消息？'))return;groupHistory=groupHistory.filter(m=>m.uid!==uid);saveGroupHistory(groupHistory);renderGroupMessages();}
 function gMsgQuote(uid){const m=gGetMsg(uid);if(m){groupQuote=m.content;document.getElementById('groupQuoteText').textContent='引用: '+m.content.slice(0,40);document.getElementById('groupQuotePreview').classList.add('show');document.getElementById('groupInput').focus();}}
 function gClearQuote(){groupQuote=null;document.getElementById('groupQuotePreview').classList.remove('show');}
-function gMsgEdit(uid){const m=gGetMsg(uid);if(!m)return;const v=prompt('修改消息：',m.content);if(v!==null){m.content=v.trim();saveGroupHistory(groupHistory);renderGroupMessages();}}
+function gMsgEdit(uid){const m=gGetMsg(uid);if(!m)return;const v=prompt('修改消息：',m.content);if(v!==null){const trimmed=v.trim().slice(0,2000);m.content=trimmed;saveGroupHistory(groupHistory);renderGroupMessages();}}
 function gMsgSpeak(uid){if(!voiceEnabled()){showToast('🔇 语音已关闭');return;}const m=gGetMsg(uid);if(!m)return;unlockAudioOnGesture();const mem=memberById(m.memberId);showToast('🔊 朗读中...');playTTS(m.content,(mem&&mem.voice)||localStorage.getItem('tts_voice_ai'));}
 
 /* ---- 发送 + @定向 + 多AI ---- */
@@ -881,6 +881,85 @@ function stopGroupAutoLoop(){if(groupAutoTimer){clearInterval(groupAutoTimer);gr
 function startGroupVoiceCall(){
   window.groupCallOverride={isGroup:true};
   startCall();
+}
+
+// 群聊语音/键盘模式切换（与私聊一致）
+let groupInputVoiceMode = false;
+function toggleGroupInputVoiceMode(){
+  groupInputVoiceMode = !groupInputVoiceMode;
+  const msgInput = document.getElementById('groupInput');
+  const holdBtn = document.getElementById('groupHoldToTalkBtn');
+  const modeBtn = document.getElementById('groupVoiceModeBtn');
+  
+  if(groupInputVoiceMode){
+    if(msgInput) msgInput.style.display = 'none';
+    if(holdBtn) holdBtn.style.display = 'block';
+    if(modeBtn) modeBtn.textContent = '⌨️';
+  } else {
+    if(msgInput) msgInput.style.display = '';
+    if(holdBtn) holdBtn.style.display = 'none';
+    if(modeBtn) modeBtn.textContent = '🎙️';
+  }
+}
+
+// 群聊语音消息发送（与私聊 sendAudioMessage 对应）
+async function sendGroupAudioMessage(displayText, base64Data, mimeType, transcript='', durationSec=1){
+  const uid = genUid();
+  const ts = Date.now();
+  const text = displayText ? displayText.replace(/^🎤\s*/, '') : '语音消息';
+
+  // 音频数据存入 IndexedDB
+  const audioId = `audio_msg_${uid}`;
+  if (base64Data) {
+    // StorageManager（主存储）
+    if (typeof StorageManager !== 'undefined') {
+      try {
+        StorageManager.saveAudio(audioId, {
+          base64: base64Data,
+          mimeType: mimeType || 'audio/webm',
+          duration: durationSec,
+          format: (typeof extForMime === 'function') ? extForMime(mimeType) : 'webm'
+        });
+      } catch(e) {
+        console.warn('[sendGroupAudioMessage] StorageManager.saveAudio failed:', e);
+      }
+    }
+    // AudioStorageDB（兼容 playUserVoice 的查询路径）
+    if (typeof AudioStorageDB !== 'undefined') {
+      try {
+        AudioStorageDB.saveAudio(audioId, {
+          base64: base64Data,
+          mimeType: mimeType || 'audio/webm',
+          duration: durationSec,
+          format: (typeof extForMime === 'function') ? extForMime(mimeType) : 'webm'
+        });
+      } catch(e) {
+        console.warn('[sendGroupAudioMessage] AudioStorageDB.saveAudio failed:', e);
+      }
+    }
+  }
+
+  // 存入群聊历史（含音频元数据）
+  pushGroup({uid, role:'user', content:text, ts, audio: { audioId, duration: durationSec }});
+
+  // 触发群聊 AI 回复
+  const members = getGroupMembers();
+  const mainAi = members.find(m=>m.isMain) || members[0];
+  const others = members.filter(m=>!m.isMain);
+  const randomOther = others.length > 0 ? others[Math.floor(Math.random()*others.length)] : null;
+  
+  const targets = randomOther ? [mainAi, randomOther] : [mainAi];
+  
+  for(const mem of targets){
+    if(!mem) continue;
+    try{
+      await groupMemberReply(mem, text, null, uid);
+    }catch(e){
+      console.error(e);
+      pushGroup({uid:genUid(),role:'assistant',memberId:mem.id,name:mem.name,avatar:mem.avatar,content:'（'+mem.name+'回复出错）',ts:Date.now()});
+    }
+    await new Promise(res=>setTimeout(res,600));
+  }
 }
 
 /* ===== 群聊与副AI高级参数设置助手函数 ===== */

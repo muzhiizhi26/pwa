@@ -1,4 +1,4 @@
-/* ===== Storage Manager — 统一存储管理 =====
+/* ===== Storage Manager (Module) — 统一存储管理 =====
  * 封装 localStorage + IndexedDB，提供统一读写接口。
  * 配置类数据 → localStorage，大容量数据 → IndexedDB。
  * 自动监测容量，超过 80% 告警。
@@ -14,16 +14,13 @@ const StorageManager = (() => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
-        // 音频数据存储
         if (!db.objectStoreNames.contains('audio')) {
           db.createObjectStore('audio', { keyPath: 'audioId' });
         }
-        // Embedding 缓存
         if (!db.objectStoreNames.contains('embedding')) {
           const store = db.createObjectStore('embedding', { keyPath: 'textHash' });
           store.createIndex('timestamp', 'timestamp', { unique: false });
         }
-        // 通用键值存储
         if (!db.objectStoreNames.contains('kv')) {
           db.createObjectStore('kv', { keyPath: 'key' });
         }
@@ -46,8 +43,7 @@ const StorageManager = (() => {
     });
   }
 
-  /* ─── localStorage 容量监控 ─── */
-  const STORAGE_WARN_THRESHOLD = 0.8; // 80%
+  const STORAGE_WARN_THRESHOLD = 0.8;
   let _storageWarned = false;
 
   function checkStorageCapacity() {
@@ -55,10 +51,10 @@ const StorageManager = (() => {
       let used = 0;
       for (const key in localStorage) {
         if (localStorage.hasOwnProperty(key)) {
-          used += localStorage[key].length * 2; // UTF-16
+          used += localStorage[key].length * 2;
         }
       }
-      const limit = 5 * 1024 * 1024; // 5MB
+      const limit = 5 * 1024 * 1024;
       const ratio = used / limit;
       if (ratio > STORAGE_WARN_THRESHOLD && !_storageWarned) {
         _storageWarned = true;
@@ -73,16 +69,8 @@ const StorageManager = (() => {
     }
   }
 
-  /* ─── localStorage Key 命名空间 ─── */
   const LS_PREFIX = 'ls_';
 
-  /* ─── 公开 API ─── */
-
-  /**
-   * 读取数据。自动判断存储层：
-   * - type='config' → localStorage
-   * - 其他 → IndexedDB (kv store)
-   */
   async function get(key, type = 'config') {
     if (type === 'config') {
       try {
@@ -93,7 +81,6 @@ const StorageManager = (() => {
         return null;
       }
     }
-    // IndexedDB
     try {
       return await idbOperation('kv', 'readonly', store => {
         const req = store.get(key);
@@ -108,9 +95,6 @@ const StorageManager = (() => {
     }
   }
 
-  /**
-   * 写入数据。自动判断存储层。
-   */
   async function set(key, value, type = 'config') {
     if (type === 'config') {
       try {
@@ -125,7 +109,6 @@ const StorageManager = (() => {
         return false;
       }
     }
-    // IndexedDB
     try {
       await idbOperation('kv', 'readwrite', store => {
         store.put({ key, value });
@@ -137,9 +120,6 @@ const StorageManager = (() => {
     }
   }
 
-  /**
-   * 删除数据。
-   */
   async function remove(key, type = 'config') {
     if (type === 'config') {
       localStorage.removeItem(LS_PREFIX + key);
@@ -155,8 +135,6 @@ const StorageManager = (() => {
       return false;
     }
   }
-
-  /* ─── 音频存储（IndexedDB） ─── */
 
   async function saveAudio(audioId, data) {
     try {
@@ -197,9 +175,6 @@ const StorageManager = (() => {
     }
   }
 
-  /**
-   * 清理过期音频（超过 ttl 毫秒的自动删除）
-   */
   async function cleanAudio(ttl = 7 * 24 * 60 * 60 * 1000) {
     try {
       const db = await openDB();
@@ -226,8 +201,6 @@ const StorageManager = (() => {
     }
   }
 
-  /* ─── Embedding 缓存操作（IndexedDB） ─── */
-
   async function getEmbedding(textHash) {
     try {
       return await idbOperation('embedding', 'readonly', store => {
@@ -235,9 +208,8 @@ const StorageManager = (() => {
         return new Promise((res, rej) => {
           req.onsuccess = () => {
             const record = req.result;
-            // 检查 TTL（默认 30 天）
             if (record && Date.now() - record.timestamp > 30 * 24 * 60 * 60 * 1000) {
-              store.delete(textHash); // 过期删除
+              store.delete(textHash);
               res(null);
             } else {
               res(record ? record.embedding : null);
@@ -264,8 +236,6 @@ const StorageManager = (() => {
     }
   }
 
-  /* ─── 数据迁移：localStorage → IndexedDB ─── */
-
   async function migrateToIDB(key) {
     try {
       const raw = localStorage.getItem(key);
@@ -281,31 +251,23 @@ const StorageManager = (() => {
     }
   }
 
-  /* ─── 初始化 ─── */
-
+  let _initDone = false;
   async function init() {
+    if (_initDone) return;
+    _initDone = true;
     checkStorageCapacity();
-    // 每天清理一次过期音频
     setInterval(() => cleanAudio(), 24 * 60 * 60 * 1000);
     console.log('[StorageManager] Initialized.');
   }
 
-  return {
-    get,
-    set,
-    remove,
-    saveAudio,
-    getAudio,
-    deleteAudio,
-    cleanAudio,
-    getEmbedding,
-    saveEmbedding,
-    migrateToIDB,
-    init,
-    _checkCapacity: checkStorageCapacity,
+  const api = {
+    get, set, remove,
+    saveAudio, getAudio, deleteAudio, cleanAudio,
+    getEmbedding, saveEmbedding,
+    migrateToIDB, init, checkStorageCapacity,
   };
+
+  return api;
 })();
 
-if (typeof window !== 'undefined') {
-  window.StorageManager = StorageManager;
-}
+export default StorageManager;

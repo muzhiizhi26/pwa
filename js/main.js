@@ -40,6 +40,27 @@ window.onload=async()=>{
   try { checkProactive(); } catch (e) { console.error('checkProactive failed', e); }
   try { bindMicPushToTalk(); } catch (e) { console.error('bindMicPushToTalk failed', e); }
 
+  // 5. PWA 推送订阅
+  try {
+    if (window.pushClient && typeof window.pushClient.ensureSubscription === 'function') {
+      // 方案A：延迟试一次（可能被iOS拦截）
+      setTimeout(() => {
+        window.pushClient.ensureSubscription().then(subscribed => {
+          if (subscribed) console.log('[PushClient] Auto-subscribed');
+        });
+      }, 1000);
+
+      // 方案B：用户首次点击页面时触发（iOS PWA 必过）
+      const triggerOnTouch = () => {
+        window.pushClient.ensureSubscription().then(subscribed => {
+          console.log('[PushClient] Tap-triggered subscription:', subscribed ? 'subscribed' : 'skipped');
+        });
+        document.removeEventListener('click', triggerOnTouch);
+      };
+      document.addEventListener('click', triggerOnTouch, { once: true });
+    }
+  } catch (e) { console.warn('Push auto-subscription failed', e); }
+
   // 4. 定期自我复盘 (Self Reflection Check: 超过24小时自动触发)
   try {
     const lastReflectionTime = parseInt(localStorage.getItem('lastReflectionTime') || '0');
@@ -166,7 +187,7 @@ function bindMicPushToTalk(){
     mic.addEventListener('mouseleave', ()=>{if(pttActive) endPTT();});
   };
   bind('holdToTalkBtn', false);
-  bind('groupMicBtn', true);
+  bind('groupHoldToTalkBtn', true);
   document.addEventListener('mouseup', ()=>{if(pttActive) endPTT();});
 }
 

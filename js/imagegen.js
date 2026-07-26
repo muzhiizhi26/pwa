@@ -1191,88 +1191,99 @@ async function generateImageWithFailover(promptText, initImg = null, memberId = 
             im.src = imgUrl;
           });
         } else {
-          const url = (prov.url || '').trim();
-          const key = (prov.key || '').trim();
-          authKey = key;
-          const model = (prov.selectedModel || localStorage.getItem('img_model') || (prov.models && prov.models[0]) || '').trim();
-          const base = url.replace(/\/+$/, '');
+      const url = (prov.url || '').trim();
+      const key = (prov.key || '').trim();
+      authKey = key;
+      const model = (prov.selectedModel || localStorage.getItem('img_model') || (prov.models && prov.models[0]) || '').trim();
+      const base = url.replace(/\/+$/, '');
 
-          if (mode === 'gemini') {
-            let gurl = base.includes(':generateContent') || base.includes('/v1beta/') ? base : `${base}/v1beta/models/${model}:generateContent`;
-            if (gurl.includes('${model}') || gurl.includes('<模型>')) {
-              gurl = gurl.replace('${model}', model).replace('<模型>', model);
-            }
+      // 每个请求 60 秒超时，防止 API 挂起导致扣费无结果
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const fetchOpts = { signal: controller.signal };
 
-            const parts = [{ text: promptText }];
-            if (refImg) {
-              const b64 = refImg.split(',')[1];
-              const mt = (refImg.match(/^data:(.*?);/) || [])[1] || 'image/png';
-              parts.push({ inline_data: { mime_type: mt, data: b64 } });
-            }
+      if (mode === 'gemini') {
+        let gurl = base.includes(':generateContent') || base.includes('/v1beta/') ? base : `${base}/v1beta/models/${model}:generateContent`;
+        if (gurl.includes('${model}') || gurl.includes('<模型>')) {
+          gurl = gurl.replace('${model}', model).replace('<模型>', model);
+        }
 
-            const r = await fetch(gurl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-              body: JSON.stringify({ contents: [{ parts }] })
-            });
-            if (!r.ok) {
-              const t = await r.text();
-              throw new Error(`Gemini Error (${r.status}): ${t.slice(0, 100)}`);
-            }
-            const d = await r.json();
-            const ps = d.candidates?.[0]?.content?.parts || [];
-            for (const p of ps) {
-              const id = p.inlineData || p.inline_data;
-              if (id && id.data) {
-                imgUrl = 'data:' + (id.mimeType || id.mime_type || 'image/png') + ';base64,' + id.data;
-                break;
-              }
-            }
-            if (!imgUrl) imgUrl = extractGeneratedImageFromResponse(d);
-            if (!imgUrl) throw new Error('Gemini did not return image data');
-          } else if (mode === 'openai') {
-            const ourl = buildOpenAIImagesGenerationUrl(base);
-            let sizeStr = `${w}x${h}`;
-            if (model.includes('dall-e-3')) {
-              const ratioVal = w / h;
-              if (ratioVal > 1.2) {
-                sizeStr = '1792x1024';
-              } else if (ratioVal < 0.8) {
-                sizeStr = '1024x1792';
-              } else {
-                sizeStr = '1024x1024';
-              }
-            }
-            const r = await fetch(ourl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-              body: JSON.stringify({ model, prompt: promptText, size: sizeStr, n: 1 })
-            });
-            if (!r.ok) {
-              const t = await r.text();
-              throw new Error(`OpenAI Error (${r.status}): ${t.slice(0, 100)}`);
-            }
-            const d = await r.json();
-            imgUrl = extractGeneratedImageFromResponse(d);
-            if (!imgUrl) throw new Error('OpenAI did not return image URL');
-          } else if (mode === 'chat') {
-            const curl = base.includes('/chat/completions') || base.includes('/v1/chat/completions') ? base : base + '/v1/chat/completions';
-            const content = [{ type: 'text', text: 'Generate image: ' + promptText }];
-            if (refImg) content.push({ type: 'image_url', image_url: { url: refImg } });
-            const r = await fetch(curl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-              body: JSON.stringify({ model, messages: [{ role: 'user', content }] })
-            });
-            if (!r.ok) {
-              const t = await r.text();
-              throw new Error(`Chat Error (${r.status}): ${t.slice(0, 100)}`);
-            }
-            const d = await r.json();
-            imgUrl = extractGeneratedImageFromResponse(d);
-            if (!imgUrl) throw new Error('Chat model did not return image format');
+        const parts = [{ text: promptText }];
+        if (refImg) {
+          const b64 = refImg.split(',')[1];
+          const mt = (refImg.match(/^data:(.*?);/) || [])[1] || 'image/png';
+          parts.push({ inline_data: { mime_type: mt, data: b64 } });
+        }
+
+        const r = await fetch(gurl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+          body: JSON.stringify({ contents: [{ parts }] }),
+          ...fetchOpts
+        });
+        clearTimeout(timeoutId);
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`Gemini Error (${r.status}): ${t.slice(0, 100)}`);
+        }
+        const d = await r.json();
+        const ps = d.candidates?.[0]?.content?.parts || [];
+        for (const p of ps) {
+          const id = p.inlineData || p.inline_data;
+          if (id && id.data) {
+            imgUrl = 'data:' + (id.mimeType || id.mime_type || 'image/png') + ';base64,' + id.data;
+            break;
           }
         }
+        if (!imgUrl) imgUrl = extractGeneratedImageFromResponse(d);
+        if (!imgUrl) throw new Error('Gemini did not return image data');
+      } else if (mode === 'openai') {
+        const ourl = buildOpenAIImagesGenerationUrl(base);
+        let sizeStr = `${w}x${h}`;
+        if (model.includes('dall-e-3')) {
+          const ratioVal = w / h;
+          if (ratioVal > 1.2) {
+            sizeStr = '1792x1024';
+          } else if (ratioVal < 0.8) {
+            sizeStr = '1024x1792';
+          } else {
+            sizeStr = '1024x1024';
+          }
+        }
+        const r = await fetch(ourl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+          body: JSON.stringify({ model, prompt: promptText, size: sizeStr, n: 1 }),
+          ...fetchOpts
+        });
+        clearTimeout(timeoutId);
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`OpenAI Error (${r.status}): ${t.slice(0, 100)}`);
+        }
+        const d = await r.json();
+        imgUrl = extractGeneratedImageFromResponse(d);
+        if (!imgUrl) throw new Error('OpenAI did not return image URL');
+      } else if (mode === 'chat') {
+        const curl = base.includes('/chat/completions') || base.includes('/v1/chat/completions') ? base : base + '/v1/chat/completions';
+        const content = [{ type: 'text', text: 'Generate image: ' + promptText }];
+        if (refImg) content.push({ type: 'image_url', image_url: { url: refImg } });
+        const r = await fetch(curl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+          body: JSON.stringify({ model, messages: [{ role: 'user', content }] }),
+          ...fetchOpts
+        });
+        clearTimeout(timeoutId);
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`Chat Error (${r.status}): ${t.slice(0, 100)}`);
+        }
+        const d = await r.json();
+        imgUrl = extractGeneratedImageFromResponse(d);
+        if (!imgUrl) throw new Error('Chat model did not return image format');
+      }
+    }
 
         if (imgUrl) {
           try {
@@ -1590,4 +1601,3 @@ function recordVisualMemoryEvent(memberId, description, scene, imgUrl) {
     console.error('Failed to record visual memory event:', e);
   }
 }
-

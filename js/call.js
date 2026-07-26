@@ -153,6 +153,19 @@ async function acquireMicAndStartVAD() {
   releaseMicAndStopVAD();
   if (callMuted) return;
 
+	// 通话中恢复：从后台切回时，如果流已死则重新获取
+	if (callActive && callStream && !callStream.active) {
+	  try {
+	    callStream = await navigator.mediaDevices.getUserMedia({
+	      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
+	    });
+	    await reconnectCallNodes();
+	    console.log('[Call] Stream reacquired after returning from background');
+	  } catch(e) {
+	    console.warn('[Call] Failed to reacquire stream:', e);
+	  }
+	}
+
   // 缓存已有流，避免重复授权
   if (callStream && callStream.active) {
     // 复用已有流，只需重新连接音频节点
@@ -357,12 +370,20 @@ async function onRecorderStop(){
         if(!callActive)return;
         setCallStatus(`${mem.name} 回复：`,reply);
         VoiceSession.transitionTo('SPEAKING', 'group tts play');
+        // 群聊 TTS 期间开启高阈值 barge-in：用户贴麦说话可打断，AI自身扬声器漏音不会误判
         vad.bargeMs=0;vad.last=performance.now();
+        const savedBargeMin = VAD_CFG.bargeMin;
+        const savedBargeFactor = VAD_CFG.bargeFactor;
+        VAD_CFG.bargeMin *= 2.5;   // 提高打断门槛，防止AI自己声音重采误触发
+        VAD_CFG.bargeFactor *= 1.5;
         await prepareBargeInVAD();
         await playTTSCall(reply, mem.voice || localStorage.getItem('tts_voice_ai'));
+        VAD_CFG.bargeMin = savedBargeMin;
+        VAD_CFG.bargeFactor = savedBargeFactor;
+        if(!callActive)return;
         if(VoiceSession.state!=='SPEAKING'){
-          document.querySelectorAll('.group-call-member').forEach(el=>el.classList.remove('active-speaker'));
-          return;
+          // 用户已打断 → 跳出循环，不加第三个AI
+          break;
         }
       }
       document.querySelectorAll('.group-call-member').forEach(el=>el.classList.remove('active-speaker'));
@@ -465,10 +486,35 @@ async function callRequestAI(query){
   const headers={'Content-Type':'application/json'};const cleanKey1=(apiKey||'').trim();if(cleanKey1){if(provider.auth==='Bearer')headers['Authorization']=`Bearer ${cleanKey1}`;else if(provider.auth==='x-api-key')headers['x-api-key']=cleanKey1;else if(provider.auth==='x-goog-api-key')headers['x-goog-api-key']=cleanKey1;}
   const body={model:useModel,messages,stream:false};
   if(localStorage.getItem('temp_enabled')==='true')body.temperature=parseFloat(localStorage.getItem('temperature')||'1');
-  const r=await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});if(!r.ok)throw new Error('API '+r.status);
-  const d=await r.json();const reply=d.choices?.[0]?.message?.content||d.content?.[0]?.text||'（无回应）';
-  const uid=genUid();const ts=Date.now();conversationHistory.push({role:'assistant',content:reply,uid,ts});renderTextMessage('assistant',reply,uid,null,null,false,ts);saveHistory();memorize('assistant',reply,'');updateAiEmotion(reply);if(typeof processAiReplyMemory==='function')processAiReplyMemory(reply);markActivity();
-  return reply;
+
+  // 通话中 API 调用：30 秒超时 + 自动重试一次
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!r.ok) throw new Error('API ' + r.status);
+      const d = await r.json();
+      const reply = d.choices?.[0]?.message?.content || d.content?.[0]?.text || '（无回应）';
+      const uid = genUid(); const ts = Date.now();
+      conversationHistory.push({ role: 'assistant', content: reply, uid, ts });
+      renderTextMessage('assistant', reply, uid, null, null, false, ts);
+      saveHistory(); memorize('assistant', reply, '');
+      updateAiEmotion(reply);
+      if (typeof processAiReplyMemory === 'function') processAiReplyMemory(reply);
+      markActivity();
+      return reply;
+    } catch (e) {
+      lastErr = e;
+      if (attempt === 1) {
+        console.warn('[Call] API attempt 1 failed, retrying:', e.message);
+        setCallStatus('重试中...', '');
+      }
+    }
+  }
+  throw lastErr || new Error('API 请求失败');
 }
 
 async function callRequestAiForGroupCall(mem, query){
