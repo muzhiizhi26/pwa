@@ -86,7 +86,7 @@ export async function startPTT(isGroup = false) {
       const dur = Date.now() - pttStart;
       const mimeType = mediaRecorder.mimeType || mime || 'audio/webm';
       const blob = new Blob(recChunks, { type: mimeType });
-      if (dur < 300 || blob.size < 1500) { showToast('录音太短'); return; }
+      if (dur < 300 || blob.size < 1500) { showToast('录音太短'); if (isSafari) { try { audioStream.getTracks().forEach(t => t.stop()); } catch (e) {} audioStream = null; } return; }
       showToast('🎤 发送语音中...');
       const base64Data = await new Promise(resolve => {
         try {

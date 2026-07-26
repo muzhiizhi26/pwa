@@ -1,27 +1,25 @@
 /* ===== 聊天核心 Module =====
  * 封装关键聊天函数，全量迁移后取代旧 script
+ * 注意：conversationHistory 使用 window 上的全局数组（旧代码维护），模块不持有自己的一份
  */
 
 import { showToast, genUid, scrollBottom, ctxSlice, voiceEnabled, autoSpeakEnabled } from '../utils.js';
 
-/* 全局状态 */
-export let conversationHistory = [];
+function getHistory() { return window.conversationHistory || []; }
+
+/* 全局状态（模块内部） */
 export let selectMode = false;
 export let selectedUids = new Set();
 export let searchMatches = [], searchIdx = -1;
-export let chatReplying = false;
-export let chatRequestInFlightKey = '';
 
 /* 历史持久化 */
 export function currentPrivateAiId() { return localStorage.getItem('current_private_ai') || 'main'; }
 export function saveHistory() {
+  const history = getHistory();
   const id = currentPrivateAiId();
   const key = id === 'main' ? 'chatHistory' : `chatHistory_${id}`;
-  const cleanHistory = (conversationHistory || []).map(m => {
-    if (m.audio) {
-      const { base64, ...lightAudio } = m.audio;
-      return { ...m, audio: lightAudio };
-    }
+  const cleanHistory = history.map(m => {
+    if (m.audio) { const { base64, ...lightAudio } = m.audio; return { ...m, audio: lightAudio }; }
     return m;
   });
   try {
@@ -29,9 +27,9 @@ export function saveHistory() {
     if (typeof HistoryBackupDB !== 'undefined') HistoryBackupDB.set(key, cleanHistory);
   } catch (e) {
     console.warn('[SaveHistory] localStorage overflow:', e.name);
-    if (cleanHistory.length > 10 && !window._savingHistoryRetry) {
+    if (history.length > 10 && !window._savingHistoryRetry) {
       window._savingHistoryRetry = true;
-      conversationHistory.splice(0, Math.ceil(conversationHistory.length * 0.3));
+      history.splice(0, Math.ceil(history.length * 0.3));
       saveHistory();
       window._savingHistoryRetry = false;
     } else if (typeof HistoryBackupDB !== 'undefined') {
@@ -44,13 +42,13 @@ export function loadHistory() {
   const key = id === 'main' ? 'chatHistory' : `chatHistory_${id}`;
   try {
     const raw = localStorage.getItem(key);
-    if (raw) { conversationHistory = JSON.parse(raw) || []; return; }
-  } catch (e) { conversationHistory = []; }
+    if (raw) { window.conversationHistory = JSON.parse(raw) || []; return; }
+  } catch (e) { window.conversationHistory = []; }
   if (typeof HistoryBackupDB !== 'undefined') {
-    HistoryBackupDB.get(key).then(d => { if (d && Array.isArray(d)) conversationHistory = d; }).catch(() => {});
+    HistoryBackupDB.get(key).then(d => { if (d && Array.isArray(d)) window.conversationHistory = d; }).catch(() => {});
   }
 }
-export function getMsg(uid) { return (conversationHistory || []).find(m => m.uid === uid); }
+export function getMsg(uid) { return getHistory().find(m => m.uid === uid); }
 export function getMsgDiv(uid) { return document.querySelector(`.message[data-uid="${uid}"]`); }
 
 /* 消息操作 */
@@ -76,8 +74,9 @@ export function msgEdit(uid) {
 }
 export function msgDelete(uid) {
   if (!confirm('删除该消息？')) return;
-  const idx = (conversationHistory || []).findIndex(m => m.uid === uid);
-  if (idx !== -1) { conversationHistory.splice(idx, 1); saveHistory(); }
+  const hist = getHistory();
+  const idx = hist.findIndex(m => m.uid === uid);
+  if (idx !== -1) { hist.splice(idx, 1); saveHistory(); }
   const d = getMsgDiv(uid); if (d) d.remove();
 }
 
@@ -89,13 +88,15 @@ export function updateSelInfo() { const el = document.getElementById('selInfo');
 export function selectAllMsgs() { const all = document.querySelectorAll('.message[data-uid]'); const allSelected = selectedUids.size === all.length; selectedUids.clear(); document.querySelectorAll('.msg-check').forEach(c => { c.checked = !allSelected; if (!allSelected) selectedUids.add(c.closest('.message').dataset.uid); }); updateSelInfo(); }
 export function copySelected() {
   if (!selectedUids.size) { showToast('未选择'); return; }
-  const txt = (conversationHistory || []).filter(m => selectedUids.has(m.uid)).map(m => `【${m.role === 'user' ? '我' : 'AI'}】${m.content}`).join('\n\n');
+  const txt = getHistory().filter(m => selectedUids.has(m.uid)).map(m => `【${m.role === 'user' ? '我' : 'AI'}】${m.content}`).join('\n\n');
   navigator.clipboard.writeText(txt).then(() => showToast('✅ 已复制 ' + selectedUids.size + ' 条'));
 }
 export function deleteSelected() {
   if (!selectedUids.size) { showToast('未选择'); return; }
   if (!confirm(`删除选中的 ${selectedUids.size} 条消息？`)) return;
-  conversationHistory = (conversationHistory || []).filter(m => !selectedUids.has(m.uid));
+  const hist = getHistory();
+  const remaining = hist.filter(m => !selectedUids.has(m.uid));
+  hist.length = 0; hist.push(...remaining);
   selectedUids.forEach(uid => { const d = getMsgDiv(uid); if (d) d.remove(); });
   saveHistory(); exitSelectMode(); showToast('✅ 已删除');
 }
@@ -142,12 +143,12 @@ export function searchStep(dir) {
 export function initAutoBackup() {
   if (!localStorage.getItem('auto_backup')) return;
   const t = new Date().toISOString().slice(0, 10);
-  if (localStorage.getItem('last_backup_date') !== t && (conversationHistory || []).length > 0) setTimeout(performAutoBackup, 5000);
+  if (localStorage.getItem('last_backup_date') !== t && getHistory().length > 0) setTimeout(performAutoBackup, 5000);
 }
 export function performAutoBackup() {
   if (!localStorage.getItem('auto_backup')) return;
   const t = new Date().toISOString().slice(0, 10);
-  if (localStorage.getItem('last_backup_date') === t || !(conversationHistory || []).length) return;
+  if (localStorage.getItem('last_backup_date') === t || !getHistory().length) return;
   try {
     const b = new Blob(['\uFEFF' + generateBackupContent()], { type: 'text/plain;charset=utf-8' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `AI备份_${t}.txt`; a.click();
@@ -155,21 +156,22 @@ export function performAutoBackup() {
   } catch (e) {}
 }
 export function generateBackupContent() {
-  let c = `AI 聊天备份\n📅 ${new Date().toLocaleString('zh-CN')}\n💬 ${(conversationHistory || []).length} 条\n\n`;
-  (conversationHistory || []).forEach(m => c += `【${m.role === 'user' ? '我' : 'AI'}】 ${m.ts ? new Date(m.ts).toLocaleString('zh-CN') : ''}\n${m.content}\n\n`);
+  const hist = getHistory();
+  let c = `AI 聊天备份\n📅 ${new Date().toLocaleString('zh-CN')}\n💬 ${hist.length} 条\n\n`;
+  hist.forEach(m => c += `【${m.role === 'user' ? '我' : 'AI'}】 ${m.ts ? new Date(m.ts).toLocaleString('zh-CN') : ''}\n${m.content}\n\n`);
   return c;
 }
 export function manualBackup() {
-  if (!(conversationHistory || []).length) { alert('暂无记录'); return; }
+  if (!getHistory().length) { alert('暂无记录'); return; }
   const b = new Blob(['\uFEFF' + generateBackupContent()], { type: 'text/plain;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `AI备份_${Date.now()}.txt`; a.click();
   showToast('✅ 备份完成'); if (window.toggleActionMenu) window.toggleActionMenu();
 }
 
 // 导出到 window（全量迁移后供 onclick 使用）
+// 注意：conversationHistory 不导出——由旧代码的全局变量维护
 if (typeof window !== 'undefined') {
   Object.assign(window, {
-    conversationHistory,
     saveHistory, loadHistory, getMsg, getMsgDiv,
     msgCopy, msgSpeak, msgEdit, msgDelete,
     enterSelectMode, exitSelectMode, onCheck, updateSelInfo,
@@ -179,4 +181,4 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export default { conversationHistory, saveHistory, loadHistory };
+export default { saveHistory, loadHistory };
