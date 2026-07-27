@@ -1167,16 +1167,26 @@ function saveHistory(){
       HistoryBackupDB.set(key, cleanHistory);
     }
   }catch(e){
-    console.warn('[SaveHistory] localStorage overflow, trimming history:', e.name);
+    console.warn('[SaveHistory] localStorage overflow:', e.name);
+    // 先保 IndexedDB 完整数据
+    if (typeof HistoryBackupDB !== 'undefined') {
+      try { HistoryBackupDB.set(key, cleanHistory); } catch(ee) {}
+    }
     if(conversationHistory.length>10 && !window._savingHistoryRetry){
       window._savingHistoryRetry = true;
-      // 溢出时截断最旧的 30%，释放空间
-      conversationHistory.splice(0,Math.max(1, Math.ceil(conversationHistory.length*0.3)));
-      saveHistory();
+      // 尽可能多保留：移除图片数据再试，而不是直接砍条数
+      const slimHistory = cleanHistory.map(m => {
+        if (m.image) return { ...m, image: '[图片]' };
+        return m;
+      });
+      try {
+        localStorage.setItem(key, JSON.stringify(slimHistory));
+      } catch(ee) {
+        // 还不行就砍最旧的 30%
+        conversationHistory.splice(0, Math.max(1, Math.ceil(conversationHistory.length*0.3)));
+        saveHistory();
+      }
       window._savingHistoryRetry = false;
-    } else if (typeof HistoryBackupDB !== 'undefined') {
-      // localStorage 实在存不下，至少保 IndexedDB
-      try { HistoryBackupDB.set(key, cleanHistory.slice(-200)); } catch(ee) {}
     }
   }
 }
@@ -1199,7 +1209,21 @@ async function loadHistory(){
 
   if(s){
     try{
-      conversationHistory=JSON.parse(s);
+      const parsed = JSON.parse(s);
+      // Safari localStorage 可能被截断：如果数据偏少，尝试从 IndexedDB 恢复完整数据
+      if (parsed.length < 50 && typeof HistoryBackupDB !== 'undefined' && HistoryBackupDB.get) {
+        try {
+          const backup = await HistoryBackupDB.get(key);
+          if (backup && Array.isArray(backup) && backup.length > parsed.length) {
+            conversationHistory = backup;
+            renderList(conversationHistory);
+            localStorage.setItem(key, JSON.stringify(conversationHistory));
+            showToast('🔄 已从 IndexedDB 恢复完整聊天记录');
+            return;
+          }
+        } catch(ee) {}
+      }
+      conversationHistory = parsed;
       renderList(conversationHistory);
     }catch(e){}
   } else {
