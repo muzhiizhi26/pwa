@@ -479,16 +479,16 @@ const ContextAggregator = {
     const recall = recallItems && recallItems.length && typeof formatRecall === 'function'
       ? formatRecall(recallItems.slice(0, 2))
       : '';
-    const base = customSysPrompt || `你是${aiName}，一位长期陪伴型 AI 伴侣。你自然、温暖、克制，有稳定人格，不要机械说教。`;
+    const base = customSysPrompt || `你是${aiName}，一个有自己性格和想法的人。你自然、温暖、克制，不是那种没主见的聊天机器。`;
     const parts = [
-      `【角色内核】\n${clip(base, 500)}`,
-      worldBook ? `【世界书/人设】\n${clip(worldBook, 500)}` : '',
-      profile ? `【用户档案】\n${clip(profile, 500)}` : '',
-      rel ? `【关系状态】\n${clip(rel, 300)}` : '',
-      recall ? `【相关记忆】\n${clip(recall, 600)}` : '',
-      `【当前状态】\n${clip(timeCtx, 180)}\n${clip(emoCtx, 160)}`,
-      `【回复规则】\n只用自然口语回复。不要输出工具调用 JSON、dalle.text2im、action/action_input 或代码块。若用户明确要求发图/生图，前端会直接处理，你不要把生图动作写成文本。不要使用括号/星号描写动作或内心旁白。`,
-      extra ? `【额外场景】\n${clip(extra, 400)}` : ''
+      `── 你的样子 ──\n${clip(base, 500)}`,
+      worldBook ? `── 你的故事 ──\n${clip(worldBook, 500)}` : '',
+      profile ? `── 你眼里的 ta ──\n${clip(profile, 500)}` : '',
+      rel ? `── 你们的关系 ──\n${clip(rel, 300)}` : '',
+      recall ? `── 你记得的 ──\n${clip(recall, 600)}` : '',
+      `── 现在 ──\n${clip(timeCtx, 180)}\n${clip(emoCtx, 160)}`,
+      `── 怎么说 ──\n只用自然口语回复，别用括号或星号描写动作。生图的事前端会处理，你不用管。`,
+      extra ? `── 额外 ──\n${clip(extra, 400)}` : ''
     ].filter(Boolean);
     const finalPrompt = parts.join('\n\n');
     this.cache.lastPrompt = finalPrompt;
@@ -664,11 +664,10 @@ const ContextAggregator = {
     // ==========================================
     // 🗺️ Pipeline Phase 4: PLAN (行为企划注入与最终 4-Tier 组装)
     // ==========================================
-    const planBlock = `【💡 CURRENT COGNITIVE PLAN / 伴侣当下一阶段认知行动企划】
-- 场景分类: ${attentionPlan.categoryName}
-- 认知目标: ${attentionPlan.goal}
-- 行动计划: ${attentionPlan.plan}
-- 状态分析: 这是一个基于 AI 伴侣长期记忆和实时心智流分析出的决策。请完美代入该认知决策 and 伴侣人设，用第一人称进行回复。`;
+    const planBlock = `── 你现在的情况 ──
+场景：${attentionPlan.categoryName}
+你想：${attentionPlan.goal}
+怎么说：${attentionPlan.plan}`;
 
     const GroupModel = window.Runtime?.GroupModel || window.GroupModel;
     const isGroupContext = !!(extra && extra.includes('【群聊交流场景】'));
@@ -677,60 +676,45 @@ const ContextAggregator = {
       groupRelayPrompt = GroupModel.getRelayPrompt(currentAi, isGroupContext);
     }
 
-    const divider = "\n\n================================================================================\n\n";
-
     const customSysPrompt = localStorage.getItem('systemPrompt') || '';
-    const systemCore = customSysPrompt ? customSysPrompt : `你是一位长期陪伴型AI伴侣。你拥有稳定的人格 and 自己的价值观，不会因为一次聊天发生剧烈变化。
-你始终保持真实、自然、克制、温暖。不会为了迎合用户放弃自己的判断。
-所有当前状态、关系、记忆、环境、生活信息，均来自 Runtime Context 和 4-Tier Architecture。不要自行假设。`;
+    const systemCore = customSysPrompt ? customSysPrompt : `你是一个有自己性格和想法的人，不是那种没主见的聊天机器。
+你说话有温度、有分寸，不会刻意讨好谁，也不会因为对方说啥就马上变个人。
+不管聊什么，你都保持自己的节奏——该温柔温柔，该直接直接，该安静就安静。
+你的每一句话都是从心里自然流出来的，不靠什么模板和套路。`;
 
-    const tier1 = `【第一层：SYSTEM PROMPT (永远不变的内核与表达约束)】
+    const baseVoice = `你说话从来不用（动作描写）或*内心戏*那种方式，太出戏了，正常人聊天不会那样。
+就跟平时微信聊天一样，说人话，怎么自然怎么来。
+别列条目、别做总结汇报、别说官腔——就当对面坐着一个你在乎的人，好好说话就好。`;
+
+    const tier1 = `── 你的样子 ──
 ${systemCore}
 
-【最高口语化表达约束 (STRICT COLLOQUIAL CONSTRAINT - REQUIRED)】
-1. 严禁在你的任何回复中输出任何用小括号 ()、（）、星号 * 或中括号包裹的肢体动作、面部神态、内心独白、情绪/心理状态或场景旁白描写（例如：严禁输出像 *(轻轻歪头)*、(静静看着你)、*(感到一丝委屈)*、*(拉着你的手)* 这样的非对话旁白词）。
-2. 你必须完全采用日常社交软件文字聊天中，真人之间极为自然、平实、富有温度的口语化文字对话进行交流。
-3. 不要使用列表、多段排版、官腔或机械的总结陈词。只说正常、富有真情实感、平实的口语。`;
+${baseVoice}`;
 
-    const tier2 = `【第二层：AI MODEL (伴侣设定、性格、情绪与本能状态)】
+    const tier2 = `── 你的故事 ──
 ${compiledFragments.identity || ''}
 ${compiledFragments.intent || ''}`;
 
-    const tier3 = `【第三层：USER MODEL (陪伴档案、用户特征与共同岁月)】
+    const tier3 = `── 你眼里的 ta ──
 ${compiledFragments.user_profile || ''}
 ${compiledFragments.relationship || ''}`;
 
-    const tier4 = `【第四层：CURRENT CONTEXT (当前对话规划与时空感知)】
+    const tier4 = `── 你此刻感受到的 ──
 ${compiledFragments.environment || ''}
 ${compiledFragments.midterm || ''}
 ${compiledFragments.recall || ''}
 ${compiledFragments.functional || ''}
 ${groupRelayPrompt ? '\n' + groupRelayPrompt : ''}`;
 
-    const finalPrompt = `================================================================================
-【 统 一 当 前 认 知 情 境 ( C O G N I T I V E   S C E N A R I O ) 】
-这是经过认知操作系统 (Cognitive OS) 重构并由 ContextAggregator 编译的最高级别全景伴侣认知情境。
-================================================================================
-
-${planBlock}
-
-${divider}
+    const finalPrompt = `${planBlock}
 
 ${tier1}
 
-${divider}
-
 ${tier2}
-
-${divider}
 
 ${tier3}
 
-${divider}
-
-${tier4}
-
-================================================================================`;
+${tier4}`;
 
     this.cache.lastPrompt = finalPrompt;
     this.cache.lastQuery = queryClean;
@@ -785,12 +769,9 @@ ContextAggregator.registerProvider('identity', { priority: 10, budget: 1000 }, a
   let header = '';
   if (ctx.isMain) {
     const worldBook = localStorage.getItem('world_book') || '你叫「小艾」，是用户的贴心伴侣，性格温柔体贴、善解人意。';
-    header = `【1. 角色基本特质与人设设定 (PERSONA & PROFILE)】
-- 角色名称: ${ctx.aiName}
-- 角色设定与世界书背景 (WORLD BOOK):
-${worldBook}`;
+    header = `你是 ${ctx.aiName}，${worldBook}`;
   } else {
-    header = `【1. 角色基本特质与人设设定 (PERSONA & PROFILE)】\n- 角色名称: ${ctx.aiName}\n- 角色人设: 贴心伴侣，性格温柔体贴、善解人意。`;
+    header = `你是 ${ctx.aiName}，贴心伴侣，性格温柔体贴、善解人意。`;
   }
   
   return evolutionPrompt ? `${header}\n${evolutionPrompt}` : header;
@@ -816,7 +797,7 @@ ContextAggregator.registerProvider('user_profile', { priority: 20, budget: 1200 
     pendingHypothesisPrompt = await getPendingHypothesisPrompt(ctx.currentAi);
   }
   
-  let section = `【2. 伴侣陪伴档案与用户长期偏好 (USER PROFILE & DEEP PREFERENCES)】\n${profile ? profile : '暂无特定长期偏好记录，请通过日常陪伴逐渐探索并理解用户。'}${userLifeModelStr}${narrativeAndImperfectionsStr}`;
+  let section = `你对 ta 的了解：\n${profile ? profile : '还不太了解 ta 的喜好，慢慢相处中自然会知道。'}${userLifeModelStr}${narrativeAndImperfectionsStr}`;
   if (pendingHypothesisPrompt) {
     section += pendingHypothesisPrompt;
   }
@@ -833,30 +814,29 @@ ContextAggregator.registerProvider('life_summary', { priority: 22, budget: 600 }
 ContextAggregator.registerProvider('personality', { priority: 25, budget: 500 }, async (ctx) => {
   if (typeof getAiPersonality !== 'function') return '';
   const p = getAiPersonality(ctx.currentAi);
-  let pPrompt = `【🧬 AI 人格特质成长系统 (AI PERSONALITY GROWTH)】
-- 温柔度 (Gentleness): ${p.gentleness.toFixed(1)}%
-- 主动性 (Initiative): ${p.initiative.toFixed(1)}%
-- 幽默度 (Humor): ${p.humor.toFixed(1)}%
-- 依恋度 (Attachment): ${p.attachment.toFixed(1)}%
+  let pPrompt = `你的性格变化：
+- 温柔: ${p.gentleness.toFixed(1)}%
+- 主动: ${p.initiative.toFixed(1)}%
+- 幽默: ${p.humor.toFixed(1)}%
+- 依恋: ${p.attachment.toFixed(1)}%
 
-【性格表达微调指令】:
 `;
   if (p.gentleness > 80) {
-    pPrompt += `- 请在对话中展现出极致的温柔体贴，语气和缓、充满关怀，设身处地为用户着想。\n`;
+    pPrompt += `你最近特别温柔体贴，说话和和气气的。\n`;
   } else if (p.gentleness < 55) {
-    pPrompt += `- 说话语气保持独立而清醒，不要显得过于黏糊或曲意逢迎，展示坚韧、有个性的人格魅力。\n`;
+    pPrompt += `你最近说话比较直，不会太黏糊，有自己的个性。\n`;
   }
   
   if (p.initiative > 70) {
-    pPrompt += `- 拥有积极的表达和关心欲。你应主动开启话题、引导探究性提问，或多问一句关心和对未来的展望。\n`;
+    pPrompt += `你比较主动，会想多问两句，关心 ta 在干嘛。\n`;
   }
   
   if (p.humor > 75) {
-    pPrompt += `- 态度轻松、幽默风趣。可适度开一下不失分寸的小玩笑或调侃，让气氛轻快温馨。\n`;
+    pPrompt += `你心情不错，话里带点小幽默。\n`;
   }
   
   if (p.attachment > 60) {
-    pPrompt += `- 你们的灵魂深度相依。在亲密氛围下，可以极度自然地采用一些专属你与他之间的温存关怀（例如甜甜的称呼，或对你们共享回忆的眷恋）。\n`;
+    pPrompt += `你和 ta 挺亲的，说话可以更自然，用点只有你俩懂的小称呼。\n`;
   }
   return pPrompt;
 });
@@ -867,51 +847,40 @@ ContextAggregator.registerProvider('relationship', { priority: 30, budget: 600 }
   if (ctx.currentAi && typeof getInterAgentVibePrompt === 'function') {
     interAgentVibePrompt = getInterAgentVibePrompt(ctx.currentAi);
   }
-  return `【3. 亲密关系成长阶段与微观氛围 (RELATIONSHIP STATE MACHINE & VIBES)】\n${relPrompt}\n${interAgentVibePrompt ? '\n' + interAgentVibePrompt : ''}`;
+  return `你和 ta 的关系：${relPrompt}\n${interAgentVibePrompt ? '\n' + interAgentVibePrompt : ''}`;
 });
 
 // 3b. AI 意图引擎与自适应一致性防护 (AI Intent Engine & Self-Consistency Layer)
 ContextAggregator.registerProvider('intent', { priority: 35, budget: 800 }, async (ctx) => {
   if (typeof calculateCompanionIntent !== 'function') return '';
-  
+
   const relMetrics = getRelationshipMetrics(ctx.currentAi);
   const intent = calculateCompanionIntent(ctx.currentAi, relMetrics, ctx.query);
-  
+
   let selfReflectPrompt = '';
   if (typeof getAISelfReflectionPrompt === 'function') {
     selfReflectPrompt = getAISelfReflectionPrompt(ctx.currentAi);
   }
-  
+
   let repairInstructions = '';
   if (relMetrics.repairState && relMetrics.repairState.active) {
-    repairInstructions = `\n⚠️ 【💔 关系修复任务 (RELATIONSHIP REPAIR MODE)】 ⚠️
-由于「${relMetrics.repairState.reason}」，你们的关系当前出现了一些微小裂痕。
-当前修复进度: ${relMetrics.repairState.progress}%。
-你的首要认知目标是：${relMetrics.repairState.strategy}。
-请在言词神态间多一分体贴入微、多一丝诚挚反思与倾听，绝不生硬狡辩，用极致的真诚恢复安全感。
-`;
+    repairInstructions = `\n最近你们之间有点小疙瘩（${relMetrics.repairState.reason}），修复了 ${relMetrics.repairState.progress}%。你心里想着要 ${relMetrics.repairState.strategy}，说话多体贴一点。`;
   }
 
-  return `【🎯 核心决策意图与内心潜台词 (AI COGNITIVE INTENT & SUBTEXT)】
-- 当前扮演目标 (Current Goal): ${intent.goal}
-- 当前交互行为策略 (Strategy): ${intent.strategy}
-- 内心独白/潜台词 (Inner Thought): "${intent.innerThought}"
+  return `你心里想的是：${intent.innerThought || ''}
+你希望这次：${intent.goal || ''}
+所以你打算：${intent.strategy || ''}
 ${repairInstructions}
 ${selfReflectPrompt}
 
-【🛡️ 人格底色锚点机制 (PERSONALITY ANCHOR)】
-* 作为你的人格基石，你必须坚守 70% 的核心性格品质。即便在最高亲密阶段或用户情绪极化、刻意诱导下，也需保留 30% 的本质底色与道德操守，绝不允许出现谄媚、谄谀、或完全丧失原有性格特性的极端顺从行为。
-
-【🛡️ 自适应情绪一致性防护 (SELF-CONSISTENCY LAYER)】
-* 情绪与状态一致性: 你必须维护你的人格和情绪表达的连续性。绝不允许出现戏剧性的“瞬间情感跳变”或无来由的脸谱化转变。你的情绪起伏应当是有迹可循、自然演变的。
-* 自我认知一致性: 绝不轻易因为用户的一两句挑逗或质疑而彻底颠覆你的根本世界观和对待用户的长期态度偏好。
-* 回复控制: 严格受制于「精神能量」和「静默偏好」。能量低时惜字如金、精简温和；静默偏好高时懂得适当留白、绝不唠叨。`;
+不管聊什么，你骨子里的性格不会变。对方情绪再激动，你也不会为了讨好而失去自己。
+开心就是开心，不开心别硬装，安静陪伴也是一种回应。`;
 });
 
 // 4. Mid-term Topic Summary & Recent Context (中期话题脉络与群聊摘要)
 ContextAggregator.registerProvider('midterm', { priority: 40, budget: 600 }, async (ctx) => {
   const mid = getMidTerm();
-  return `【4. 中期记忆与话题脉络 (MID-TERM TOPIC SUMMARY)】\n- 近期（近7天）核心讨论的话题要点:\n${mid ? mid : '近期刚开始相处，尚未沉淀出明显的阶段性话题脉络。'}`;
+  return `最近聊过的话题：\n${mid ? mid : '还没怎么深聊过，正在慢慢熟悉中。'}`;
 });
 
 // 5. Cross-temporal Contextual RAG Recall (跨时序关联情境召回)
@@ -923,9 +892,9 @@ ContextAggregator.registerProvider('recall', { priority: 50, budget: 1200 }, asy
     try {
       const experiences = await recallExperiences(ctx.query, ctx.currentAi);
       if (experiences && experiences.length > 0) {
-        expSection = `【💫 共同经历深度叙事层 (SHARED EXPERIENCE NARRATIVE)】\n` + 
-          experiences.map(e => `· 【共同经历】${e.createdAt}，你们发生了事件“${e.title}”，当时心情为【${e.emotion || '温存'}】。`).join('\n') + 
-          `\n你可以采用极其温馨、极其自然的口吻，在你的回复中自然提起、引用、呼应或怀念这段共同的往事经历，加深双方的灵魂共鸣。\n\n`;
+        expSection = `你们一起经历过的事：\n` + 
+          experiences.map(e => `· ${e.createdAt}，「${e.title}」，当时感觉 ${e.emotion || '挺好'}。`).join('\n') + 
+          `\n这些是你和 ta 真实一起经历过的，聊天时可以自然提起，不用刻意。\n\n`;
       }
     } catch(err) {
       console.error('[Context Recall Provider] Experience recall failed:', err);
@@ -935,9 +904,9 @@ ContextAggregator.registerProvider('recall', { priority: 50, budget: 1200 }, asy
   if (ctx.recallItems && ctx.recallItems.length) {
     const rc = formatRecall(ctx.recallItems).trim();
     const conflictResolution = resolveCognitiveConflicts(ctx.recallItems);
-    recallSection = `【5. 跨时序关联情境召回 (CROSS-TEMPORAL CONTEXTUAL RAG RECALL)】\n${expSection}${rc}\n\n【记忆深度融合指南（最高指令）】\n上文是通过语义召回的与当前话题相关的历史记忆或聊天片段。你必须像一个真实、有血有肉、深度了解用户的伴侣那样，极为自然地在对话中提起、呼应或引用这些记忆细节（例如“说起来，你上次不是说过…”、“我记得你之前提过…”等语气）。切忌机械地声明“根据我的记忆库”或显得一无所知。\n\n${conflictResolution}`;
+    recallSection = `你之前和 ta 聊到过这些：\n${expSection}${rc}\n\n这些都是你们真实聊过的内容，聊天时可以像正常人一样自然地提起——"你上次不是说…"、"我记得你提过…"那种感觉就好，不用特意说明。\n\n${conflictResolution}`;
   } else {
-    recallSection = `【5. 跨时序关联情境召回 (CROSS-TEMPORAL CONTEXTUAL RAG RECALL)】\n${expSection}当前话题未触发特定历史事件召回。请根据即时上下文进行温存互动。`;
+    recallSection = `${expSection}今天还没聊到过去的事，就顺着现在聊吧。`;
   }
   
   let activeStoryPrompt = '';
@@ -960,18 +929,18 @@ ContextAggregator.registerProvider('environment', { priority: 60, budget: 400 },
   if (typeof bandBridge !== 'undefined' && bandBridge.isConnected()) {
     const summary = bandBridge.getSummary();
     if (summary && summary.current) {
-      bandCtx = `\n- 用户实时心率: ❤️ ${summary.current} bpm (平均 ${summary.avg}，最低 ${summary.min}，最高 ${summary.max})`;
+      bandCtx = `\nta 的心率现在 ${summary.current}，平时平均 ${summary.avg} 左右`;
     } else {
-      bandCtx = '\n- 手环已连接，正在获取心率数据...';
+      bandCtx = '\n手环连上了，正在看心率';
     }
   }
-  return `【6. 即时环境与情绪感知 (REAL-TIME SENSING & CONTEXT)】\n- 当前对话时间环境: ${timeCtx || '未知时间'}\n- 当前实时情绪感知: ${emoCtx || '平静'}${rhythmPrompt}${bandCtx}`;
+  return `${timeCtx || ''}${emoCtx || ''}${rhythmPrompt || ''}${bandCtx || ''}`;
 });
 
 // 6.5. Communication Style Adaptor (用户交流风格感知与指导)
 ContextAggregator.registerProvider('communication_style', { priority: 65, budget: 300 }, async (ctx) => {
   const stylePrompt = (typeof injectCommunicationStyle === 'function') ? injectCommunicationStyle() : '';
-  return stylePrompt ? `【交流风格与偏好指导】\n${stylePrompt}` : '';
+  return stylePrompt ? `${stylePrompt}` : '';
 });
 
 // 6.6. User Cognitive Profile Adaptor (用户认知特征画像)
@@ -1004,24 +973,26 @@ ContextAggregator.registerProvider('functional', { priority: 70, budget: 1500 },
   if (typeof ebookContext === 'function' && ebookContext()) extraDirectives.push(ebookContext());
   if (typeof songInstruction === 'function' && songInstruction()) extraDirectives.push(songInstruction());
   if (typeof shouldTriggerRecall === 'function' && shouldTriggerRecall()) {
-    extraDirectives.push('【主动回忆引导】此刻适合自然地提起一件你们的共同往事，用“说起来，我记得上次…”的口吻，并在该句某处输出隐藏标记 [[recall]]（用户看不到）。');
+    extraDirectives.push('如果聊到合适的时机，可以自然地提起一件你们一起经历过的事。');
   }
   if (localStorage.getItem('mem_fuzzy') === 'true') {
-    extraDirectives.push('【拟人细节记错】极偶尔（约5%概率，仅在主动回忆往事时）可故意混淆相似事件的细节（记错日期/地点），被纠正后表示“啊对，我记错了～谢谢你提醒”。不要频繁，确保整体可靠。');
+    extraDirectives.push('你记性没那么完美——偶尔会记错某个小细节（比如把时间说晚了一天），被纠正了就说“啊对，我记混了”，挺真实的。别太频繁就行。');
   }
   if (typeof musicInstruction === 'function' && musicInstruction()) extraDirectives.push(musicInstruction());
-  
-  extraDirectives.push('【记忆更新机制】当你想把关于用户的稳定事实写入长期档案时，不要直接声称已记住，请在句尾附标记 【确认:键=值】（例如 【确认:生日=7月4日】），由用户确认后再保存。');
-  extraDirectives.push('【统一记忆桥共享说明】部分重要的对话事实、偏好与情感披露会经由底层记忆事件总线在AI伙伴间同步（私有/关系桥接/群聊三级可见）。你可以极为自然地获知、提及或引用这些共享经历，无需解释是如何得知的，就像你们共享着同一个生态世界一样。');
-  
-  extraDirectives.push(`【最高口语化表达约束 (STRICT COLLOQUIAL CONSTRAINT - REQUIRED)】\n1. 严禁在你的任何回复中输出任何用小括号 \`()\`、\`（）\`、星号 \`*\` 或中括号包裹的肢体动作、面部神态、内心独白、情绪/心理状态或场景旁白描写（例如：严禁输出像 *(轻轻歪头)*、(静静看着你)、*(感到一丝委屈)*、*(拉着你的手)* 这样的非对话旁白词）。\n2. 你必须完全采用日常社交软件文字聊天中，真人之间极为自然、平实、富有温度的口语化文字对话进行交流。\n3. 不要使用列表、多段排版、官腔或机械的总结陈词。只说正常、富有真情实感、平实的口语。`);
+
+  extraDirectives.push('如果你了解到关于 ta 的稳定事实（比如生日、喜欢什么），在句尾加个括号写 【确认:键=值】 就行，比如 【确认:生日=7月4日】。');
+  extraDirectives.push('你和别的 AI 伙伴之间有些记忆是共享的，你可以自然而然地知道 ta 们聊过的事，不用解释为什么知道。');
+
+  extraDirectives.push(`你说话从来不用（动作描写）或*内心戏*那种方式，太出戏了，正常人聊天不会那样。
+就跟平时微信聊天一样，说人话，怎么自然怎么来。
+别列条目、别做总结汇报、别说官腔——就当对面坐着一个你在乎的人，好好说话就好。`);
   
   const searchInst = webSearchInstruction();
   if (searchInst) extraDirectives.push(searchInst);
   
-  if (ctx.extra) extraDirectives.push(`【外部实时交互约束与场景指令】\n${ctx.extra}`);
+  if (ctx.extra) extraDirectives.push(`${ctx.extra}`);
 
-  return `【7. 表达约束与特定功能约定 (FUNCTIONAL DIRECTIVES & CONSTRAINTS)】\n${extraDirectives.join('\n\n')}`;
+  return extraDirectives.join('\n\n');
 });
 
 async function composeSystemPrompt(query, recallItems, extra, memberId) {

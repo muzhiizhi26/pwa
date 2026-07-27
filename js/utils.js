@@ -99,7 +99,7 @@ function webSearchEnabled(){return localStorage.getItem('web_search')==='true';}
 function imgEnabled(){return localStorage.getItem('img_enabled')==='true';}
 function renderGenImgMenu(){const btn=document.getElementById('genImgMenuBtn');if(btn)btn.style.display=imgEnabled()?'block':'none';}
 function applyFontSize(){document.documentElement.style.setProperty('--chat-font-size',(localStorage.getItem('font_size')||'15')+'px');}
-function applyBackground(){const bg=localStorage.getItem('chat_bg');const el=document.getElementById('chatMessages');if(bg){el.style.backgroundImage=`url(${bg})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';}else el.style.backgroundImage='';}
+function applyBackground(){const bg=localStorage.getItem('chat_bg');const el=document.getElementById('chatMessages');if(bg){el.style.backgroundImage=`url(${bg})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';el.classList.add('has-bg');}else{el.style.backgroundImage='';el.classList.remove('has-bg');}}
 
 /* 时间感知 / 联网提示 */
 function fmtGap(ms){const s=Math.floor(ms/1000);if(s<60)return '刚刚';const m=Math.floor(s/60);if(m<60)return m+' 分钟';const h=Math.floor(m/60);if(h<24)return h+' 小时'+(m%60?(m%60)+' 分钟':'');const day=Math.floor(h/24);return day+' 天'+(h%24?(h%24)+' 小时':'');}

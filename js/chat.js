@@ -604,6 +604,11 @@ function renderTextMessage(role,content,uid,reasoning,recallItems,proactive,ts,a
   const rawText = content ? String(content).replace(/^🎤\s*/, '') : '';
   const display=(role!=='user'&&typeof stripMusicTags==='function')?stripMusicTags(rawText):rawText;
   const lines=splitToBubbles(display);
+  // 检测连续消息：如果前一条消息来自同一角色，隐藏头像
+  const prevEl = div.previousElementSibling;
+  if (prevEl && prevEl.dataset.role === role) {
+    div.classList.add('consecutive');
+  }
   lines.forEach((line,i)=>{
     const b=document.createElement('div');
     b.className='bubble';
