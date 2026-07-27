@@ -530,7 +530,7 @@ input[type=range]:disabled{opacity:.4;}
 .chat-fullpanel .message:hover .msg-actions{opacity:1;}
 @media(max-width:600px){.chat-fullpanel .msg-actions{opacity:0;}}
 .chat-fullpanel .gp-name{font-size:10px;color:var(--text-sub);margin-bottom:3px;padding-left:4px;}
-.chat-fullpanel .bubble{backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
+.chat-fullpanel .bubble{backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);position:relative;}
 .chat-fullpanel .user-message .bubble{box-shadow:0 4px 16px rgba(255,150,180,0.15),0 2px 4px rgba(255,150,180,0.08) !important;}
 .chat-fullpanel .ai-message .bubble{box-shadow:0 4px 16px rgba(200,180,220,0.15),0 2px 4px rgba(200,180,220,0.08) !important;}
 /* 阅读：书架 */
