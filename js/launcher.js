@@ -18,7 +18,7 @@ const LAUNCHER_DEFAULT=[
   {id:'timeline',label:'成长时间线',icon:'📜',action:'timeline'},
   // 底部 Dock
   {id:'chat',label:'聊天',icon:'💬',action:'chat'},
-  {id:'group',label:'群聊',icon:'🗪',action:'group'},
+  {id:'group',label:'群聊',icon:'👥',action:'group'},
   {id:'moments',label:'朋友圈',icon:'🌸',action:'moments'},
   {id:'settings',label:'设置',icon:'⚙️',action:'settings'}
 ];
