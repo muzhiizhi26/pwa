@@ -762,7 +762,12 @@ async function recall(query,aiId){
   } catch(e) {
     console.warn('[Recall] Diary recall failed:', e);
   }
-  return top.concat(assoc);
+  const recallResult = top.concat(assoc);
+  if (typeof addRuntimeLog === 'function') {
+    const totalFound = (top?.length || 0) + (assoc?.length || 0);
+    addRuntimeLog('memory', `向量记忆召回：${totalFound} 条`, `精确: ${top?.length || 0} 条 / 关联: ${assoc?.length || 0} 条 / 查询: "${(query || '').slice(0, 40)}"`);
+  }
+  return recallResult;
 }
 
 /* 召回渲染：将情绪标签、时间窗口和关联链完美融入 */

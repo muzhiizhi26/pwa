@@ -73,9 +73,9 @@
         <div class="action-grid-icon">🖼️</div>
         <div class="action-grid-label">照片</div>
     </div>
-    <div class="action-grid-item" onclick="openImgGen()">
-        <div class="action-grid-icon">🎨</div>
-        <div class="action-grid-label">生成图片</div>
+    <div class="action-grid-item" onclick="openLogPanel()">
+        <div class="action-grid-icon">📋</div>
+        <div class="action-grid-label">运行日志</div>
     </div>
     <div class="action-grid-item" onclick="startCall()">
         <div class="action-grid-icon">📞</div>
@@ -89,10 +89,6 @@
         <div class="action-grid-icon">👥</div>
         <div class="action-grid-label">群聊</div>
     </div>
-    <div class="action-grid-item" onclick="openDiary()">
-        <div class="action-grid-icon">📔</div>
-        <div class="action-grid-label">日记</div>
-    </div>
     <div class="action-grid-item" onclick="openEbook()">
         <div class="action-grid-icon">📖</div>
         <div class="action-grid-label">阅读</div>
@@ -104,10 +100,6 @@
     <div class="action-grid-item" onclick="openTokenPanel()">
         <div class="action-grid-icon">📊</div>
         <div class="action-grid-label">Token</div>
-    </div>
-    <div class="action-grid-item" onclick="openCompressDialog()">
-        <div class="action-grid-icon">🗜️</div>
-        <div class="action-grid-label">压缩对话</div>
     </div>
     <div class="action-grid-item" onclick="manualBackup()">
         <div class="action-grid-icon">💾</div>
@@ -124,10 +116,6 @@
     <div class="action-grid-item" onclick="triggerFileInput('memoryFileInput')">
         <div class="action-grid-icon">📂</div>
         <div class="action-grid-label">导入记忆</div>
-    </div>
-    <div class="action-grid-item" onclick="openCodeAnalyzer()">
-        <div class="action-grid-icon">📦</div>
-        <div class="action-grid-label">代码分析</div>
     </div>
 </div>
 </div>
@@ -170,6 +158,15 @@
         <div class="memo-header"><h3>📊 Token 使用量估算</h3><button class="icon-btn" style="width:30px;height:30px;font-size:14px;" onclick="document.getElementById('tokenPanel').classList.remove('show')">✕</button></div>
         <div class="memo-body" id="tokenBody"></div>
         <div class="memo-footer"><label class="switch-label" style="display:flex;align-items:center;gap:6px;">按上下文条数自动压缩<label class="switch"><input type="checkbox" id="autoCompressChk" onchange="setBool('auto_compress',this.checked)"><span class="switch-slider"></span></label></label><button class="footer-btn footer-btn-primary" onclick="openCompressDialog()">压缩对话</button></div>
+    </div>
+</div>
+
+<!-- ===== 运行日志 ===== -->
+<div class="memo-panel" id="logPanel" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="memo-container" style="max-width:420px;">
+        <div class="memo-header"><h3>📋 运行日志</h3><button class="icon-btn" style="width:30px;height:30px;font-size:14px;" onclick="document.getElementById('logPanel').classList.remove('show')">✕</button></div>
+        <div class="memo-body" id="logBody" style="max-height:50vh;overflow-y:auto;"></div>
+        <div class="memo-footer"><button class="footer-btn footer-btn-secondary" onclick="clearRuntimeLogs()">清除日志</button><button class="footer-btn footer-btn-primary" onclick="document.getElementById('logPanel').classList.remove('show')">关闭</button></div>
     </div>
 </div>
 

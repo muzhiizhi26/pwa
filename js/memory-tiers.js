@@ -995,7 +995,17 @@ ContextAggregator.registerProvider('functional', { priority: 70, budget: 1500 },
 });
 
 async function composeSystemPrompt(query, recallItems, extra, memberId) {
-  return ContextAggregator.compile(query, recallItems, extra, memberId);
+  const result = await ContextAggregator.compile(query, recallItems, extra, memberId);
+  if (typeof addRuntimeLog === 'function') {
+    const aiName = (typeof memberById === 'function' && memberId) 
+      ? (memberById(memberId)?.name || 'AI') 
+      : (localStorage.getItem('ai_name') || '小艾');
+    const sceneType = ContextAggregator.cache.lastSceneType || '日常';
+    // 提取系统指令核心摘要（取前 200 字）
+    const snippet = result ? result.replace(/=====+[\s\S]*?=====+/g, '').trim().slice(0, 200) : '';
+    addRuntimeLog('system', `系统指令 — ${aiName} (${sceneType})`, snippet ? `指令摘要: ${snippet}${result.length > 200 ? '...' : ''}` : '');
+  }
+  return result;
 }
 
 /* ---- 🛠️ 运行期认知沙盘 (Runtime Inspector Panel) ---- */

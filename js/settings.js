@@ -16,14 +16,61 @@ function getModelLimit(){const p=getCurrentProvider();const m=p.models.find(x=>x
 function contextTokens(){const ctx=ctxSlice(conversationHistory).filter(m=>!m.image);let t=estTokens(localStorage.getItem('systemPrompt')||DEFAULT_PROMPT);for(const m of ctx)t+=estTokens(m.content);return t;}
 let tokenPanelOpen=false;
 function openTokenPanel(){document.getElementById('actionMenu').classList.remove('show');tokenPanelOpen=true;const chk=document.getElementById('autoCompressChk');if(chk)chk.checked=localStorage.getItem('auto_compress')==='true';renderTokenBody();document.getElementById('tokenPanel').classList.add('show');}
-function renderTokenBody(){const inp=document.getElementById('messageInput');const cur=estTokens(inp?inp.value:'');const ctxT=contextTokens();const ctx=ctxSlice(conversationHistory).filter(m=>!m.image);const lim=getModelLimit();const total=cur+ctxT;const ctxLimit=getContextLimit();const autoHint=ctxLimit===Infinity?'自动压缩不会按条数触发（上下文不限制）。':`自动压缩按上下文条数触发：达到 ${ctxLimit} 条后压缩。`;document.getElementById('tokenBody').innerHTML=`
+function renderTokenBody(){const inp=document.getElementById('messageInput');const cur=estTokens(inp?inp.value:'');const ctxT=contextTokens();const ctx=ctxSlice(conversationHistory).filter(m=>!m.image);const lim=getModelLimit();const total=cur+ctxT;const ctxLimit=getContextLimit();const totalMsgs=conversationHistory.filter(m=>!m.image&&m.content).length;const autoHint=ctxLimit===Infinity?'自动压缩不会按条数触发（上下文不限制）。':`自动压缩按上下文条数触发：达到 ${ctxLimit} 条后压缩。`;document.getElementById('tokenBody').innerHTML=`
    <div class="stat-box"><span>当前输入</span><b>${fmtTok(cur)}</b></div>
    <div class="stat-box"><span>上下文</span><b>${fmtTok(ctxT)}</b></div>
-   <div class="stat-box"><span>上下文消息数</span><b>${ctx.length}${getContextLimit()===Infinity?'（不限制）':''}</b></div>
+   <div class="stat-box"><span>上下文消息数（发送给AI）</span><b>${ctx.length} ${getContextLimit()===Infinity?'':'/ '+ctxLimit+' 条'}</b></div>
+   <div class="stat-box"><span>本地总记录数</span><b>${totalMsgs} 条</b></div>
    <div class="stat-box"><span>总计</span><b>${fmtTok(total)}</b></div>
    <div class="stat-box"><span>模型限制</span><b>${fmtTok(lim)}</b></div>
-   <div class="form-hint">估算为粗略值（中文≈1/字，英文≈0.3/字）。<br>${autoHint}${total>lim*0.8?'<br><b style="color:#B07">⚠️ 接近模型上限，建议手动压缩对话</b>':''}</div>`;}
+   <div class="form-hint">估算为粗略值（中文≈1/字，英文≈0.3/字）。<br>${autoHint}${ctx.length<totalMsgs?`<br><b style="color:var(--warning)">⚠️ 本地有 ${totalMsgs-ctx.length} 条旧消息不在当前上下文中</b>`:''}${total>lim*0.8?'<br><b style="color:#B07">⚠️ 接近模型上限，建议手动压缩对话</b>':''}</div>`;}
 function openCompressDialog(){document.getElementById('actionMenu').classList.remove('show');document.getElementById('compressPanel').classList.add('show');}
+
+/* ===== 运行日志系统 ===== */
+const runtimeLogs = [];
+const MAX_RUNTIME_LOGS = 200;
+function addRuntimeLog(type, summary, detail) {
+  runtimeLogs.unshift({ type, summary, detail, ts: Date.now() });
+  if (runtimeLogs.length > MAX_RUNTIME_LOGS) runtimeLogs.length = MAX_RUNTIME_LOGS;
+}
+function openLogPanel() {
+  document.getElementById('actionMenu').classList.remove('show');
+  renderLogPanel();
+  document.getElementById('logPanel').classList.add('show');
+}
+function renderLogPanel() {
+  const body = document.getElementById('logBody');
+  if (!body) return;
+  if (runtimeLogs.length === 0) {
+    body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-light);font-size:12px;">暂无日志，开始聊天后会自动记录</div>';
+    return;
+  }
+  // 按类型分组排序：API → 记忆 → 系统指令 → 其他
+  const order = { api: 0, memory: 1, system: 2 };
+  const sorted = [...runtimeLogs].sort((a, b) => {
+    const oa = order[a.type] !== undefined ? order[a.type] : 3;
+    const ob = order[b.type] !== undefined ? order[b.type] : 3;
+    if (oa !== ob) return oa - ob;
+    return b.ts - a.ts;
+  });
+  body.innerHTML = sorted.map(log => {
+    const time = new Date(log.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const icon = log.type === 'api' ? '🤖' : log.type === 'system' ? '📝' : log.type === 'cache' ? '⚡' : log.type === 'memory' ? '🧠' : '📋';
+    return `<div style="padding:8px 4px;border-bottom:1px solid var(--border);font-size:11px;line-height:1.5;">
+      <div style="display:flex;justify-content:space-between;color:var(--text-sub);font-size:10px;">
+        <span>${icon} ${log.type === 'api' ? 'API调用' : log.type === 'system' ? '系统指令' : log.type === 'cache' ? '缓存' : log.type === 'memory' ? '记忆' : '其他'}</span>
+        <span>${time}</span>
+      </div>
+      <div style="color:var(--text-main);margin-top:2px;">${log.summary}</div>
+      ${log.detail ? `<div style="color:var(--text-light);font-size:10px;margin-top:2px;word-break:break-all;">${log.detail}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+function clearRuntimeLogs() {
+  runtimeLogs.length = 0;
+  renderLogPanel();
+  showToast('✅ 日志已清除');
+}
 async function doCompress(){document.getElementById('compressPanel').classList.remove('show');await compressConversation(false);}
 async function compressConversation(silent){const real=conversationHistory.filter(m=>!m.compressed);if(real.length<4){if(!silent)showToast('对话太短，无需压缩');return;}const provider=getCurrentProvider();const apiKey=(localStorage.getItem(`apikey_${provider.id}`)||'').trim();if(!apiKey&&provider.auth!=='none'){if(!silent)alert('请先在设置中配置 API Key');return;}if(!silent)showToast('🗜️ 正在压缩对话...');const conversationText=conversationHistory.filter(m=>!m.image).map(m=>`${m.role==='user'?'用户':'AI'}：${m.content}`).join('\n');const systemPrompt='你是对话摘要助手。请把以下对话压缩成一段信息完整但简洁的中文摘要，必须保留：关键事实、用户偏好与设定、重要结论、未完成事项、情感基调。用第三人称陈述，不要加入多余开场白。';let endpoint=(provider.endpoint||'').trim();if(!endpoint){if(!silent)showToast('未配置服务商 Endpoint');return;}if(!/^https?:\/\//i.test(endpoint))endpoint='https://'+endpoint;let url=endpoint.replace(/\/+$/,'');if(!url.includes('/chat/completions')&&!url.includes('messages')&&!url.includes('/v1/chat'))url+='/chat/completions';const headers={'Content-Type':'application/json'};if(apiKey){if(provider.auth==='Bearer')headers['Authorization']=`Bearer ${apiKey}`;else if(provider.auth==='x-api-key')headers['x-api-key']=apiKey;else if(provider.auth==='x-goog-api-key')headers['x-goog-api-key']=apiKey;}try{const r=await fetch(url,{method:'POST',headers,body:JSON.stringify({model:selectedModelName,messages:[{role:'system',content:systemPrompt},{role:'user',content:conversationText}],stream:false})});if(!r.ok)throw new Error('API '+r.status);const d=await r.json();const summary=(d.choices?.[0]?.message?.content||d.content?.[0]?.text||'').trim();if(!summary){if(!silent)showToast('压缩失败：无摘要返回');return;}const uid=genUid();const ts=Date.now();conversationHistory=[{role:'assistant',content:'【对话摘要·已压缩】\n'+summary,uid,ts,compressed:true}];saveHistory();rerenderAll();memorize('assistant','对话摘要：'+summary,'');showToast('✅ 已压缩并开启新会话');}catch(e){if(!silent)showToast('压缩失败：'+e.message);}}
 function maybeAutoCompress(){

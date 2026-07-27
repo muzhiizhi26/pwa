@@ -888,6 +888,16 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
         const r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
         if(!r.ok)throw new Error(`API 错误 (${r.status})`);
         const d=await r.json();
+        if (typeof addRuntimeLog === 'function') {
+          const usage = d.usage || {};
+          const inpTokens = usage.prompt_tokens || '?';
+          const outTokens = usage.completion_tokens || '?';
+          // 记录输入输出摘要
+          const inputSnippet = (body.messages || []).slice(-1).map(m => (m.content || '').slice(0, 60)).join('').trim();
+          const outputText = (d.choices?.[0]?.message?.content || d.content?.[0]?.text || '').slice(0, 80);
+          addRuntimeLog('api', `${useModel} 输入${inpTokens}→输出${outTokens} Token`, 
+            `${outputText ? '输出: ' + outputText : '无响应'}${inputSnippet ? '\n输入摘要: ' + inputSnippet : ''}`);
+        }
         loading.remove();
         const m=d.choices?.[0]?.message;
         let reply=m?.content||d.content?.[0]?.text||'无响应';
@@ -983,6 +993,10 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
     try{
       const r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
       if(!r.ok)throw new Error(`API 错误 (${r.status})`);
+      if (typeof addRuntimeLog === 'function') {
+        const inputSnippet = (body.messages || []).slice(-1).map(m => (m.content || '').slice(0, 60)).join('').trim();
+        addRuntimeLog('api', `${useModel} (流式)`, `${inputSnippet ? '输入: ' + inputSnippet : ''}`);
+      }
       if(!r.body || !r.body.getReader) throw new Error('ReadableStream not supported');
       const reader=r.body.getReader();
       const dec=new TextDecoder();
