@@ -76,7 +76,6 @@ docker run -p 3000:3000 lovestory
 | 免费模型 | Pollinations AI（无需 Key） | openai |
 | DeepSeek | 官方 API | deepseek-chat / deepseek-reasoner |
 | SiliconFlow | 一站式 API（含语音） | DeepSeek-V3 |
-| CodingPlan | AtomGit 免费额度 | deepseek-v4-flash |
 
 ### 语音设置
 
