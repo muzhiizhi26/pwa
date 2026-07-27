@@ -786,7 +786,6 @@ let sp = await composeSystemPrompt(q, recallItems, null, currentAi);
       const intentPrompt = intentMap[intent];
       if (intentPrompt) {
         sp += '\n\n' + intentPrompt;
-        console.log(`[Behavior Decision Layer] Injected intent prompt: ${intent}`);
       }
     }
   }
@@ -820,7 +819,6 @@ if(currentImage){
   const audioFormat = (typeof extForMime === 'function') ? extForMime(currentAudio.mimeType) : 'webm';
   const isGoogle = provider.id === 'google' || provider.id === 'gemini' || provider.id === 'gemini_proxy' || (useModel && useModel.toLowerCase().includes('gemini')) || (url && (url.includes('googleapis.com') || url.includes('/api/chat')));
   const isAudioModel = useModel && (useModel.toLowerCase().includes('audio-preview') || useModel.toLowerCase().includes('audio'));
-  console.log(`[AudioDebug] base64长度=${currentAudio.base64.length}, mime=${audioMime}, format=${audioFormat}, isGoogle=${isGoogle}, isAudioModel=${isAudioModel}, provider=${provider.id}, model=${useModel}`);
 
   if (isGoogle) {
     const audioPromptText = `【多模态语音交互说明】你拥有直接感知和倾听用户真实录音音频的能力（用户录音音频数据已作为原生二进制流随本条消息附带）。语音识别（STT）辅助文本为：“${queryText}”。请你结合音频中的语气、情绪以及文本内容，以自然、亲切的人设态度直接与用户对话回应。切记：你拥有直接倾听音频的能力，不要宣称自己“听不到声音”或“只能看到文字”。`;

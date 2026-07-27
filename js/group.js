@@ -37,7 +37,6 @@ async function initGroupHistory() {
       const backup = await HistoryBackupDB.get('group_history');
       if (backup && Array.isArray(backup) && backup.length > 0) {
         groupHistory = backup;
-        console.log('[GroupHistory] Loaded ' + groupHistory.length + ' messages from IndexedDB');
         return;
       }
     }
@@ -552,12 +551,12 @@ async function compressGroupChat(silent){
   if(!silent) showToast('🗜️ 正在压缩并生成群聊摘要...');
   
   // 将群聊转成人类可读文本
-  const convText = groupHistory.filter(m => !m.image).map(m => {
+  const conversationText = groupHistory.filter(m => !m.image).map(m => {
     const name = m.role === 'user' ? '用户' : (memberById(m.memberId)?.name || m.name || 'AI');
     return `${name}：${m.content}`;
   }).join('\n');
   
-  const sysP = '你是群聊摘要与群记忆助手。请把以下多人社交群聊记录压缩成一段信息完整但极其简洁的中文摘要。重点保留：讨论的核心话题、达成的共识或结论、各AI角色的鲜明态度。用第三人称客观描述，不要加入冗余介绍，字数控制在250字以内。';
+  const systemPrompt = '你是群聊摘要与群记忆助手。请把以下多人社交群聊记录压缩成一段信息完整但极其简洁的中文摘要。重点保留：讨论的核心话题、达成的共识或结论、各AI角色的鲜明态度。用第三人称客观描述，不要加入冗余介绍，字数控制在250字以内。';
   
   let url = provider.endpoint.replace(/\/+$/,'');
   if(!url.includes('/chat/completions')&&!url.includes('messages')) url += '/chat/completions';
@@ -574,8 +573,8 @@ async function compressGroupChat(silent){
       body: JSON.stringify({
         model: selectedModelName,
         messages: [
-          {role: 'system', content: sysP},
-          {role: 'user', content: convText}
+          {role: 'system', content: systemPrompt},
+          {role: 'user', content: conversationText}
         ],
         stream: false
       })

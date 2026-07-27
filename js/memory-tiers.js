@@ -332,7 +332,6 @@ const CompanionEvents = {
     
     logs.unshift(newEvent);
     localStorage.setItem('companion_event_logs', JSON.stringify(logs.slice(0, 100)));
-    console.log(`[Event Sourcing] [${type}] [${id}]: ${description}`, payload);
   },
   
   getLogs() {
@@ -921,8 +920,8 @@ ContextAggregator.registerProvider('recall', { priority: 50, budget: 1200 }, asy
 
 // 6. Real-time Environmental Sensing (即时环境与情绪感知)
 ContextAggregator.registerProvider('environment', { priority: 60, budget: 400 }, async (ctx) => {
-  const timeCtx = generateTimeContext();
-  const emoCtx = emotionContext();
+  const timeContext = generateTimeContext();
+  const emotionContextStr = emotionContext();
   const rhythmPrompt = (typeof RhythmEngine !== 'undefined') ? RhythmEngine.getRhythmContextPrompt() : '';
   // 手环心率数据（如果有）
   let bandCtx = '';
@@ -934,7 +933,7 @@ ContextAggregator.registerProvider('environment', { priority: 60, budget: 400 },
       bandCtx = '\n手环连上了，正在看心率';
     }
   }
-  return `${timeCtx || ''}${emoCtx || ''}${rhythmPrompt || ''}${bandCtx || ''}`;
+  return `${timeContext || ''}${emotionContextStr || ''}${rhythmPrompt || ''}${bandCtx || ''}`;
 });
 
 // 6.5. Communication Style Adaptor (用户交流风格感知与指导)

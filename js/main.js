@@ -53,7 +53,6 @@ window.onload=async()=>{
       // 方案B：用户首次点击页面时触发（iOS PWA 必过）
       const triggerOnTouch = () => {
         window.pushClient.ensureSubscription().then(subscribed => {
-          console.log('[PushClient] Tap-triggered subscription:', subscribed ? 'subscribed' : 'skipped');
         });
         document.removeEventListener('click', triggerOnTouch);
       };
@@ -67,9 +66,7 @@ window.onload=async()=>{
     if (!lastReflectionTime || (Date.now() - lastReflectionTime) > 24 * 3600 * 1000) {
       setTimeout(() => {
         if (typeof performSelfReflection === 'function') {
-          console.log('🤖 触发 24 小时 AI 自我复盘 (Self Reflection)...');
           performSelfReflection().then(report => {
-            console.log('✅ AI 自我复盘完成:', report);
           }).catch(err => console.warn('Self reflection error:', err));
         }
       }, 30000); // 延迟 30 秒，不影响首屏
@@ -108,7 +105,6 @@ window.onload=async()=>{
   // 3. 混合延迟预加载低频大模块：延迟 3.5 秒在后台预加载，不占用首屏首包带宽和计算资源
   setTimeout(() => {
     if (typeof LazyLoader !== 'undefined') {
-      console.log('⏰ Starting deferred background loading of low-frequency modules...');
       const modules = [
         'js/diary.js?v=20260708',
         'js/music.js?v=20260708',
@@ -130,7 +126,6 @@ window.onload=async()=>{
              .catch(e => console.warn(`Deferred load failed for ${m}:`, e));
       });
       p.then(() => {
-        console.log('✅ All deferred low-frequency modules preloaded successfully in background.');
       });
     }
   }, 3500);
@@ -147,7 +142,6 @@ window.onload=async()=>{
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')
       .then((registration) => {
-        console.log('Service Worker registered successfully with scope:', registration.scope);
         
         // Listen for updates and automatically reload to activate them
         registration.addEventListener('updatefound', () => {
@@ -156,7 +150,6 @@ window.onload=async()=>{
             installingWorker.addEventListener('statechange', () => {
               if (installingWorker.state === 'installed') {
                 if (navigator.serviceWorker.controller) {
-                  console.log('New Service Worker version available. Reloading...');
                   if (typeof showToast === 'function') {
                     showToast('🚀 系统已升级到最新版本，正在刷新页面...', 'success');
                   }

@@ -678,7 +678,6 @@ async function syncLocalStorageAndIndexedDB() {
     }
 
     if (restoredCount > 0) {
-      console.log(`[StorageSync] Restored ${restoredCount} critical config keys from IndexedDB.`);
     }
 
     // === 🌟 朋友圈动态 (Moments) 交叉舱容灾恢复与双写对齐 ===
@@ -741,7 +740,6 @@ async function syncLocalStorageAndIndexedDB() {
         for (const d of localDiaries) {
           await DIARY_DB.put(d);
         }
-        console.log(`[StorageSync] 🩺 日记容灾：成功从 localStorage 备份舱恢复了 ${localDiaries.length} 篇日记。`);
       } else if (hasDbDiaries && !hasLocalDiaries) {
         localStorage.setItem('diary_backup', JSON.stringify(dbDiaries));
       } else if (hasDbDiaries && hasLocalDiaries && dbDiaries.length !== localDiaries.length) {
@@ -769,7 +767,6 @@ async function checkStorageQuota() {
       const quota = estimate.quota || 0;
       const remaining = quota - usage;
       const remainingMB = remaining / (1024 * 1024);
-      console.log(`[StorageQuota] Usage: ${(usage/(1024*1024)).toFixed(2)} MB, Quota: ${(quota/(1024*1024)).toFixed(2)} MB, Remaining: ${remainingMB.toFixed(2)} MB`);
       
       if (remainingMB > 0 && remainingMB < 100) {
         // 创建全局美化预警弹窗
