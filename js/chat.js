@@ -609,11 +609,20 @@ function renderTextMessage(role,content,uid,reasoning,recallItems,proactive,ts,a
   if (prevEl && prevEl.dataset.role === role) {
     div.classList.add('consecutive');
   }
+  // 私聊副AI气泡使用成员专属色（同群聊风格）
+  let memberStyle = '';
+  if (role !== 'user' && typeof currentPrivateAiId === 'function') {
+    const aiId = currentPrivateAiId();
+    if (aiId !== 'main' && typeof getGroupMemberBubbleStyle === 'function') {
+      memberStyle = getGroupMemberBubbleStyle(aiId);
+    }
+  }
   lines.forEach((line,i)=>{
     const b=document.createElement('div');
     b.className='bubble';
     if(proactive)b.classList.add('proactive');
     if(content&&content.includes('已压缩'))b.classList.add('compressed');
+    if(memberStyle)b.setAttribute('style',memberStyle);
     b.onclick=(e)=>{toggleRecallChip(uid);toggleMsgActions(uid);e.stopPropagation();};
     b.innerText=(proactive&&i===0?'💌 ':'')+line;
     bubbles.appendChild(b);
@@ -683,10 +692,14 @@ async function requestAI(currentImage=null,queryText='',currentAudio=null){
   }
 
   const currentAi=currentPrivateAiId();
-  const members=(typeof getGroupMembers==='function')?getGroupMembers():[];
-  const mem=members.find(m=>m.id===currentAi);
   let useProvider=getCurrentProvider();
   let useModel=selectedModelName;
+  // 副AI私聊：确保 group.js 已加载，使用成员独立的模型配置
+  if (currentAi !== 'main' && typeof window.LazyLoader !== 'undefined') {
+    await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+  }
+  const members=(typeof getGroupMembers==='function')?getGroupMembers():[];
+  const mem=members.find(m=>m.id===currentAi);
   if(mem){
     if(typeof memberProvider==='function'){
       useProvider=memberProvider(mem);

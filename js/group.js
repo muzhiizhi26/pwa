@@ -199,6 +199,15 @@ async function renderGroupMessages(keepScroll = false){
   }
 }
 
+/* hex 颜色转半透明 rgba */
+function hexToRgba(hex, alpha) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function getGroupMemberBubbleStyle(memberId) {
   if (!memberId || memberId === 'main') {
     return '';
@@ -232,7 +241,9 @@ function getGroupMemberBubbleStyle(memberId) {
     text = isLight ? '#3A3E4A' : '#FFFFFF';
     border = (typeof adjustSaturationAndBrightness === 'function') ? adjustSaturationAndBrightness(bg, 1.0, 0.9) : bg;
   }
-  return `background: ${bg}; border: 1px solid ${border}; color: ${text}; border-bottom-left-radius: 6px;`;
+  // 将纯色转为半透明 rgba 以支持 backdrop-filter 毛玻璃效果
+  const rgba = hexToRgba(bg, 0.55);
+  return `background: ${rgba}; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid ${border}; color: ${text}; border-bottom-left-radius: 6px;`;
 }
 
 function groupBubble(m){
