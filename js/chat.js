@@ -881,9 +881,7 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
 
     if(!stream){
       const loading=rhythm.slow ? addLoadingWithIntroDOM(rhythm.introText) : addLoadingDOM();
-      if (rhythm.slow) {
-        await new Promise(res => setTimeout(res, rhythm.delay));
-      }
+      // 完全不延迟：锁屏冻结会打断 setTimeout，且瞬时发送更符合预期（intro loading 仍显示但不 await）
       try{
         const r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
         if(!r.ok)throw new Error(`API 错误 (${r.status})`);
@@ -940,11 +938,7 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
       return;
     }
     const uid=genUid();const ts=Date.now();
-    if (rhythm.slow) {
-      const slowLoading = addLoadingWithIntroDOM(rhythm.introText);
-      await new Promise(res => setTimeout(res, rhythm.delay));
-      slowLoading.remove();
-    }
+    // 完全不延迟：锁屏冻结会打断 setTimeout，且瞬时发送更符合预期
     const {div,bubbles}=createMessageSkeleton('assistant',uid,ts);
     if(recallItems && recallItems.length > 0){
       const c=document.createElement('div');
