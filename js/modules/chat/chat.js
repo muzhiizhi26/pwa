@@ -32,16 +32,25 @@ export function saveHistory() {
     try { localStorage.setItem(key, JSON.stringify(cleanHistory.slice(-50))); } catch (ee) {}
   }
 }
-export function loadHistory() {
+export async function loadHistory() {
   const id = currentPrivateAiId();
   const key = id === 'main' ? 'chatHistory' : `chatHistory_${id}`;
+  let parsed = [];
   try {
     const raw = localStorage.getItem(key);
-    if (raw) { window.conversationHistory = JSON.parse(raw) || []; return; }
-  } catch (e) { window.conversationHistory = []; }
-  if (typeof HistoryBackupDB !== 'undefined') {
-    HistoryBackupDB.get(key).then(d => { if (d && Array.isArray(d)) window.conversationHistory = d; }).catch(() => {});
+    if (raw) parsed = JSON.parse(raw) || [];
+  } catch (e) { parsed = []; }
+  // localStorage 可能因配额被截断为缓存：始终与 IndexedDB 全量备份比较，取更长的一份恢复
+  if (typeof HistoryBackupDB !== 'undefined' && HistoryBackupDB.get) {
+    try {
+      const backup = await HistoryBackupDB.get(key);
+      if (backup && Array.isArray(backup) && backup.length > parsed.length) {
+        parsed = backup;
+        try { localStorage.setItem(key, JSON.stringify(parsed)); } catch (ee) {}
+      }
+    } catch (ee) {}
   }
+  window.conversationHistory = parsed;
 }
 export function getMsg(uid) { return getHistory().find(m => m.uid === uid); }
 export function getMsgDiv(uid) { return document.querySelector(`.message[data-uid="${uid}"]`); }
