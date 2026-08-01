@@ -880,8 +880,8 @@ chatRequestInFlightKey=requestKey;
 if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',provider:provider.id||provider.name||'',model:useModel,messages,promptChars:JSON.stringify(messages||[]).length,meta:{stream,hasImage:!!currentImage}});
 
     if(!stream){
-      const loading=rhythm.slow ? addLoadingWithIntroDOM(rhythm.introText) : addLoadingDOM();
-      // 完全不延迟：锁屏冻结会打断 setTimeout，且瞬时发送更符合预期（intro loading 仍显示但不 await）
+      const loading=addLoadingDOM();
+      // 完全不延迟、无开场白：瞬时发送，AI 直接回正文
       try{
         const r = await fetch(url,{method:'POST',headers,body:JSON.stringify(body)});
         if(!r.ok)throw new Error(`API 错误 (${r.status})`);
@@ -899,9 +899,6 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
         loading.remove();
         const m=d.choices?.[0]?.message;
         let reply=m?.content||d.content?.[0]?.text||'无响应';
-        if (rhythm.slow && rhythm.introText) {
-          reply = rhythm.introText + '\n' + reply;
-        }
         const reasoning=m?.reasoning_content||'';
         const uid=genUid();
         const ts=Date.now();
@@ -969,12 +966,6 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
         </div>
       `;
       bubbles.parentNode.insertBefore(c,bubbles);
-    }
-    if (rhythm.slow && rhythm.introText) {
-      const introBubble = document.createElement('div');
-      introBubble.className = 'bubble';
-      introBubble.innerText = rhythm.introText;
-      bubbles.appendChild(introBubble);
     }
     const streamBubble=document.createElement('div');
     streamBubble.className='bubble';
@@ -1063,7 +1054,7 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
       if(!started && !full) full = '无响应';
       const display=(typeof cleanAiText==='function'?cleanAiText(full):full);
       if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-output',provider:provider.id||provider.name||'',model:useModel,inputTokens:0,output:display,meta:{stream:true}});
-      const finalDisplay = (rhythm.slow && rhythm.introText) ? (rhythm.introText + '\n' + display) : display;
+      const finalDisplay = display;
       bubbles.innerHTML='';
       const linesOut=splitToBubbles(finalDisplay);
       (linesOut.length?linesOut:[finalDisplay]).forEach(line=>{
