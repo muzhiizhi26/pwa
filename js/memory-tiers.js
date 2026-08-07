@@ -618,9 +618,10 @@ const ContextAggregator = {
     const compiledFragments = {};
     const durations = {};
 
-    for (const provider of this.providers) {
+    // 并行编译所有 provider（它们之间无依赖，串行 await 会累加全部耗时）
+    await Promise.all(this.providers.map(async (provider) => {
       if (provider.condition && typeof provider.condition === 'function') {
-        if (!provider.condition(ctx)) continue;
+        if (!provider.condition(ctx)) return;
       }
 
       const pStartTime = Date.now();
@@ -632,7 +633,7 @@ const ContextAggregator = {
         compiledFragments[provider.id] = '';
       }
       durations[provider.id] = Date.now() - pStartTime;
-    }
+    }));
 
     // ==========================================
     // 📦 Pipeline Phase 3: COMPRESSION (Token 预算动态梯度裁切)
