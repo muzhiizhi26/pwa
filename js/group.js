@@ -457,7 +457,17 @@ async function groupMemberReply(mem,userText){
              (mem.contextLimit === 'unlimited' ? Infinity : parseInt(mem.contextLimit)) : 
              getGroupContextLimit();
   const sliceCount = (cl === Infinity || isNaN(cl)) ? groupHistory.length : cl;
-  const recent=groupHistory.slice(-sliceCount).map(m=>`${m.role==='user'?'用户':(memberById(m.memberId)?.name||m.name||'AI')}：${m.content}`).join('\n');
+  // 字符预算兜底：从尾部累积，即使群聊上下文设为"不限制"，也防止拼接文本撑爆模型 context window
+  const recentSlice = groupHistory.slice(-sliceCount);
+  let recentArr = [], recentUsed = 0;
+  for (let i = recentSlice.length - 1; i >= 0; i--) {
+    const m = recentSlice[i];
+    const line = `${m.role==='user'?'用户':(memberById(m.memberId)?.name||m.name||'AI')}：${m.content}`;
+    if (recentArr.length && recentUsed + line.length > 12000) break;
+    recentArr.unshift(line);
+    recentUsed += line.length;
+  }
+  const recent = recentArr.join('\n');
   
   // 计算用户静默期间 AI 连续发言数
   let consecutiveAiCount = 0;

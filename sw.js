@@ -1,4 +1,4 @@
-const CACHE_NAME = 'morandi-ai-v23';
+const CACHE_NAME = 'morandi-ai-v24';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

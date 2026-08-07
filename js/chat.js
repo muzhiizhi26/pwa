@@ -696,7 +696,7 @@ async function requestAI(currentImage=null,queryText='',currentAudio=null){
   let useModel=selectedModelName;
   // 副AI私聊：确保 group.js 已加载，使用成员独立的模型配置
   if (currentAi !== 'main' && typeof window.LazyLoader !== 'undefined') {
-    await window.LazyLoader.load('js/group.js?v=20260807-fix-compress').catch(() => {});
+    await window.LazyLoader.load('js/group.js?v=20260807-group-budget').catch(() => {});
   }
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[];
   const mem=members.find(m=>m.id===currentAi);
