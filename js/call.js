@@ -480,7 +480,7 @@ async function callRequestAI(query){
   }else{
     sp=await composeSystemPrompt(query,recallItems,'（语音通话，请用简洁口语化中文回答，避免列表与符号。）');
   }
-  const shortTerm=ctxSlice(conversationHistory).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));
+  const shortTerm=ctxSliceByBudget(ctxSlice(conversationHistory),12000).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));
   const messages=[{role:'system',content:sp},...shortTerm];
   let endpoint1=(provider.endpoint||'').trim();if(!endpoint1)throw new Error('未配置 API Endpoint');if(!/^https?:\/\//i.test(endpoint1))endpoint1='https://'+endpoint1;let url=endpoint1.replace(/\/+$/,'');if(!url.includes('/chat/completions')&&!url.includes('messages')&&!url.includes('/v1/chat'))url+='/chat/completions';
   const headers={'Content-Type':'application/json'};const cleanKey1=(apiKey||'').trim();if(cleanKey1){if(provider.auth==='Bearer')headers['Authorization']=`Bearer ${cleanKey1}`;else if(provider.auth==='x-api-key')headers['x-api-key']=cleanKey1;else if(provider.auth==='x-goog-api-key')headers['x-goog-api-key']=cleanKey1;}

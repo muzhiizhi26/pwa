@@ -87,6 +87,18 @@ function getImgWH(){
 /* 上下文裁剪 */
 function getContextLimit(){const v=localStorage.getItem('context_limit');if(v==null)return 100;if(v==='unlimited')return Infinity;const n=parseInt(v);return isNaN(n)?100:n;}
 function ctxSlice(arr){const l=getContextLimit();if(l===Infinity)return arr.slice();if(l<=0)return [];return arr.slice(-l);}
+// 按字符预算从尾部截断：即使上下文设为"不限制"，也防止 system+history 总长撑爆模型 context window
+function ctxSliceByBudget(arr, maxChars=12000){
+  const src=Array.isArray(arr)?arr:[];
+  const out=[];let used=0;
+  for(let i=src.length-1;i>=0;i--){
+    const m=src[i];
+    const len=(m&&(m.content||m.text||'')||'').length+80; // +80 覆盖 role/结构开销
+    if(out.length&&used+len>maxChars)break;
+    out.unshift(m);used+=len;
+  }
+  return out;
+}
 
 /* 偏好开关 */
 function streamEnabled(){return localStorage.getItem('stream_output')!=='false';}

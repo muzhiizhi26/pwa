@@ -683,9 +683,9 @@ async function recall(query,aiId){
   
   const top=scored.slice(0,ragTopK());
   
-  // 近期记忆保底：最近2分钟内的记忆跳过语义匹配，直接纳入召回
+  // 近期记忆保底：最近2分钟内的记忆跳过语义匹配，直接纳入召回（限制条数，防止上下文膨胀）
   const recentCutoff = Date.now() - 120000;
-  const recentMemories = filtered.filter(r => (r.ts || 0) > recentCutoff && !top.some(t => t.id === r.id));
+  const recentMemories = filtered.filter(r => (r.ts || 0) > recentCutoff && !top.some(t => t.id === r.id)).slice(0, 3);
   recentMemories.forEach(r => {
     r.sim = Math.max(r.sim || 0, 0.5);
     r.score = 0.8;

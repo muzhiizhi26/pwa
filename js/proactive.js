@@ -344,7 +344,7 @@ async function triggerProactive(extraInstruction){
     if(ragEnabled()&&lastUser){try{recallItems=await recall(lastUser);}catch(e){}}
     
     const sp=await composeSystemPrompt(lastUser,recallItems,activePromptText);
-    const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));
+    const shortTerm=ctxSliceByBudget(ctxSlice(conversationHistory).filter(m=>!m.image),12000).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));
     const messages=[{role:'system',content:sp},...shortTerm,{role:'user',content:'(系统：到达主动联系时机，请主动发起一句话)'}];
     
     let endpoint=(provider.endpoint||'').trim();

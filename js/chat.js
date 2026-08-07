@@ -789,7 +789,8 @@ let sp = await composeSystemPrompt(q, recallItems, null, currentAi);
       }
     }
   }
-const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));
+// 先按条数限制（用户设置），再按字符预算兜底：防止 system+history 总长撑爆模型 context window
+const shortTerm=ctxSliceByBudget(ctxSlice(conversationHistory).filter(m=>!m.image),12000).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));
 const messages=[{role:'system',content:sp},...shortTerm];
 
 let endpoint = (provider.endpoint || '').trim();
