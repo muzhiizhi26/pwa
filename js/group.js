@@ -589,6 +589,7 @@ async function compressGroupChat(silent){
     
     const uid = genUid();
     const ts = Date.now();
+    // 修复：压缩不再把完整群聊重置为单条摘要——保留全部旧消息（标记 compressed），摘要置于最前，本地历史与 IndexedDB 备份均不丢失
     groupHistory = [{
       role: 'assistant',
       name: '群记忆助手',
@@ -597,7 +598,7 @@ async function compressGroupChat(silent){
       uid,
       ts,
       compressed: true
-    }];
+    }, ...groupHistory.map(m => ({ ...m, compressed: true }))];
     saveGroupHistory(groupHistory);
     
     // 🎭 压缩群聊成功后，群体文化发生良性沉淀演化

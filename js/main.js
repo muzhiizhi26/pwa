@@ -84,7 +84,7 @@ window.onload=async()=>{
       // 如果需要进入群聊，直接通过动态加载打开
       if (typeof LazyLoader !== 'undefined') {
         Promise.all([
-          window.LazyLoader.load('js/group.js?v=20260708'),
+          window.LazyLoader.load('js/group.js?v=20260807-fix-compress'),
           window.Runtime.ensureGroupModel()
         ]).then(() => {
           if(typeof openGroupChat === 'function') openGroupChat();
@@ -111,7 +111,7 @@ window.onload=async()=>{
         'js/songcraft.js?v=20260708',
         'js/ebook.js?v=20260708',
         'js/imagegen.js?v=20260719',
-        'js/group.js?v=20260708',
+        'js/group.js?v=20260807-fix-compress',
         'js/project-context.js?v=20260714',
         'js/code-analyzer.js?v=20260714'
       ];

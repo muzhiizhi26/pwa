@@ -66,7 +66,7 @@ function openDiary(){
   renderDiaryList();
   // 确保 group.js 已加载，副AI列表可用
   if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
-    window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+    window.LazyLoader.load('js/group.js?v=20260807-fix-compress').catch(() => {});
   }
 }
 function closeDiary(){
@@ -119,7 +119,7 @@ async function deleteDiary(id){if(!confirm('删除这篇日记？'))return;await
 async function writeUserDiary(){
   // 确保 group.js 已加载（副AI列表）
   if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
-    await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+    await window.LazyLoader.load('js/group.js?v=20260807-fix-compress').catch(() => {});
   }
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{name:'主AI'}];
   const list = ['1. 我自己 (User)'].concat(members.map((m, i)=>`${i+2}. ${m.name}`));
@@ -145,7 +145,7 @@ async function writeUserDiary(){
 async function aiWriteDiaryBy(memberName){
   // 确保 group.js 已加载（副AI列表）
   if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
-    await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+    await window.LazyLoader.load('js/group.js?v=20260807-fix-compress').catch(() => {});
   }
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{id:'main',name:'主AI',isMain:true}];
   const mem=members.find(m=>m.name===memberName)||members[0];
@@ -207,7 +207,7 @@ async function aiWriteDiaryBy(memberName){
 async function aiWriteDiary(){
   // 确保 group.js 已加载（副AI列表）
   if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
-    await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+    await window.LazyLoader.load('js/group.js?v=20260807-fix-compress').catch(() => {});
   }
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{name:'主AI'}];
   if(members.length===1){aiWriteDiaryBy(members[0].name);return;}

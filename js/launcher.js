@@ -187,7 +187,7 @@ function launcherOpen(action){
       } else {
         showToast('正在加载群聊及群模型模块...');
         Promise.all([
-          window.LazyLoader.load('js/group.js?v=20260708'),
+          window.LazyLoader.load('js/group.js?v=20260807-fix-compress'),
           window.Runtime.ensureGroupModel()
         ]).then(() => {
           if (typeof openGroupChat === 'function') openGroupChat();

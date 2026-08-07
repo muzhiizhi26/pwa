@@ -674,7 +674,7 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     // 所有 AI（主AI + 所有副AI）都自动进行跟帖评论
     // 确保 group.js 已加载（副AI列表）
     if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
-      try { await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {}); } catch(e) {}
+      try { await window.LazyLoader.load('js/group.js?v=20260807-fix-compress').catch(() => {}); } catch(e) {}
     }
     const allAiMembers = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
     
@@ -800,7 +800,7 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     
     // 如果 getGroupMembers 不可用，尝试懒加载 group.js 后再获取
     if (typeof getGroupMembers !== 'function' && window.LazyLoader) {
-      window.LazyLoader.load('js/group.js?v=20260708').then(() => {
+      window.LazyLoader.load('js/group.js?v=20260807-fix-compress').then(() => {
         // 加载后重新渲染发布身份选项（但不等当前渲染）
         const loadedMembers = (typeof getGroupMembers === 'function') ? getGroupMembers() : [];
         loadedMembers.forEach(mem => {
