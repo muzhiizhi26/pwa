@@ -221,7 +221,7 @@ function makeChatRequestKey(provider, model, body, url) {
 }
 
 function isStrictSingleApiChatMode() {
-  return typeof strictSingleApiMode === 'function' ? strictSingleApiMode() : localStorage.getItem('single_api_per_message') !== 'false';
+  return typeof strictSingleApiMode === 'function' ? strictSingleApiMode() : localStorage.getItem('single_api_per_message') === 'true';
 }
 
 async function sendMessage(){
@@ -1224,16 +1224,21 @@ async function loadHistory(){
   if(s){
     try{
       const parsed = JSON.parse(s);
-      // Safari localStorage 可能被截断：如果数据偏少，尝试从 IndexedDB 恢复完整数据
-      if (parsed.length < 50 && typeof HistoryBackupDB !== 'undefined' && HistoryBackupDB.get) {
+      // 对比 localStorage 与 IndexedDB 备份，按"最后一条消息时间"取更新的那份，避免旧备份覆盖新记录
+      if (typeof HistoryBackupDB !== 'undefined' && HistoryBackupDB.get) {
         try {
           const backup = await HistoryBackupDB.get(key);
-          if (backup && Array.isArray(backup) && backup.length > parsed.length) {
-            conversationHistory = backup;
-            renderList(conversationHistory);
-            localStorage.setItem(key, JSON.stringify(conversationHistory));
-            showToast('🔄 已从 IndexedDB 恢复完整聊天记录');
-            return;
+          if (backup && Array.isArray(backup) && backup.length > 0) {
+            const parsedLastTs = parsed.length ? Math.max(...parsed.map(m => m.ts || 0)) : 0;
+            const backupLastTs = Math.max(...backup.map(m => m.ts || 0));
+            // 备份更新 → 用备份；否则用 localStorage（本地通常是最新的）
+            if (backupLastTs > parsedLastTs) {
+              conversationHistory = backup;
+              renderList(conversationHistory);
+              localStorage.setItem(key, JSON.stringify(conversationHistory));
+              showToast('🔄 已从 IndexedDB 恢复最新聊天记录');
+              return;
+            }
           }
         } catch(ee) {}
       }
