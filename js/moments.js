@@ -224,6 +224,18 @@ const MomentsEngine = {
   },
 
   enqueue(type, data) {
+    // 去重：5秒内同类型同内容的任务合并，防重复触发（检查本队列中 pending 任务）
+    const now = Date.now();
+    const dupKey = type + ':' + (data?.text || data?.event?.type || data?.aiId || '');
+    const existing = this.getQueue().find(t =>
+      t.status === 'pending' &&
+      (t.type + ':' + (t.data?.text || t.data?.event?.type || t.data?.aiId || '')) === dupKey &&
+      (now - (t.created_at || 0)) < 5000
+    );
+    if (existing) {
+      console.log(`[MomentsQueue] Dedup merged: ${type}`);
+      return;
+    }
     const queue = this.getQueue();
     const task = {
       id: 'task_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),

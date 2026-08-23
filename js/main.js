@@ -1,5 +1,18 @@
 /* ===== 初始化与全局事件绑定 ===== */
 window.onload=async()=>{
+  // DEBUG 开关：默认关闭 console.log 输出（保留 warn/error 用于错误排查）
+  try {
+    if (localStorage.getItem('debug_mode') !== 'true') {
+      const _origLog = console.log.bind(console);
+      console.log = function() {};
+      // 保留关键调试入口：可在控制台手动开启 window.__enableDebug()
+      window.__enableDebug = () => { console.log = _origLog; window.__isDebugEnabled = () => true; };
+      window.__isDebugEnabled = () => false;
+    } else {
+      window.__enableDebug = () => {};
+      window.__isDebugEnabled = () => true;
+    }
+  } catch (e) {}
   // 初始化 🧠 Cognitive OS Runtime (仅核心，次核心后台预加载)
   if (window.Runtime && typeof window.Runtime.init === 'function') {
     await window.Runtime.init();
@@ -17,6 +30,32 @@ window.onload=async()=>{
   }
 
   try { initTheme(); } catch (e) { console.error('initTheme failed', e); }
+  // 初始化 API 调度器（去重 + 队列 + Token 预算）
+  try {
+    if (window.ApiScheduler && typeof window.ApiScheduler.init === 'function') {
+      window.ApiScheduler.init();
+    }
+  } catch (e) { console.error('ApiScheduler init failed', e); }
+  // 初始化全局异常边界：统一捕获未处理异常/拒绝，记录到 TraceCenter
+  try {
+    if (window.ErrorBoundary && typeof window.ErrorBoundary.init === 'function') {
+      window.ErrorBoundary.init();
+      if (typeof window.ErrorBoundary.handleError === 'function') {
+        window.addEventListener('error', (ev) => {
+          window.ErrorBoundary.handleError('global', 'error', ev?.error || new Error(ev?.message || 'Uncaught error'), null);
+        });
+        window.addEventListener('unhandledrejection', (ev) => {
+          window.ErrorBoundary.handleError('global', 'unhandledrejection', ev?.reason || new Error('Unhandled rejection'), null);
+        });
+      }
+    }
+  } catch (e) { console.error('ErrorBoundary init failed', e); }
+  // 初始化统一存储管理器：容量检查 + 音频/配置分层存储（chat.js 已接入 saveAudio/getAudio）
+  try {
+    if (window.StorageManager && typeof window.StorageManager.init === 'function') {
+      await window.StorageManager.init();
+    }
+  } catch (e) { console.error('StorageManager init failed', e); }
   try { setupAppIcon(); } catch (e) { console.error('setupAppIcon failed', e); }
   try { applyFontSize(); } catch (e) { console.error('applyFontSize failed', e); }
   try { if (typeof applyRelationshipDecay === 'function') applyRelationshipDecay(); } catch (e) { console.error('applyRelationshipDecay failed', e); }
