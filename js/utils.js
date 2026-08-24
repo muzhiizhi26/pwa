@@ -86,7 +86,16 @@ function getImgWH(){
 
 /* 上下文裁剪 */
 function getContextLimit(){const v=localStorage.getItem('context_limit');if(v==null)return 12;if(v==='unlimited')return Infinity;const n=parseInt(v);return isNaN(n)?12:n;}
-function ctxSlice(arr){const l=getContextLimit();if(l===Infinity)return arr.slice();if(l<=0)return [];return arr.slice(-l);}
+function ctxSlice(arr){
+  const l=getContextLimit();
+  if(l===Infinity){
+    // 无限制时仍设合理硬上限，防止海量历史导致 token 爆炸、回复极慢
+    const MAX_UNLIMITED = 200;
+    return arr.length > MAX_UNLIMITED ? arr.slice(-MAX_UNLIMITED) : arr.slice();
+  }
+  if(l<=0)return [];
+  return arr.slice(-l);
+}
 
 /* 偏好开关 */
 function streamEnabled(){return localStorage.getItem('stream_output')!=='false';}

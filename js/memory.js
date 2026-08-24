@@ -1,10 +1,22 @@
 /* ===== 向量库 + 嵌入 + RAG（含情绪标记/遗忘曲线/关联网络/回忆计数）===== */
 const VDB=(()=>{
 const LOCAL_FALLBACK_KEY='vdb_local_backup';
+let _fallbackCache = null;
+let _fallbackCacheTs = 0;
 function fallbackRead(){
-  try{const raw=localStorage.getItem(LOCAL_FALLBACK_KEY);return raw?JSON.parse(raw):[];}catch(e){return [];}
+  // 缓存 localStorage 降级数据（2秒内复用），避免 recall 高频读取拖慢 AI 回复
+  const now = Date.now();
+  if (_fallbackCache && (now - _fallbackCacheTs) < 2000) return _fallbackCache;
+  try{
+    const raw=localStorage.getItem(LOCAL_FALLBACK_KEY);
+    _fallbackCache = raw?JSON.parse(raw):[];
+    _fallbackCacheTs = now;
+    return _fallbackCache;
+  }catch(e){return [];}
 }
 function fallbackWrite(recs){
+  _fallbackCache = recs;
+  _fallbackCacheTs = Date.now();
   try{localStorage.setItem(LOCAL_FALLBACK_KEY, JSON.stringify(recs.slice(-300)));}catch(e){}
 }
 function graphUsable(){

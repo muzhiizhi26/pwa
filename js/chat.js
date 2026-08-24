@@ -701,8 +701,11 @@ async function requestAI(currentImage=null,queryText='',currentAudio=null){
   let useProvider=getCurrentProvider();
   let useModel=selectedModelName;
   // 副AI私聊：确保 group.js 已加载，使用成员独立的模型配置
+  // 非阻塞：已加载则跳过，未加载时后台加载，不阻塞 AI 请求链路
   if (currentAi !== 'main' && typeof window.LazyLoader !== 'undefined') {
-    await window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+    if (typeof getGroupMembers !== 'function') {
+      window.LazyLoader.load('js/group.js?v=20260708').catch(() => {});
+    }
   }
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[];
   const mem=members.find(m=>m.id===currentAi);
