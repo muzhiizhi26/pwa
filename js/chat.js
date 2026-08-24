@@ -299,11 +299,16 @@ async function sendMessage(){
         try { processProactiveFeedback(text); } catch (e) { console.error('[sendMessage] processProactiveFeedback failed:', e); }
       }
       if (typeof bumpMsgCounter === 'function') { try { bumpMsgCounter(); } catch (e) {} }
-      if(!isStrictSingleApiChatMode()&&typeof maybeUpdateLongTerm==='function') {
+      // 长期记忆更新是核心记忆功能，不受严格单API模式限制（内部有 rag_enabled 开关兜底）
+      if(typeof maybeUpdateLongTerm==='function') {
         try { maybeUpdateLongTerm(text); } catch (e) {}
       }
       if(typeof bumpPrivateChatCount==='function') {
         try { bumpPrivateChatCount(currentPrivateAiId()); } catch (e) {}
+      }
+      // 羁绊点数日常增长：每次聊天 +1（仅主AI，后台反思/自省事件另有加成）
+      if(typeof bumpEvolutionPoints==='function') {
+        try { bumpEvolutionPoints(currentPrivateAiId(), 1, '日常暖心陪伴'); } catch (e) {}
       }
     }
     input.value='';
@@ -315,7 +320,8 @@ async function sendMessage(){
     }
     await requestAI(img,text);
     if (typeof maybeAutoCompress === 'function') { try { maybeAutoCompress(); } catch(e) {} }
-    if(!isStrictSingleApiChatMode()&&typeof maybeUpdateMidterm==='function') { try { maybeUpdateMidterm(); } catch(e) {} }
+    // 中期记忆是核心记忆功能，不受严格单API模式限制（内部有 midterm_enabled 开关 + 间隔检查兜底）
+    if(typeof maybeUpdateMidterm==='function') { try { maybeUpdateMidterm(); } catch(e) {} }
   } catch (err) {
     console.error('Error in sendMessage:', err);
     try { if (typeof showToast === 'function') showToast('❌ 发送遇到异常: ' + (err.message || err)); } catch(e){}

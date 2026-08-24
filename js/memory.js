@@ -1,41 +1,74 @@
 /* ===== 向量库 + 嵌入 + RAG（含情绪标记/遗忘曲线/关联网络/回忆计数）===== */
 const VDB=(()=>{
+const LOCAL_FALLBACK_KEY='vdb_local_backup';
+function fallbackRead(){
+  try{const raw=localStorage.getItem(LOCAL_FALLBACK_KEY);return raw?JSON.parse(raw):[];}catch(e){return [];}
+}
+function fallbackWrite(recs){
+  try{localStorage.setItem(LOCAL_FALLBACK_KEY, JSON.stringify(recs.slice(-300)));}catch(e){}
+}
+function graphUsable(){
+  return typeof window.MemoryGraph!=='undefined' && window.MemoryGraph._db;
+}
 async function put(rec){
-  if (window.MemoryGraph) {
-    const node = window.MemoryGraph.fromVDBRecord(rec);
-    await window.MemoryGraph.addNode(node);
+  if (graphUsable()) {
+    try {
+      const node = window.MemoryGraph.fromVDBRecord(rec);
+      await window.MemoryGraph.addNode(node);
+      return;
+    } catch (e) {
+      console.warn('[VDB] MemoryGraph put failed, fallback to localStorage:', e.message);
+    }
   }
+  // 降级：IndexedDB/MemoryGraph 不可用时写入 localStorage 备份，防止记忆静默丢失
+  const recs = fallbackRead();
+  recs.push(rec);
+  fallbackWrite(recs);
 }
 async function del(id){
-  if (window.MemoryGraph) {
-    await window.MemoryGraph.deleteNode(id);
+  if (graphUsable()) {
+    try { await window.MemoryGraph.deleteNode(id); return; }
+    catch (e) { console.warn('[VDB] MemoryGraph del failed:', e.message); }
   }
+  const recs = fallbackRead().filter(r => r.id !== id);
+  fallbackWrite(recs);
 }
 async function all(){
-  if (window.MemoryGraph) {
-    const nodes = await window.MemoryGraph.getAllNodes();
-    return nodes.map(n => window.MemoryGraph.toVDBRecord(n)).filter(r => r && r.vector !== undefined);
+  if (graphUsable()) {
+    try {
+      const nodes = await window.MemoryGraph.getAllNodes();
+      const mapped = nodes.map(n => window.MemoryGraph.toVDBRecord(n)).filter(r => r && r.vector !== undefined);
+      // 合并 localStorage 降级数据（可能含 MemoryGraph 初始化前写入的记忆）
+      const fb = fallbackRead();
+      if (fb.length) {
+        const ids = new Set(mapped.map(r => r.id));
+        fb.forEach(r => { if (!ids.has(r.id)) mapped.push(r); });
+      }
+      return mapped;
+    } catch (e) {
+      console.warn('[VDB] MemoryGraph all failed, fallback to localStorage:', e.message);
+    }
   }
-  return [];
+  return fallbackRead();
 }
 async function count(){
-  if (window.MemoryGraph) {
-    const allRecords = await all();
-    return allRecords.length;
-  }
-  return 0;
+  const allRecords = await all();
+  return allRecords.length;
 }
 async function clear(){
-  if (window.MemoryGraph) {
-    await window.MemoryGraph.clear();
+  if (graphUsable()) {
+    try { await window.MemoryGraph.clear(); } catch (e) { console.warn('[VDB] MemoryGraph clear failed:', e.message); }
   }
+  localStorage.removeItem(LOCAL_FALLBACK_KEY);
 }
 async function get(id){
-  if (window.MemoryGraph) {
-    const node = await window.MemoryGraph.getNode(id);
-    return node ? window.MemoryGraph.toVDBRecord(node) : null;
+  if (graphUsable()) {
+    try {
+      const node = await window.MemoryGraph.getNode(id);
+      return node ? window.MemoryGraph.toVDBRecord(node) : null;
+    } catch (e) { console.warn('[VDB] MemoryGraph get failed:', e.message); }
   }
-  return null;
+  return fallbackRead().find(r => r.id === id) || null;
 }
 async function deleteBatch(ids) {
   if (!ids || !ids.length) return;

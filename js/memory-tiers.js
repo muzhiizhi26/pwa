@@ -254,7 +254,8 @@ async function processAiReplyMemory(reply, memberId){
   const cm=reply.match(/【确认[:：]([^=：】]+)[=＝]([^】]+)】/);
   if(cm){const key=cm[1].trim(),val=cm[2].trim();const ok=await showMemoryConfirm(key,val);if(ok){const cur=getLongTermProfile();const line=`- ${key}：${val}`;setLongTermProfile(cur?(cur+'\n'+line):line,'ai');showToast('🗂️ 已记入长期档案');}}
 
-  if (typeof triggerMemoryEventBus === 'function' && !(typeof strictSingleApiMode === 'function' && strictSingleApiMode())) {
+  // 记忆事件总线是核心记忆功能（朋友圈/日记/事件记忆），不受严格单API模式限制
+  if (typeof triggerMemoryEventBus === 'function') {
     let lastUserText = '';
     const groupOpen = document.getElementById('groupPanel')?.classList.contains('show');
     if (groupOpen && typeof getGroupHistory === 'function') {
