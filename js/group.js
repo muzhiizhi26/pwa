@@ -32,26 +32,32 @@ function saveGroupHistory(h){
 }
 let groupHistory = [];
 async function initGroupHistory() {
+  // 合并恢复：localStorage（同步写入，最新）优先，IndexedDB（异步全量）补充更早历史
+  let idb = null, ls = [];
   try {
     if (typeof HistoryBackupDB !== 'undefined') {
       const backup = await HistoryBackupDB.get('group_history');
-      if (backup && Array.isArray(backup) && backup.length > 0) {
-        groupHistory = backup;
-        return;
-      }
+      if (backup && Array.isArray(backup) && backup.length > 0) idb = backup;
     }
   } catch (e) {
     console.error('[GroupHistory] Failed to load from IndexedDB:', e);
   }
-  
-  // 兜底从 localStorage 读取
   try {
     const rawHist = localStorage.getItem('group_history');
-    if (rawHist) {
-      groupHistory = JSON.parse(rawHist) || [];
-    }
-  } catch (e) {
-    groupHistory = [];
+    if (rawHist) ls = JSON.parse(rawHist) || [];
+  } catch (e) { ls = []; }
+
+  if (ls.length > 0) {
+    // localStorage 是最新记录（同步写入）；IndexedDB 补充 localStorage 没有的更早消息
+    const lsUids = new Set(ls.map(m => m.uid));
+    const olderFromIdb = (idb || []).filter(m => m && !lsUids.has(m.uid));
+    groupHistory = olderFromIdb.concat(ls);
+    // 按时间排序，保证展示顺序正确
+    groupHistory.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  } else if (idb && idb.length > 0) {
+    groupHistory = idb;
+  } else {
+    groupHistory = ls;
   }
 }
 let groupReplying=false,groupQuote=null,gCtxUid=null;

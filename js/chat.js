@@ -1224,27 +1224,28 @@ async function loadHistory(){
   if(s){
     try{
       const parsed = JSON.parse(s);
-      // 对比 localStorage 与 IndexedDB 备份，按"最后一条消息时间"取更新的那份，避免旧备份覆盖新记录
-      if (typeof HistoryBackupDB !== 'undefined' && HistoryBackupDB.get) {
-        try {
-          const backup = await HistoryBackupDB.get(key);
-          if (backup && Array.isArray(backup) && backup.length > 0) {
-            const parsedLastTs = parsed.length ? Math.max(...parsed.map(m => m.ts || 0)) : 0;
-            const backupLastTs = Math.max(...backup.map(m => m.ts || 0));
-            // 备份更新 → 用备份；否则用 localStorage（本地通常是最新的）
-            if (backupLastTs > parsedLastTs) {
-              conversationHistory = backup;
-              renderList(conversationHistory);
-              localStorage.setItem(key, JSON.stringify(conversationHistory));
-              showToast('🔄 已从 IndexedDB 恢复最新聊天记录');
-              return;
-            }
-          }
-        } catch(ee) {}
-      }
+      // localStorage 由 saveHistory 双写保证最新（同步写入优先于 IndexedDB 异步备份）
+      // 不再用"条数/时间戳比较"选择备份——旧备份或被污染时间戳会导致覆盖丢失新记录
       conversationHistory = parsed;
       renderList(conversationHistory);
-    }catch(e){}
+    }catch(e){
+      // localStorage 解析失败 → 从 IndexedDB 恢复
+      try {
+        if (typeof HistoryBackupDB !== 'undefined') {
+          const backup = await HistoryBackupDB.get(key);
+          if (backup && Array.isArray(backup) && backup.length > 0) {
+            conversationHistory = backup;
+            renderList(conversationHistory);
+            localStorage.setItem(key, JSON.stringify(conversationHistory));
+            showToast('🔄 已从 IndexedDB 恢复聊天历史记录');
+          } else {
+            conversationHistory = [];
+          }
+        } else {
+          conversationHistory = [];
+        }
+      } catch(ee) { conversationHistory = []; }
+    }
   } else {
     // If empty in localStorage, try restoring from IndexedDB
     try {
