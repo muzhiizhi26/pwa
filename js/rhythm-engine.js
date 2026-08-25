@@ -155,11 +155,12 @@ const RhythmEngine = {
 
     if (slow) {
       // 动态延迟计算 (根据 Level 越高，需要的延迟沉淀越微妙)
-      let baseDelay = 1200;
-      if (rhythmLevel === 2) baseDelay = 1600;
-      if (rhythmLevel === 3) baseDelay = 2000;
+      // 延迟收紧：保留"活人感"打字节奏但显著加快（原 1200-3500ms → 400-1100ms）
+      let baseDelay = 400;
+      if (rhythmLevel === 2) baseDelay = 600;
+      if (rhythmLevel === 3) baseDelay = 800;
       
-      const delay = baseDelay + Math.floor(Math.random() * 1500);
+      const delay = baseDelay + Math.floor(Math.random() * 300);
       
       // 情绪和角色的呼吸式初始反馈，用于「心智留白」
       const intros = [

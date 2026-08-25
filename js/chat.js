@@ -1197,6 +1197,13 @@ function saveHistory(){
     }
     if(conversationHistory.length>10 && !window._savingHistoryRetry){
       window._savingHistoryRetry = true;
+      // 优先释放空间：VDB 降级备份（向量数据占空间大，可重建）→ 再瘦身图片
+      try {
+        localStorage.removeItem('vdb_local_backup');
+        localStorage.setItem(key, JSON.stringify(cleanHistory));
+        window._savingHistoryRetry = false;
+        return;
+      } catch(e2) {}
       // 尽可能多保留：移除图片数据再试，而不是直接砍条数
       const slimHistory = cleanHistory.map(m => {
         if (m.image) return { ...m, image: '[图片]' };

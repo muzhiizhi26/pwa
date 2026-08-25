@@ -1,6 +1,7 @@
 /* ===== 向量库 + 嵌入 + RAG（含情绪标记/遗忘曲线/关联网络/回忆计数）===== */
 const VDB=(()=>{
 const LOCAL_FALLBACK_KEY='vdb_local_backup';
+const LOCAL_FALLBACK_MAX = 50; // 降级备份上限：50条，防止向量数据挤占 localStorage 导致聊天记录溢出丢失
 let _fallbackCache = null;
 let _fallbackCacheTs = 0;
 function fallbackRead(){
@@ -17,7 +18,7 @@ function fallbackRead(){
 function fallbackWrite(recs){
   _fallbackCache = recs;
   _fallbackCacheTs = Date.now();
-  try{localStorage.setItem(LOCAL_FALLBACK_KEY, JSON.stringify(recs.slice(-300)));}catch(e){}
+  try{localStorage.setItem(LOCAL_FALLBACK_KEY, JSON.stringify(recs.slice(-LOCAL_FALLBACK_MAX)));}catch(e){}
 }
 function graphUsable(){
   return typeof window.MemoryGraph!=='undefined' && window.MemoryGraph._db;
