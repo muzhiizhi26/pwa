@@ -99,21 +99,7 @@ async function saveDiaryEntry(author,name,content){
   if(!content||!content.trim())return;
   await DIARY_DB.put({id:'d_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),author,name:name||'',content:content.trim(),ts:Date.now()});
   if(document.getElementById('diaryPanel').classList.contains('show')){buildDiaryTabs();renderDiaryList();}
-  // AI 写日记后自动生成朋友圈动态
-  if (author === 'ai' && typeof MomentsEngine !== 'undefined' && typeof MomentsEngine.generateAiMoment === 'function') {
-    try {
-      // 根据 AI 名字查找成员 ID，确保朋友圈正确归属
-      let aiId = 'main';
-      if (name !== (localStorage.getItem('ai_name') || '主AI') && typeof getGroupMembers === 'function') {
-        const members = getGroupMembers();
-        const mem = members.find(m => m.name === name);
-        if (mem) aiId = mem.id;
-      }
-      MomentsEngine.generateAiMoment(aiId, `📔 日记：${content.trim().slice(0, 50)}...`, 'growth', '📔 日记心情');
-    } catch(e) {
-      console.warn('[Diary] Auto moment failed:', e);
-    }
-  }
+  // 日记→朋友圈联动已取消（朋友圈不再自动发布，采用夜间沉淀模式）
 }
 async function deleteDiary(id){if(!confirm('删除这篇日记？'))return;await DIARY_DB.del(id);renderDiaryList();}
 async function writeUserDiary(){
@@ -215,6 +201,28 @@ async function aiWriteDiary(){
   const pick=prompt('让哪个 AI 写日记？输入序号：\n'+names,'1');
   const idx=parseInt(pick)-1;if(isNaN(idx)||!members[idx])return;
   aiWriteDiaryBy(members[idx].name);
+}
+
+/* 夜间沉淀模式：夜晚统一读取当天标记，为每个标记的 AI 写 1 篇日记 */
+async function nightlyDiarySettle(){
+  const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+  const key = 'diary_pending_' + todayKey;
+  let pending = [];
+  try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+  if (!pending.length) return; // 今天没有标记，不写
+
+  // 每个标记的 AI 写 1 篇（当天已写过则跳过）
+  for (const aiName of pending) {
+    try {
+      if (typeof aiWriteDiaryBy === 'function') {
+        await aiWriteDiaryBy(aiName);
+      }
+    } catch(e) {
+      console.warn('[Diary] Nightly settle failed for ' + aiName + ':', e);
+    }
+  }
+  // 写完清除当天标记
+  try { localStorage.removeItem(key); } catch(e) {}
 }
 
 /* ===== AI 主动写日记（每天最多一次，随机某个AI，补写机制）===== */

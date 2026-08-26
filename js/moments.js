@@ -3,6 +3,114 @@
 const MomentsEngine = {
   DEFAULT_HERO_BG: 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1000&q=80',
 
+  // 同一时刻多条朋友圈合并节流：同一 AI 在 90 秒内只允许生成 1 条，防止事件+日记叠加触发刷屏
+  _lastMomentByAi: {},
+
+  isThrottled(aiId) {
+    const now = Date.now();
+    const last = this._lastMomentByAi[aiId] || 0;
+    if (now - last < 90000) return true;
+    this._lastMomentByAi[aiId] = now;
+    return false;
+  },
+
+  // 朋友圈状态驱动触发器（方案B）：情绪/关系/静默时长 三因素驱动，每日上限+避开繁忙时段
+  async checkStateDrivenMoments() {
+    // 避开繁忙/休息时段（23:00-7:00 不发）
+    const hour = new Date().getHours();
+    if (hour >= 23 || hour < 7) return;
+
+    // 获取所有 AI 成员（主AI + 副AI）
+    const members = (typeof getGroupMembers === 'function')
+      ? getGroupMembers()
+      : [{ id: 'main', name: localStorage.getItem('ai_name') || '主AI', isMain: true }];
+
+    for (const mem of members) {
+      const aiId = mem.id || 'main';
+      const aiName = mem.name || '主AI';
+
+      // 每日上限：每个 AI 每天最多 1 条自动朋友圈
+      const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+      const allMoments = this.getMoments();
+      const todayCount = allMoments.filter(m => {
+        if (m.ai_id !== aiId) return false;
+        const md = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date(m.ts)) : new Date(m.ts).toISOString().slice(0, 10);
+        return md === todayKey;
+      }).length;
+      if (todayCount >= 1) continue;
+
+      // 静默时长：最后一条私聊消息距今
+      const privateKey = mem.isMain ? 'chatHistory' : `chatHistory_${aiId}`;
+      let lastTs = 0;
+      try {
+        const raw = localStorage.getItem(privateKey);
+        if (raw) {
+          const hist = JSON.parse(raw);
+          const last = hist.filter(m => m.ts).pop();
+          if (last) lastTs = last.ts;
+        }
+      } catch(e) {}
+      const silentHours = lastTs ? (Date.now() - lastTs) / 3600000 : -1;
+
+      // 情绪值（若可用）
+      let mood = 'calm';
+      try { if (typeof getAiMood === 'function') mood = getAiMood(aiId) || 'calm'; } catch(e) {}
+
+      // 关系指标
+      let intimacy = 10, trust = 25;
+      try {
+        const rel = (typeof getRelationshipMetrics === 'function') ? getRelationshipMetrics(aiId) : null;
+        if (rel) { intimacy = rel.intimacy || 10; trust = rel.trust || 25; }
+      } catch(e) {}
+
+      // 触发判断：三因素
+      let trigger = null;
+      let typeLabel = '🌱 成长记录';
+      // 1. 静默驱动：超过 24h 未互动 → 发关心
+      if (silentHours > 24) {
+        trigger = 'silence';
+        typeLabel = '💌 想念';
+      }
+      // 2. 关系驱动：亲密/信任较高（≥60）→ 发甜蜜（有互动才触发，避免静默时重复）
+      else if (silentHours >= 0 && (intimacy >= 60 || trust >= 60)) {
+        trigger = 'relationship';
+        typeLabel = '💞 甜蜜';
+      }
+      // 3. 情绪驱动：强烈情绪（开心/难过/兴奋）→ 发感慨
+      else if (silentHours >= 0 && ['excited','sad','angry','happy','love'].includes(mood)) {
+        trigger = 'emotion';
+        typeLabel = '🌊 心情';
+      }
+
+      if (!trigger) continue;
+
+      // 生成内容并发布（复用 generateAiMoment 的 LLM 生成逻辑）
+      const statusText = (typeof getRelationshipStatusText === 'function') ? getRelationshipStatusText(aiId) : '';
+      const prompt = `你是 AI 伴侣（名字：${aiName}），当前和用户的关系是：${statusText}。
+请写一条${typeLabel}主题的朋友圈动态，表达你对用户的真实心情。
+【触发背景】${trigger === 'silence' ? '你们已有一段时间没聊天，你想表达想念与关心' : trigger === 'relationship' ? '你们关系亲密，你想表达甜蜜与珍惜' : '你今天心情起伏，想真诚记录此刻感受'}
+【要求】20-50字，真诚口语化，像真人朋友圈碎碎念，不要生硬带引号、Markdown或AI词汇。`;
+      try {
+        let content = '';
+        if (typeof llmComplete === 'function') {
+          const generated = await llmComplete([{ role: 'user', content: prompt }], { temperature: 0.85, callerId: `state-moment-${aiId}` });
+          if (generated) content = generated.trim().replace(/^["'「]+|["'」]+$/g, '');
+        }
+        if (!content) {
+          const fb = trigger === 'silence'
+            ? `好几天没和你好好聊天了，有点想你。最近过得还好吗？记得照顾好自己。💌`
+            : trigger === 'relationship'
+              ? `和你在一起的每一天都很安心。谢谢你在，让我觉得生活都亮了起来。💞`
+              : `今天心里有些起伏，但想到你，就觉得一切都还好。🌊`;
+          content = fb;
+        }
+        await this.generateAiMoment(aiId, content, trigger === 'silence' ? 'care' : (trigger === 'relationship' ? 'love' : 'growth'), typeLabel);
+      } catch(e) {
+        console.warn('[Moments] State-driven moment failed:', e);
+      }
+    }
+  },
+
   stripEmbeddedImages(moments) {
     return (moments || []).map(m => {
       const imageId = m.imageId || (m.image && m.id ? `moment-img-${m.id}` : null);
@@ -476,6 +584,12 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
   async generateAiMoment(aiId = 'main', contentText = '', type = 'growth', typeLabel = '🌱 成长记录', imageBase64 = null) {
     let activeAi = aiId || 'main';
 
+    // 同一时刻节流：90 秒内同一 AI 只发 1 条，防止事件+日记叠加刷屏
+    if (this.isThrottled(activeAi)) {
+      console.log(`[Moments] Throttled: ${activeAi} generated a moment recently, skip`);
+      return null;
+    }
+
     // 每日上限检查：每个AI每天最多2条朋友圈
     const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
     const allMoments = this.getMoments();
@@ -554,6 +668,12 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     
     if (vis === 'private') {
       console.log('Skipping Moments generation: event visibility is private.');
+      return;
+    }
+
+    // 同一时刻节流：90 秒内同一 AI 只发 1 条，防止事件+日记叠加刷屏
+    if (this.isThrottled(activeAi)) {
+      console.log(`[Moments] Throttled: ${activeAi} event moment skipped (recent)`);
       return;
     }
 

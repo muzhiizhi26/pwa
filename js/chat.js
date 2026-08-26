@@ -324,7 +324,23 @@ async function sendMessage(){
     if(typeof maybeUpdateMidterm==='function') { try { maybeUpdateMidterm(); } catch(e) {} }
   } catch (err) {
     console.error('Error in sendMessage:', err);
-    try { if (typeof showToast === 'function') showToast('❌ 发送遇到异常: ' + (err.message || err)); } catch(e){}
+    try {
+      if (typeof showToast === 'function') {
+        // 将常见上游错误映射为友好中文提示，避免英文原始报错直接展示给用户
+        const msg = (err && (err.message || err)) || '';
+        let friendly = '';
+        if (/quota|exceeded|insufficient_quota|402|403|429|rate.?limit|too many requests/i.test(msg)) {
+          friendly = '❌ 发送遇到异常：当前 AI 服务额度不足或请求过于频繁，请稍后重试，或在设置中检查 API 额度/Key。';
+        } else if (/timeout|timed out|abort/i.test(msg)) {
+          friendly = '❌ 发送遇到异常：请求超时，请检查网络后重试。';
+        } else if (/network|fetch failed|failed to fetch|connection/i.test(msg)) {
+          friendly = '❌ 发送遇到异常：网络连接失败，请检查网络后重试。';
+        } else {
+          friendly = '❌ 发送遇到异常: ' + msg;
+        }
+        showToast(friendly);
+      }
+    } catch(e){}
   } finally {
     chatReplying = false;
   }

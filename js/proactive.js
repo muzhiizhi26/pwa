@@ -55,6 +55,15 @@ function scheduleProactive(){
     checkProactive();
     dailyReviewCheck();
     if(typeof checkAutoDiary==='function')checkAutoDiary();
+    // 朋友圈状态驱动（方案B）：情绪/关系/静默时长 三因素，每日上限+避开繁忙时段
+    if (typeof MomentsEngine !== 'undefined' && typeof MomentsEngine.checkStateDrivenMoments === 'function') {
+      try { MomentsEngine.checkStateDrivenMoments(); } catch(e) { console.error('[Moments] State-driven check error:', e); }
+    }
+    // 夜间沉淀模式：22:00-23:59 统一写当天标记的日记（每天最多一次）
+    const h = new Date().getHours();
+    if (h >= 22 && typeof nightlyDiarySettle==='function') {
+      try { nightlyDiarySettle(); } catch(e) { console.error('[Diary] Nightly settle error:', e); }
+    }
   },60000);
 }
 

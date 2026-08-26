@@ -72,7 +72,34 @@ function clearRuntimeLogs() {
   showToast('✅ 日志已清除');
 }
 async function doCompress(){document.getElementById('compressPanel').classList.remove('show');await compressConversation(false);}
-async function compressConversation(silent){const real=conversationHistory.filter(m=>!m.compressed);if(real.length<4){if(!silent)showToast('对话太短，无需压缩');return;}const provider=getCurrentProvider();const apiKey=(localStorage.getItem(`apikey_${provider.id}`)||'').trim();if(!apiKey&&provider.auth!=='none'){if(!silent)alert('请先在设置中配置 API Key');return;}if(!silent)showToast('🗜️ 正在压缩对话...');const conversationText=conversationHistory.filter(m=>!m.image).map(m=>`${m.role==='user'?'用户':'AI'}：${m.content}`).join('\n');const systemPrompt='你是对话摘要助手。请把以下对话压缩成一段信息完整但简洁的中文摘要，必须保留：关键事实、用户偏好与设定、重要结论、未完成事项、情感基调。用第三人称陈述，不要加入多余开场白。';let endpoint=(provider.endpoint||'').trim();if(!endpoint){if(!silent)showToast('未配置服务商 Endpoint');return;}if(!/^https?:\/\//i.test(endpoint))endpoint='https://'+endpoint;let url=endpoint.replace(/\/+$/,'');if(!url.includes('/chat/completions')&&!url.includes('messages')&&!url.includes('/v1/chat'))url+='/chat/completions';const headers={'Content-Type':'application/json'};if(apiKey){if(provider.auth==='Bearer')headers['Authorization']=`Bearer ${apiKey}`;else if(provider.auth==='x-api-key')headers['x-api-key']=apiKey;else if(provider.auth==='x-goog-api-key')headers['x-goog-api-key']=apiKey;}try{const r=await fetch(url,{method:'POST',headers,body:JSON.stringify({model:selectedModelName,messages:[{role:'system',content:systemPrompt},{role:'user',content:conversationText}],stream:false})});if(!r.ok)throw new Error('API '+r.status);const d=await r.json();const summary=(d.choices?.[0]?.message?.content||d.content?.[0]?.text||'').trim();if(!summary){if(!silent)showToast('压缩失败：无摘要返回');return;}const uid=genUid();const ts=Date.now();conversationHistory=[{role:'assistant',content:'【对话摘要·已压缩】\n'+summary,uid,ts,compressed:true}];saveHistory();rerenderAll();memorize('assistant','对话摘要：'+summary,'');showToast('✅ 已压缩并开启新会话');}catch(e){if(!silent)showToast('压缩失败：'+e.message);}}
+async function compressConversation(silent){
+  const real=conversationHistory.filter(m=>!m.compressed);
+  if(real.length<4){if(!silent)showToast('对话太短，无需压缩');return;}
+  // 本地降级摘要：API 不可用时提取关键信息，保证对话条能清零、总结能产生
+  function localSummary(){
+    const msgs=conversationHistory.filter(m=>!m.image&&m.content);
+    const userMsgs=msgs.filter(m=>m.role==='user').slice(-5).map(m=>m.content).join('；');
+    const aiMsgs=msgs.filter(m=>m.role==='assistant').slice(-3).map(m=>m.content.slice(0,50)).join('；');
+    const ts=new Date();
+    const timeStr=`${ts.getFullYear()}-${String(ts.getMonth()+1).padStart(2,'0')}-${String(ts.getDate()).padStart(2,'0')}`;
+    return `（本地摘要）${timeStr}的对话：用户提及——${userMsgs||'日常交流'}；AI回应——${aiMsgs||'陪伴回应'}。`;
+  }
+  const provider=getCurrentProvider();const apiKey=(localStorage.getItem(`apikey_${provider.id}`)||'').trim();
+  if(!apiKey&&provider.auth!=='none'){if(!silent)alert('请先在设置中配置 API Key');return;}
+  if(!silent)showToast('🗜️ 正在压缩对话...');const conversationText=conversationHistory.filter(m=>!m.image).map(m=>`${m.role==='user'?'用户':'AI'}：${m.content}`).join('\n');const systemPrompt='你是对话摘要助手。请把以下对话压缩成一段信息完整但简洁的中文摘要，必须保留：关键事实、用户偏好与设定、重要结论、未完成事项、情感基调。用第三人称陈述，不要加入多余开场白。';let endpoint=(provider.endpoint||'').trim();if(!endpoint){if(!silent)showToast('未配置服务商 Endpoint');return;}if(!/^https?:\/\//i.test(endpoint))endpoint='https://'+endpoint;let url=endpoint.replace(/\/+$/,'');if(!url.includes('/chat/completions')&&!url.includes('messages')&&!url.includes('/v1/chat'))url+='/chat/completions';const headers={'Content-Type':'application/json'};if(apiKey){if(provider.auth==='Bearer')headers['Authorization']=`Bearer ${apiKey}`;else if(provider.auth==='x-api-key')headers['x-api-key']=apiKey;else if(provider.auth==='x-goog-api-key')headers['x-goog-api-key']=apiKey;}let summary='';
+  try{
+    const r=await fetch(url,{method:'POST',headers,body:JSON.stringify({model:selectedModelName,messages:[{role:'system',content:systemPrompt},{role:'user',content:conversationText}],stream:false})});
+    if(!r.ok)throw new Error('API '+r.status);
+    const d=await r.json();
+    summary=(d.choices?.[0]?.message?.content||d.content?.[0]?.text||'').trim();
+  }catch(e){
+    // API 失败 → 本地降级摘要，保证压缩可用（对话条清零 + 总结产生）
+    console.warn('[Compress] API failed, using local summary:', e.message);
+    summary=localSummary();
+  }
+  if(!summary){if(!silent)showToast('压缩失败：无摘要返回');return;}
+  const uid=genUid();const ts=Date.now();conversationHistory=[{role:'assistant',content:'【对话摘要·已压缩】\n'+summary,uid,ts,compressed:true}];saveHistory();rerenderAll();memorize('assistant','对话摘要：'+summary,'');showToast('✅ 已压缩并开启新会话');
+}
 function maybeAutoCompress(){
   if(localStorage.getItem('auto_compress')!=='true')return;
   const limit = getContextLimit();

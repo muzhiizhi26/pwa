@@ -205,20 +205,20 @@ function fallbackExtractEvent(userText, aiReply, memberId) {
 
   if (u.includes('生日') || u.includes('叫我') || u.includes('名字') || u.includes('工作') || u.includes('职业')) {
     type = 'preference_sharing';
-    summary = `用户分享了个人基本背景或特有属性偏好`;
+    summary = `你分享了个人基本背景或特有属性偏好`;
     importance = 65;
     visibility = 'world'; // 基础资料作为 Shared World Events 存储
     trustDelta = 4;
   } else if (u.includes('累') || u.includes('难过') || u.includes('伤心') || u.includes('崩溃') || u.includes('爱') || u.includes('喜欢')) {
     type = 'emotional_disclosure';
-    summary = `用户向伴侣流露出较为明显的内心波动或依赖诉求`;
+    summary = `你向伴侣流露出较为明显的内心波动或依赖诉求`;
     importance = 75;
     visibility = 'relationship';
     intimacyDelta = 5;
     trustDelta = 3;
   } else if (u.includes('打算') || u.includes('去') || u.includes('旅行') || u.includes('计划')) {
     type = 'joint_activity';
-    summary = `用户提及了近期的规划与行动意向`;
+    summary = `你提及了近期的规划与行动意向`;
     importance = 50;
     visibility = 'world'; // 行动意向作为 Shared World Events 存储
     intimacyDelta = 2;
@@ -355,39 +355,28 @@ async function processExtractedEvent(event, sourceAi) {
   await VDB.put(eventRecord);
   await trimVectorStore();
 
-  // 联动朋友圈 Moments 模块：自动提炼生成朋友圈动态
-  if (typeof MomentsEngine !== 'undefined' && typeof MomentsEngine.generateMomentFromEvent === 'function') {
-    if (sourceAi === 'group' && typeof getGroupMembers === 'function') {
-      // 群聊事件：为每个群成员分别生成朋友圈动态
-      const members = getGroupMembers();
-      const nonMainMembers = members.filter(m => !m.isMain);
-      // 为主AI生成一个
-      MomentsEngine.generateMomentFromEvent(event, 'main');
-      // 为每个副AI生成
-      nonMainMembers.forEach(m => {
-        MomentsEngine.generateMomentFromEvent(event, m.id);
-      });
-    } else {
-      MomentsEngine.generateMomentFromEvent(event, sourceAi);
-    }
-  }
+  // 朋友圈联动已取消：事件不再自动生成朋友圈动态（改为日记夜间沉淀模式）
+  // 保留 MomentsEngine 供手动发布使用
 
-  // 情感事件触发日记：事件重要性≥40 且为情感/分享类时，触发AI写日记
-  if (event.importance >= 40 && (event.type === 'emotional_disclosure' || event.type === 'preference_sharing' || event.type === 'joint_activity')) {
-    if (typeof aiWriteDiaryBy === 'function') {
-      try {
-        let aiName = '主AI';
-        if (sourceAi !== 'main' && typeof memberById === 'function') {
-          const mem = memberById(sourceAi);
-          if (mem) aiName = mem.name || aiName;
-        }
-        // 异步触发写日记，不阻塞主流程
-        setTimeout(() => {
-          aiWriteDiaryBy(aiName).catch(() => {});
-        }, 1000);
-      } catch(e) {
-        console.warn('[MemoryBridge] Emotional diary trigger failed:', e);
+  // 日记夜间沉淀模式：白天只标记重要时刻（不立即写），夜晚统一写 1 篇
+  if (event.importance >= 60 && (event.type === 'emotional_disclosure' || event.type === 'preference_sharing' || event.type === 'joint_activity')) {
+    try {
+      let aiName = '主AI';
+      if (sourceAi !== 'main' && typeof memberById === 'function') {
+        const mem = memberById(sourceAi);
+        if (mem) aiName = mem.name || aiName;
       }
+      // 标记待沉淀事件（按 AI 名 + 当天日期），供夜间定时器统一写日记
+      const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+      const key = 'diary_pending_' + todayKey;
+      let pending = [];
+      try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+      if (!pending.includes(aiName)) {
+        pending.push(aiName);
+        try { localStorage.setItem(key, JSON.stringify(pending)); } catch(e) {}
+      }
+    } catch(e) {
+      console.warn('[MemoryBridge] Diary mark failed:', e);
     }
   }
 
