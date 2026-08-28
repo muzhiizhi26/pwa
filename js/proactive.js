@@ -54,7 +54,8 @@ function scheduleProactive(){
     
     checkProactive();
     dailyReviewCheck();
-    if(typeof checkAutoDiary==='function')checkAutoDiary();
+    // 白天空闲自动写日记已禁用（checkAutoDiary 会导致不停写日记），
+    // 日记统一由夜间沉淀 nightlyDiarySettle 在 22:00 后写 1 篇
     // 朋友圈状态驱动（方案B）：情绪/关系/静默时长 三因素，每日上限+避开繁忙时段
     if (typeof MomentsEngine !== 'undefined' && typeof MomentsEngine.checkStateDrivenMoments === 'function') {
       try { MomentsEngine.checkStateDrivenMoments(); } catch(e) { console.error('[Moments] State-driven check error:', e); }
