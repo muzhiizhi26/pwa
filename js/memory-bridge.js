@@ -367,7 +367,7 @@ async function processExtractedEvent(event, sourceAi) {
         if (mem) aiName = mem.name || aiName;
       }
       // 标记待沉淀事件（按 AI 名 + 当天日期），供夜间定时器统一写日记
-      const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+      const todayKey = getLocalDateString(new Date());
       const key = 'diary_pending_' + todayKey;
       let pending = [];
       try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}

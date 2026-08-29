@@ -100,7 +100,6 @@ function ctxSlice(arr){
 /* 偏好开关 */
 function streamEnabled(){return localStorage.getItem('stream_output')!=='false';}
 function showThinkingEnabled(){return localStorage.getItem('show_thinking')!=='false';}
-function timeAwareEnabledFn(){return localStorage.getItem('time_aware')!=='false';}
 function autoSpeakEnabled(){return localStorage.getItem('auto_speak')==='true';}
 function voiceEnabled(){return localStorage.getItem('voice_enabled')==='true';}
 function autoBackupEnabled(){return localStorage.getItem('auto_backup')==='true';}
@@ -112,25 +111,42 @@ function applyBackground(){const bg=localStorage.getItem('chat_bg');const el=doc
 
 /* 时间感知 / 联网提示 */
 function fmtGap(ms){const s=Math.floor(ms/1000);if(s<60)return '刚刚';const m=Math.floor(s/60);if(m<60)return m+' 分钟';const h=Math.floor(m/60);if(h<24)return h+' 小时'+(m%60?(m%60)+' 分钟':'');const day=Math.floor(h/24);return day+' 天'+(h%24?(h%24)+' 小时':'');}
-function generateTimeContext(){if(!timeAwareEnabledFn())return'';const n=new Date();const wd=['日','一','二','三','四','五','六'][n.getDay()];const h=n.getHours();const m=n.getMinutes();const month=n.getMonth();const date=n.getDate();
+/* 当前对话历史源：默认私聊 conversationHistory；群聊发送前用 setCurrentDialogHistory 切换 */
+let _currentDialogHistory=null;
+function setCurrentDialogHistory(h){_currentDialogHistory=(h&&h.length)?h:null;}
+function getDialogHistory(){return _currentDialogHistory||(typeof conversationHistory!=='undefined'?conversationHistory:[]);}
+window.setCurrentDialogHistory=setCurrentDialogHistory;
+/* 消息时间戳：[HH:MM] / [昨天 HH:MM] / [M月D日 HH:MM] */
+function fmtMsgTime(ts){
+  try{
+    if(!ts)return'';
+    const d=new Date(ts),now=new Date();
+    const hm=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+    if(d.toDateString()===now.toDateString())return '['+hm+']';
+    const yest=new Date(now.getTime()-86400000);
+    if(d.toDateString()===yest.toDateString())return '[昨天 '+hm+']';
+    return '['+(d.getMonth()+1)+'月'+d.getDate()+'日 '+hm+']';
+  }catch(e){return'';}
+}
+function generateTimeContext(){const n=new Date();const wd=['日','一','二','三','四','五','六'][n.getDay()];const h=n.getHours();const m=n.getMinutes();const month=n.getMonth();const date=n.getDate();
 
 // 时段细分
 const period=h<5?'🌙 深夜':h<7?'🌅 清晨':h<9?'☀️ 早晨':h<11?'🌤️ 上午':h<13?'🌞 中午':h<15?'☀️ 午后':h<17?'🌇 下午':h<19?'🌆 傍晚':h<21?'🌃 晚上':'🌙 深夜';
 
-// 季节详细描述
+// 季节（中性表述，不做假天气）
 const seasonMap=[
-  {name:'❄️ 深冬',temp:'寒冷',weather:'气温低，多晴朗干燥'},
-  {name:'🌱 初春',temp:'乍暖还寒',weather:'气温回升，春雨绵绵'},
-  {name:'🌸 仲春',temp:'温暖宜人',weather:'春暖花开，微风和煦'},
-  {name:'🌿 晚春',temp:'温和',weather:'春末夏初，阳光明媚'},
-  {name:'🌺 初夏',temp:'渐热',weather:'气温升高，偶尔阵雨'},
-  {name:'🌻 盛夏',temp:'炎热',weather:'高温多雨，常有雷阵雨'},
-  {name:'🍉 夏末',temp:'仍热',weather:'炎热中带一丝秋风'},
-  {name:'🌾 初秋',temp:'凉爽',weather:'秋高气爽，天朗气清'},
-  {name:'🍁 仲秋',temp:'微凉',weather:'金风送爽，桂花飘香'},
-  {name:'🍂 深秋',temp:'渐冷',weather:'秋风萧瑟，落叶纷飞'},
-  {name:'🌨️ 初冬',temp:'寒冷',weather:'气温下降，偶有霜雪'},
-  {name:'⛄ 隆冬',temp:'严寒',weather:'天寒地冻，雪花纷飞'}
+  {name:'隆冬',hint:'岁末时节，可自然回顾这一年或聊新年打算'},
+  {name:'深冬',hint:'天气仍冷，关心时可自然提醒添衣保暖'},
+  {name:'初春',hint:'春天刚到，可自然聊聊新计划'},
+  {name:'仲春',hint:'温暖宜人的时节，可提踏青散步'},
+  {name:'晚春',hint:'春末夏初，天气渐暖'},
+  {name:'初夏',hint:'夏天刚到，可自然提到天气变热'},
+  {name:'盛夏',hint:'炎热时节，关心时可提多喝水、防暑'},
+  {name:'夏末',hint:'夏末时节，天气仍热'},
+  {name:'初秋',hint:'秋天刚到，天气转凉'},
+  {name:'仲秋',hint:'秋高气爽，适合聊收获与沉淀'},
+  {name:'深秋',hint:'天气渐冷，关心时可提添衣'},
+  {name:'初冬',hint:'入冬时节，可自然提到天冷'}
 ];
 const season=seasonMap[month];
 
@@ -138,10 +154,21 @@ const season=seasonMap[month];
 const isWeekend=n.getDay()===0||n.getDay()===6;
 const isHoliday=(month===0&&date===1)||(month===4&&date===1)||(month===9&&date===1); // 简单节日检测
 
-const dateStr=`${n.getFullYear()}年${month+1}月${date}日 星期${wd} ${h}:${String(m).padStart(2,'0')}`;
+const dateStr=`${n.getFullYear()}年${month+1}月${date}日 星期${wd} ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 
-// 时间间隔感知
-let gapStr='';try{const lu=[...conversationHistory].reverse().find(m=>m.role==='user'&&m.ts);if(lu){const gap=Date.now()-lu.ts;if(gap>30*60*1000)gapStr=`距用户上次说话已过 ${fmtGap(gap)}，可自然表达久违或关心。`;}}catch(e){}
+// 时间间隔感知（5档行为指令，私聊/群聊历史由 setCurrentDialogHistory 切换）
+let gapStr='';
+try{
+  const lu=[...getDialogHistory()].reverse().find(x=>x.role==='user'&&x.ts);
+  if(lu){
+    const gapMin=Math.max(0,(Date.now()-lu.ts)/60000);
+    if(gapMin<30)gapStr='刚聊完不久（30分钟内），正常接续话题即可。';
+    else if(gapMin<120)gapStr=`约${Math.round(gapMin)}分钟没说话，可加一句简短自然的过渡，不必刻意寒暄。`;
+    else if(gapMin<360)gapStr=`已${(gapMin/60).toFixed(1)}小时没说话，不要直接接续旧话题细节，可先用一句轻松寒暄过渡。`;
+    else if(gapMin<720)gapStr=`已${(gapMin/60).toFixed(0)}小时没说话，视为新时间段，自然重新开场，不要默认对方记得刚才的细节。`;
+    else{const days=Math.round(gapMin/1440);gapStr=days>1?`已${days}天没说话，完全视为新的一天，可自然提及"那天/之前"，像久别重逢般自然。`:'已跨天，可自然提及"昨天/今天"，像久别重逢般自然。';}
+  }
+}catch(e){}
 
 // 时段关怀话术
 let care='';
@@ -157,14 +184,13 @@ else if(h>=21&&h<23)care='夜晚时段，语气可放轻，适合聊聊心事或
 // 工作日/周末感知
 const wkStr=isWeekend?'今天是周末，氛围可更轻松愉快，适合聊聊休闲话题。':'今天是工作日，可适度关心工作/学习状态。';
 
-// 季节与天气感知
-const weatherStr=`${season.name}，${season.temp}，${season.weather}。`;
-const seasonCare=month>=2&&month<=4?'🌱 春季万物复苏，可聊聊新计划或踏青。':month>=5&&month<=7?'☀️ 夏季炎热，可提醒防暑降温，聊聊夏日时光。':month>=8&&month<=10?'🍂 秋高气爽，适合聊聊收获与沉淀。':'❄️ 冬季寒冷，可提醒保暖，聊聊温暖的话题。';
+// 季节感知（中性表述）
+const seasonStr=season.hint?`${season.name}：${season.hint}。`:'';
 
 // 节日检测
 const holidayStr=isHoliday?'今日是特殊节日，可送上节日祝福。':'';
 
-return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n天气与季节：${weatherStr}${seasonCare}${wkStr}${holidayStr}${care}${gapStr}\n💡 请让回应自然贴合此刻的时间、季节与天气情境，语气与之呼应，但不要生硬报时。`;}
+return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n季节：${seasonStr}${wkStr}${holidayStr}${care}${gapStr}\n💡 请让回应自然贴合此刻的时间与季节情境，语气与之呼应，但不要生硬报时，也不要明说"距上次X小时/分钟"。`;}
 function webSearchInstruction(){if(!webSearchEnabled())return'';return '\n【联网提示】你可以联网检索最新信息。若问题涉及实时或最新内容，请使用你的联网/搜索能力获取并获取最新结果作答。';}
 
 /* 小工具 */

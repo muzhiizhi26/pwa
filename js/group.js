@@ -360,6 +360,8 @@ async function groupMemberReplyWithImage(mem,img){
 用户刚才分享了一张图片。
 规则：请只以「${mem.name}」的身份和性格特征（人设：${mem.persona || '自然随和'}）发表一条极其简短口语化的话（40字内）来点评或回应这张图，不要复述别人的原话，不要添加任何名字前缀（如 “${mem.name}：” 等），也不要输出列表。` + (typeof buildGroupCulturePrompt === 'function' ? buildGroupCulturePrompt() : '');
   
+  // 群聊时间感知：切换对话历史源（buildTimeContext 已废弃，generateTimeContext 走 getDialogHistory）
+  if(typeof setCurrentDialogHistory==='function') setCurrentDialogHistory(getGroupHistory());
   const sys = await composeSystemPrompt('请评论这张图', [], groupImageExtra, mem.id);
   const messages=[
     {role:'system',content:sys},
@@ -463,7 +465,11 @@ async function groupMemberReply(mem,userText){
              (mem.contextLimit === 'unlimited' ? Infinity : parseInt(mem.contextLimit)) : 
              getGroupContextLimit();
   const sliceCount = (cl === Infinity || isNaN(cl)) ? groupHistory.length : cl;
-  const recent=groupHistory.slice(-sliceCount).map(m=>`${m.role==='user'?'用户':(memberById(m.memberId)?.name||m.name||'AI')}：${m.content}`).join('\n');
+  const recent=groupHistory.slice(-sliceCount).map(m=>{
+    const t=(typeof fmtMsgTime==='function')?fmtMsgTime(m.ts):'';
+    const prefix=t?t+' ':'';
+    return `${m.role==='user'?'用户':(memberById(m.memberId)?.name||m.name||'AI')} ${prefix}：${m.content}`.trim();
+  }).join('\n');
   
   // 计算用户静默期间 AI 连续发言数
   let consecutiveAiCount = 0;
@@ -485,6 +491,8 @@ async function groupMemberReply(mem,userText){
   const groupContextExtra = `【群聊交流场景】这是一个多人群聊，成员：用户、${roster}。你是「${mem.name}」。
 规则：请只以「${mem.name}」的身份和性格特征（人设：${mem.persona || '自然随和'}）发表一条极其简短口语化、接地气的回复（控制在40字以内）。你可以回应用户，也可以和别的AI成员（如小暖、阿灿等）插科打诨或幽默互动，共同烘托极为鲜活、有生活烟火气的多人群聊氛围。千万不要带有任何名字前缀（如 “${mem.name}：” 或 “回复：” 等），也不要复述别人的原话，不使用列表。` + (typeof buildGroupCulturePrompt === 'function' ? buildGroupCulturePrompt() : '') + redirectPrompt;
 
+  // 群聊时间感知：切换对话历史源（间隔计算基于群聊历史）
+  if(typeof setCurrentDialogHistory==='function') setCurrentDialogHistory(getGroupHistory());
   const sys = await composeSystemPrompt(queryText, recallItems, groupContextExtra, mem.id);
   const messages=[{role:'system',content:sys},{role:'user',content:`最近群聊：\n${recent}\n\n请以${mem.name}身份自然接话。`}];
   

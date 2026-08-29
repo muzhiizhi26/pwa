@@ -30,11 +30,11 @@ const MomentsEngine = {
       const aiName = mem.name || '主AI';
 
       // 每日上限：每个 AI 每天最多 1 条自动朋友圈
-      const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+      const todayKey = getLocalDateString(new Date());
       const allMoments = this.getMoments();
       const todayCount = allMoments.filter(m => {
         if (m.ai_id !== aiId) return false;
-        const md = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date(m.ts)) : new Date(m.ts).toISOString().slice(0, 10);
+        const md = getLocalDateString(new Date(m.ts));
         return md === todayKey;
       }).length;
       if (todayCount >= 1) continue;
@@ -591,11 +591,11 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     }
 
     // 每日上限检查：每个AI每天最多2条朋友圈
-    const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+    const todayKey = getLocalDateString(new Date());
     const allMoments = this.getMoments();
     const todayAiMoments = allMoments.filter(m => {
       if (m.ai_id !== activeAi) return false;
-      const mDate = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date(m.ts)) : new Date(m.ts).toISOString().slice(0, 10);
+      const mDate = getLocalDateString(new Date(m.ts));
       return mDate === todayKey;
     });
     if (todayAiMoments.length >= 10) {
@@ -678,11 +678,11 @@ ${recallText ? `【相关历史共同记忆片段】:\n${recallText}\n` : ''}
     }
 
     // 每日上限检查：每个AI每天最多2条朋友圈
-    const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+    const todayKey = getLocalDateString(new Date());
     const allMoments = this.getMoments();
     const todayAiMoments = allMoments.filter(m => {
       if (m.ai_id !== activeAi) return false;
-      const mDate = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date(m.ts)) : new Date(m.ts).toISOString().slice(0, 10);
+      const mDate = getLocalDateString(new Date(m.ts));
       return mDate === todayKey;
     });
     if (todayAiMoments.length >= 10) {

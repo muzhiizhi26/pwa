@@ -205,7 +205,7 @@ async function aiWriteDiary(){
 
 /* 夜间沉淀模式：夜晚统一读取当天标记，为每个标记的 AI 写 1 篇日记 */
 async function nightlyDiarySettle(){
-  const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+  const todayKey = getLocalDateString(new Date());
   const key = 'diary_pending_' + todayKey;
   let pending = [];
   try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
@@ -231,7 +231,7 @@ async function checkAutoDiary(){
   if(!diaryAutoEnabled())return;
 
   const today = new Date();
-  const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(today) : today.toISOString().slice(0, 10);
+  const todayKey = getLocalDateString(today);
 
   // 获取所有 AI 成员（主AI + 所有副AI）
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{id:'main',name:'主AI',isMain:true}];
@@ -249,7 +249,7 @@ async function checkAutoDiary(){
         .filter(d => d.author === 'ai' && d.name === mem.name)
         .map(d => {
           const dateObj = new Date(d.ts);
-          return (typeof getLocalDateString === 'function') ? getLocalDateString(dateObj) : dateObj.toISOString().slice(0, 10);
+          return getLocalDateString(dateObj);
         })
     );
 
@@ -272,7 +272,7 @@ async function checkAutoDiary(){
     const dayPrivateChats = pHistory.filter(m => {
       if (!m.ts || !m.content) return false;
       const msgDate = new Date(m.ts);
-      const msgDateKey = (typeof getLocalDateString === 'function') ? getLocalDateString(msgDate) : msgDate.toISOString().slice(0, 10);
+      const msgDateKey = getLocalDateString(msgDate);
       return msgDateKey === todayKey;
     });
     if (dayPrivateChats.length < 2) continue; // 至少来回2条才值得写

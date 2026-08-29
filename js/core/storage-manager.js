@@ -49,6 +49,7 @@ const StorageManager = (() => {
   /* ─── localStorage 容量监控 ─── */
   const STORAGE_WARN_THRESHOLD = 0.8; // 80%
   let _storageWarned = false;
+  let _autoCleaned = false; // 本次会话是否已自动清理过（防重复）
 
   function checkStorageCapacity() {
     try {
@@ -60,11 +61,33 @@ const StorageManager = (() => {
       }
       const limit = 5 * 1024 * 1024; // 5MB
       const ratio = used / limit;
-      if (ratio > STORAGE_WARN_THRESHOLD && !_storageWarned) {
-        _storageWarned = true;
-        console.warn(`[StorageManager] localStorage 使用量已达 ${(ratio * 100).toFixed(0)}%，建议清理或迁移大容量数据到 IndexedDB。`);
-        if (typeof showToast === 'function') {
-          showToast(`⚠️ 本地存储即将满 (${(ratio * 100).toFixed(0)}%)，语音/图片可能无法保存`);
+      if (ratio > STORAGE_WARN_THRESHOLD) {
+        // 到达预警值 → 自动深度清理（默认开启，设置可关）
+        if (localStorage.getItem('storage_auto_clean') !== 'false' && !_autoCleaned && typeof cleanLargeMediaSilent === 'function') {
+          _autoCleaned = true;
+          const freedKB = cleanLargeMediaSilent();
+          console.warn(`[StorageManager] 到达预警值 ${(ratio * 100).toFixed(0)}%，已自动深度清理，释放 ${(freedKB / 1024).toFixed(1)}MB`);
+          if (freedKB > 0) {
+            // 清理后复检：若仍超预警（说明剩余都是文字/记忆类数据）→ 二次预警
+            let used2 = 0;
+            for (const key in localStorage) {
+              if (localStorage.hasOwnProperty(key)) used2 += localStorage[key].length * 2;
+            }
+            const ratio2 = used2 / limit;
+            if (typeof showToast === 'function') {
+              if (ratio2 > STORAGE_WARN_THRESHOLD) {
+                showToast(`⚠️ 已自动清理但仍 ${(ratio2 * 100).toFixed(0)}%（释放 ${(freedKB / 1024).toFixed(1)}MB），建议在设置→聊天设置手动深度清理或备份后清对话`);
+              } else {
+                showToast(`🧹 存储到达预警，已自动清理 ${(freedKB / 1024).toFixed(1)}MB（图片/语音大图），文字内容保留`);
+              }
+            }
+          }
+        } else if (!_storageWarned) {
+          _storageWarned = true;
+          console.warn(`[StorageManager] localStorage 使用量已达 ${(ratio * 100).toFixed(0)}%，建议清理或迁移大容量数据到 IndexedDB。`);
+          if (typeof showToast === 'function') {
+            showToast(`⚠️ 本地存储即将满 (${(ratio * 100).toFixed(0)}%)，语音/图片可能无法保存`);
+          }
         }
       }
       return ratio;

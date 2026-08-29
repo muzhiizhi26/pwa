@@ -142,12 +142,12 @@ export function searchStep(dir) {
 /* 备份 */
 export function initAutoBackup() {
   if (!localStorage.getItem('auto_backup')) return;
-  const t = new Date().toISOString().slice(0, 10);
+  const t = (typeof getLocalDateString === 'function') ? getLocalDateString() : new Date().toLocaleDateString('sv-SE');
   if (localStorage.getItem('last_backup_date') !== t && getHistory().length > 0) setTimeout(performAutoBackup, 5000);
 }
 export function performAutoBackup() {
   if (!localStorage.getItem('auto_backup')) return;
-  const t = new Date().toISOString().slice(0, 10);
+  const t = (typeof getLocalDateString === 'function') ? getLocalDateString() : new Date().toLocaleDateString('sv-SE');
   if (localStorage.getItem('last_backup_date') === t || !getHistory().length) return;
   try {
     const b = new Blob(['\uFEFF' + generateBackupContent()], { type: 'text/plain;charset=utf-8' });

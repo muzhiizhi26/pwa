@@ -794,6 +794,7 @@ if (typeof RhythmEngine !== 'undefined' && RhythmEngine.shouldSilence(q)) {
 const rhythm = (typeof RhythmEngine !== 'undefined') ? RhythmEngine.determineRhythm(q) : { slow: false, delay: 0, introText: '' };
 
 let sp = await composeSystemPrompt(q, recallItems, null, currentAi);
+// 时间感知统一单点注入（generateTimeContext 内置于 composeSystemPrompt，含5档间隔+行为约束）
 
   // Module 2: Behavior Decision Layer (Determine Response Intent)
   if (typeof determineResponseIntent === 'function') {
@@ -814,7 +815,11 @@ let sp = await composeSystemPrompt(q, recallItems, null, currentAi);
       }
     }
   }
-const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));
+const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>{
+  const t=(typeof fmtMsgTime==='function')?fmtMsgTime(m.ts):'';
+  const prefix=t?t+' ':'';
+  return {role:m.role==='imported'?'user':m.role,content:prefix+m.content};
+});
 const messages=[{role:'system',content:sp},...shortTerm];
 
 let endpoint = (provider.endpoint || '').trim();
@@ -1425,6 +1430,82 @@ function clearChat(){if(confirm('确定清空当前所有对话？(不影响长�
   }
   if(typeof showToast==='function') showToast('✅ 对话已清空');
 }}
+/* ===== 深度存储清理核心：清除所有大体积 base64 数据（图片/语音），保留文字内容 =====
+   静默版（无确认弹窗），返回释放的 KB 数。手动/自动清理共用。 */
+function cleanLargeMediaSilent(){
+  let freedKB = 0;
+  function stripImages(key){
+    try {
+      const raw = localStorage.getItem(key);
+      if(!raw) return;
+      const data = JSON.parse(raw);
+      if(!Array.isArray(data)) return;
+      let changed = false;
+      data.forEach(m => {
+        // 图片大图：data:image base64（>50KB 清除——文字'[图片]'保留）
+        if(m.image && String(m.image).length > 50000){
+          freedKB += String(m.image).length / 1024;
+          m.image = null; changed = true;
+        }
+        // 语音：data:audio base64
+        if(m.audio && String(m.audio).length > 50000){
+          freedKB += String(m.audio).length / 1024;
+          m.audio = null; changed = true;
+        }
+        // 图片文件引用（大字符串）
+        if(m.file && String(m.file).length > 50000){
+          freedKB += String(m.file).length / 1024;
+          m.file = null; changed = true;
+        }
+      });
+      if(changed) localStorage.setItem(key, JSON.stringify(data));
+    } catch(e) {}
+  }
+  // 1. 所有私聊历史（主AI + 副AI）
+  stripImages('chatHistory');
+  let members = [];
+  try { members = (typeof getGroupMembers === 'function') ? getGroupMembers() : []; } catch(e) {}
+  members.forEach(m => { if(m.id && m.id !== 'main') stripImages('chatHistory_' + m.id); });
+  // 2. 群聊历史
+  stripImages('group_history');
+  // 3. 朋友圈大图（lovestory_moments 里 m.image 的 base64）
+  try {
+    const rawMoments = localStorage.getItem('lovestory_moments');
+    if(rawMoments){
+      const moments = JSON.parse(rawMoments);
+      if(Array.isArray(moments)){
+        let changed = false;
+        moments.forEach(m => {
+          if(m.image && String(m.image).startsWith('data:') && String(m.image).length > 100000){
+            freedKB += String(m.image).length / 1024;
+            m.image = null; m.imageId = m.imageId || ('moment-img-' + m.id); m.isFallbackImage = true; changed = true;
+          }
+        });
+        if(changed) localStorage.setItem('lovestory_moments', JSON.stringify(moments));
+      }
+    }
+  } catch(e) {}
+  // 4. 朋友圈/情绪背景图
+  ['moments_bg_image','moments_bg_image_id','emotion_img_base'].forEach(k => {
+    const v = localStorage.getItem(k);
+    if(v && v.startsWith('data:') && v.length > 100000){
+      freedKB += v.length / 1024;
+      localStorage.removeItem(k);
+    }
+  });
+  return freedKB;
+}
+window.cleanLargeMediaSilent = cleanLargeMediaSilent;
+
+/* 手动入口：带确认弹窗，清完刷新界面 */
+async function deepCleanStorage(){
+  if(!confirm('深度清理本地存储？\n\n将清除所有消息/朋友圈中的图片大图和语音数据（保留文字内容、记忆、设置）。\n\n建议先导出备份！')) return;
+  const freedKB = cleanLargeMediaSilent();
+  if(typeof rerenderAll === 'function'){ try { rerenderAll(); } catch(e) {} }
+  if(typeof refreshTabContent === 'function'){ try { refreshTabContent(); } catch(e) {} }
+  if(typeof showToast === 'function') showToast(`🧹 深度清理完成，释放约 ${(freedKB/1024).toFixed(1)}MB`);
+}
+window.deepCleanStorage = deepCleanStorage;
 function exportChat(){if(!conversationHistory.length){alert('没有记录');return;}const md=confirm('导出为 Markdown（Obsidian 兼容）？\n\n确定 = Markdown(.md)\n取消 = 纯文本(.txt)');if(md)exportChatMarkdown();else exportChatTxt();}
 function exportChatTxt(){let o='聊天记录\n'+new Date().toLocaleString()+'\n\n';conversationHistory.forEach(m=>o+=`【${m.role==='user'?'我':'AI'}】 ${m.ts?new Date(m.ts).toLocaleString('zh-CN'):''}\n${m.content}\n\n`);downloadBlob('\uFEFF'+o,`聊天记录_${new Date().toISOString().slice(0,10)}.txt`,'text/plain;charset=utf-8');}
 function exportChatMarkdown(){
