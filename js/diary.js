@@ -212,25 +212,51 @@ async function aiWriteDiary(){
 }
 
 /* 夜间沉淀模式：夜晚统一读取当天标记，为每个标记的 AI 写 1 篇日记 */
+let _settling = false; // 防并发锁：定时器每分钟触发且不 await，防止同一 AI 被并发写多篇
 async function nightlyDiarySettle(){
-  const todayKey = getLocalDateString(new Date());
-  const key = 'diary_pending_' + todayKey;
-  let pending = [];
-  try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
-  if (!pending.length) return; // 今天没有标记，不写
+  // 受「AI 主动写日记」开关控制：关闭时不写
+  if(!diaryAutoEnabled()) return;
+  if(_settling) return; // 上一轮还没写完，跳过本次（防并发）
+  _settling = true;
+  try {
+    const todayKey = getLocalDateString(new Date());
+    const key = 'diary_pending_' + todayKey;
+    let pending = [];
+    try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+    if (!pending.length) return; // 今天没有标记，不写
 
-  // 每个标记的 AI 写 1 篇（当天已写过则跳过）
-  for (const aiName of pending) {
+    // 获取当天各 AI 已写过的日记（当日去重）
+    let writtenNames = new Set();
     try {
-      if (typeof aiWriteDiaryBy === 'function') {
-        await aiWriteDiaryBy(aiName);
+      const diaries = await DIARY_DB.all();
+      writtenNames = new Set(
+        diaries
+          .filter(d => d.author === 'ai')
+          .map(d => {
+            const md = getLocalDateString(new Date(d.ts));
+            return md === todayKey ? d.name : null;
+          })
+          .filter(Boolean)
+      );
+    } catch(e) {}
+
+    // 每个标记的 AI 写 1 篇（当天已写过则跳过）
+    for (const aiName of pending) {
+      if (writtenNames.has(aiName)) continue; // 当天已写过，跳过
+      try {
+        if (typeof aiWriteDiaryBy === 'function') {
+          await aiWriteDiaryBy(aiName);
+          writtenNames.add(aiName); // 写成功后计入去重，防止后续轮次重复
+        }
+      } catch(e) {
+        console.warn('[Diary] Nightly settle failed for ' + aiName + ':', e);
       }
-    } catch(e) {
-      console.warn('[Diary] Nightly settle failed for ' + aiName + ':', e);
     }
+    // 写完清除当天标记
+    try { localStorage.removeItem(key); } catch(e) {}
+  } finally {
+    _settling = false;
   }
-  // 写完清除当天标记
-  try { localStorage.removeItem(key); } catch(e) {}
 }
 
 /* ===== AI 主动写日记（每天最多一次，随机某个AI，补写机制）===== */

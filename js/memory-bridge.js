@@ -359,7 +359,9 @@ async function processExtractedEvent(event, sourceAi) {
   // 保留 MomentsEngine 供手动发布使用
 
   // 日记夜间沉淀模式：白天只标记重要时刻（不立即写），夜晚统一写 1 篇
-  if (event.importance >= 60 && (event.type === 'emotional_disclosure' || event.type === 'preference_sharing' || event.type === 'joint_activity')) {
+  // 受「AI 主动写日记」开关控制：关闭时完全不标记/不写
+  const diaryAutoOn = typeof diaryAutoEnabled === 'function' ? diaryAutoEnabled() : (localStorage.getItem('diary_auto') === 'true');
+  if (diaryAutoOn && event.importance >= 60 && (event.type === 'emotional_disclosure' || event.type === 'preference_sharing' || event.type === 'joint_activity')) {
     try {
       let aiName = '主AI';
       if (sourceAi !== 'main' && typeof memberById === 'function') {
