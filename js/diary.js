@@ -152,7 +152,7 @@ async function aiWriteDiaryBy(memberName){
     .map(m => `${m.role === 'user' ? '用户' : '我'}：${m.content}`)
     .join('\n');
 
-  // 2. 获取多人群聊对话历史
+  // 2. 获取多人群聊对话历史（仅取当天，避免旧群聊内容混入日记）
   let gHistory = [];
   try {
     gHistory = (typeof getGroupHistory === 'function') ? getGroupHistory() : [];
@@ -161,7 +161,14 @@ async function aiWriteDiaryBy(memberName){
       if (rawG) gHistory = JSON.parse(rawG);
     }
   } catch(e) {}
-  const groupRecent = gHistory.filter(m => !m.image && m.content)
+  const todayKeyG = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+  const groupToday = gHistory.filter(m => {
+    if (!m.ts || !m.content) return false;
+    const md = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date(m.ts)) : new Date(m.ts).toISOString().slice(0, 10);
+    return md === todayKeyG;
+  });
+  const groupRecent = groupToday
+    .filter(m => !m.image && m.content)
     .slice(-25)
     .map(m => {
       const senderName = m.role === 'user' ? '用户' : (m.name || 'AI成员');
@@ -169,11 +176,12 @@ async function aiWriteDiaryBy(memberName){
     })
     .join('\n');
 
-  const combinedRecent = `【与用户的私聊片段】\n${privateRecent || '（今天暂无私聊）'}\n\n【大家参与的群聊片段】\n${groupRecent || '（今天暂无群聊）'}`;
+  const hasGroup = groupRecent.length > 0;
+  const combinedRecent = `【与用户的私聊片段】\n${privateRecent || '（今天暂无私聊）'}${hasGroup ? `\n\n【今天参与的群聊片段】\n${groupRecent}` : ''}`;
 
   const persona=mem.isMain?'你是用户的 AI 陪伴':('你叫'+mem.name+'，'+(mem.persona||''));
   const sys=`${persona}。请以第一人称写一篇今天的私人日记（150字内），记录你和用户今天的互动、你的感受与小心思。
-你今天参与了和用户的私聊以及多人群聊。日记应该把私聊里的秘密、心情，以及群聊里发生的有趣互动、@问答等细节，合情合理、极为流畅地串联、写在一起。语气真诚，像真的日记。只输出正文。`;
+${hasGroup ? '你今天参与了和用户的私聊以及多人群聊。日记应该把私聊里的秘密、心情，以及群聊里发生的有趣互动、@问答等细节，合情合理、极为流畅地串联、写在一起。' : '今天你们主要是私聊相处，没有群聊活动。请围绕私聊里的秘密、心情与互动来写，不要编造群聊内容。'}语气真诚，像真的日记。只输出正文。`;
   
   try{const model=(typeof memberModel==='function')?memberModel(mem,provider):selectedModelName;
     const out=await llmComplete([{role:'system',content:sys},{role:'user',content:'今天的片段：\n'+combinedRecent}],{temperature:0.85});
