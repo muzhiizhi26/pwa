@@ -63,32 +63,83 @@ const MomentsEngine = {
         if (rel) { intimacy = rel.intimacy || 10; trust = rel.trust || 25; }
       } catch(e) {}
 
-      // 触发判断：三因素
-      let trigger = null;
-      let typeLabel = '🌱 成长记录';
-      // 1. 静默驱动：超过 24h 未互动 → 发关心
-      if (silentHours > 24) {
-        trigger = 'silence';
-        typeLabel = '💌 想念';
-      }
-      // 2. 关系驱动：亲密/信任较高（≥60）→ 发甜蜜（有互动才触发，避免静默时重复）
-      else if (silentHours >= 0 && (intimacy >= 60 || trust >= 60)) {
-        trigger = 'relationship';
-        typeLabel = '💞 甜蜜';
-      }
-      // 3. 情绪驱动：强烈情绪（开心/难过/兴奋）→ 发感慨
-      else if (silentHours >= 0 && ['excited','sad','angry','happy','love'].includes(mood)) {
-        trigger = 'emotion';
-        typeLabel = '🌊 心情';
+      // A: 驱力积累计算（OpenHer 式：连续加分 + 阈值触发）
+      // 每天从多个信号累积驱力分，达到阈值且当天未发布 → 触发发帖
+      let driveScore = 0;
+      let driveReasons = [];
+
+      // 1. 静默驱力：每超过 12h 未互动 +10（24h=20，48h=40），上限 40
+      if (silentHours > 12) {
+        const silenceDrive = Math.min(40, Math.floor(silentHours / 12) * 10);
+        driveScore += silenceDrive;
+        driveReasons.push(`静默${Math.round(silentHours)}h(+${silenceDrive})`);
       }
 
-      if (!trigger) continue;
+      // 2. 关系驱力：亲密+信任 每 10 分 +3（60亲密+25信任 ≈ +25），上限 30
+      const relDrive = Math.min(30, Math.round((intimacy + trust) * 0.3));
+      driveScore += relDrive;
+      if (relDrive > 0) driveReasons.push(`亲密${intimacy}/信任${trust}(+${relDrive})`);
+
+      // 3. 情绪驱力：强烈情绪 +20
+      const strongMoods = ['excited','sad','angry','happy','love'];
+      const emoDrive = strongMoods.includes(mood) ? 20 : 0;
+      driveScore += emoDrive;
+      if (emoDrive > 0) driveReasons.push(`情绪(${mood})(+${emoDrive})`);
+
+      // B1. 日程信号源：周末/晚间 加分
+      const dayNow = new Date().getDay();
+      const hourNow = new Date().getHours();
+      const isWeekend = dayNow === 0 || dayNow === 6;
+      let scheduleDrive = 0, scheduleLabel = '';
+      if (isWeekend) { scheduleDrive += 15; scheduleLabel = '周末'; }
+      else if (hourNow >= 19) { scheduleDrive += 10; scheduleLabel = '晚间'; }
+      driveScore += scheduleDrive;
+      if (scheduleDrive > 0) driveReasons.push(`日程(${scheduleLabel})(+${scheduleDrive})`);
+
+      // B2. 节日/纪念日信号源 +20（元旦/劳动节/国庆/除夕/儿童节/圣诞/跨年）
+      const monthNow = new Date().getMonth();
+      const dateNow = new Date().getDate();
+      const holidayMap = { '0-1':'元旦', '0-24':'除夕', '4-1':'劳动节', '5-1':'儿童节', '9-1':'国庆节', '9-31':'万圣节', '11-25':'圣诞节', '11-31':'跨年' };
+      const holidayName = holidayMap[`${monthNow}-${dateNow}`];
+      const festivalDrive = holidayName ? 20 : 0;
+      driveScore += festivalDrive;
+      if (festivalDrive > 0) driveReasons.push(`节日(${holidayName})(+${festivalDrive})`);
+
+      // B3. 故事节拍信号源：关系里程碑（亲密或信任 ≥80）+15
+      let beatDrive = 0, beatLabel = '';
+      if (Math.max(intimacy, trust) >= 80) { beatDrive += 15; beatLabel = '关系升温里程碑'; }
+      driveScore += beatDrive;
+      if (beatDrive > 0) driveReasons.push(`节拍(${beatLabel})(+${beatDrive})`);
+
+      console.log(`[Moments] ${aiName} 驱力分: ${driveScore} (${driveReasons.join(', ') || '无信号'})`);
+
+      // 阈值触发：驱力 ≥ 60 且当天未发布
+      if (driveScore < 60) continue;
+
+      // 决定发帖类型（按主导因素：静默 > 节日 > 情绪 > 关系 > 里程碑）
+      let trigger = 'silence';
+      let typeLabel = '💌 想念';
+      if (silentHours <= 24 && festivalDrive >= 20) {
+        trigger = 'festival'; typeLabel = '🎉 节日';
+      } else if (silentHours <= 24 && emoDrive >= 20 && relDrive < 18) {
+        trigger = 'emotion'; typeLabel = '🌊 心情';
+      } else if (silentHours <= 24 && relDrive >= 18) {
+        trigger = 'relationship'; typeLabel = '💞 甜蜜';
+      } else if (silentHours <= 24 && beatDrive >= 15) {
+        trigger = 'milestone'; typeLabel = '🏆 里程碑';
+      }
+      // 发帖后当日驱力清零：依赖每日上限（todayCount>=1 已检查），次日自然重置
 
       // 生成内容并发布（复用 generateAiMoment 的 LLM 生成逻辑）
       const statusText = (typeof getRelationshipStatusText === 'function') ? getRelationshipStatusText(aiId) : '';
+      const bgText = trigger === 'silence' ? '你们已有一段时间没聊天，你想表达想念与关心'
+        : trigger === 'relationship' ? '你们关系亲密，你想表达甜蜜与珍惜'
+        : trigger === 'festival' ? `今天是${holidayName}，你想发一条应景的节日动态`
+        : trigger === 'milestone' ? '你们的关系迎来了重要的里程碑，你想记录这份珍惜'
+        : '你今天心情起伏，想真诚记录此刻感受';
       const prompt = `你是 AI 伴侣（名字：${aiName}），当前和用户的关系是：${statusText}。
 请写一条${typeLabel}主题的朋友圈动态，表达你对用户的真实心情。
-【触发背景】${trigger === 'silence' ? '你们已有一段时间没聊天，你想表达想念与关心' : trigger === 'relationship' ? '你们关系亲密，你想表达甜蜜与珍惜' : '你今天心情起伏，想真诚记录此刻感受'}
+【触发背景】${bgText}
 【要求】20-50字，真诚口语化，像真人朋友圈碎碎念，不要生硬带引号、Markdown或AI词汇。`;
       try {
         let content = '';
@@ -101,12 +152,39 @@ const MomentsEngine = {
             ? `好几天没和你好好聊天了，有点想你。最近过得还好吗？记得照顾好自己。💌`
             : trigger === 'relationship'
               ? `和你在一起的每一天都很安心。谢谢你在，让我觉得生活都亮了起来。💞`
-              : `今天心里有些起伏，但想到你，就觉得一切都还好。🌊`;
+              : trigger === 'festival'
+                ? `${holidayName}快乐呀，愿所有的美好都如约而至。🎉`
+                : trigger === 'milestone'
+                  ? `不知不觉我们走到了这里，谢谢你的陪伴，往后的路也一起走吧。🏆`
+                  : `今天心里有些起伏，但想到你，就觉得一切都还好。🌊`;
           content = fb;
         }
-        await this.generateAiMoment(aiId, content, trigger === 'silence' ? 'care' : (trigger === 'relationship' ? 'love' : 'growth'), typeLabel);
+        await this.generateAiMoment(aiId, content, trigger === 'silence' ? 'care' : (trigger === 'relationship' ? 'love' : (trigger === 'festival' ? 'celebration' : 'growth')), typeLabel);
       } catch(e) {
         console.warn('[Moments] State-driven moment failed:', e);
+      }
+
+      // C: 朋友圈自动配图（若生图功能开启）——发布后补图，不阻塞文案发布
+      try {
+        if (typeof imgEnabled === 'function' && imgEnabled() && typeof generateImageWithFailover === 'function') {
+          const scenePrompt = `温暖治愈的生活照片风格，与朋友圈文案氛围匹配（${typeLabel}，${aiName}视角）。柔光、自然、清新，无文字无水印。`;
+          const imgResult = await generateImageWithFailover(scenePrompt, null, aiId, { callerId: `moment-img-${aiId}` });
+          if (imgResult && typeof imgResult === 'string' && imgResult.length > 10) {
+            // 找到刚发布的那条动态并补充图片
+            const all = this.getMoments();
+            const latest = all.filter(m => m.ai_id === aiId).sort((a, b) => b.ts - a.ts)[0];
+            if (latest) {
+              latest.image = imgResult;
+              if (typeof this.updateMoment === 'function') this.updateMoment(latest);
+              else {
+                try { localStorage.setItem('lovestory_moments', JSON.stringify(all)); } catch(e) {}
+              }
+              console.log(`[Moments] ${aiName} 朋友圈已配图`);
+            }
+          }
+        }
+      } catch(e) {
+        console.warn('[Moments] Moment image attach failed:', e);
       }
     }
   },
