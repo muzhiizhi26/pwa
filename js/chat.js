@@ -815,11 +815,7 @@ let sp = await composeSystemPrompt(q, recallItems, null, currentAi);
       }
     }
   }
-const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>{
-  const t=(typeof fmtMsgTime==='function')?fmtMsgTime(m.ts):'';
-  const prefix=t?t+' ':'';
-  return {role:m.role==='imported'?'user':m.role,content:prefix+m.content};
-});
+const shortTerm=ctxSlice(conversationHistory).filter(m=>!m.image).map(m=>({role:m.role==='imported'?'user':m.role,content:m.content}));
 const messages=[{role:'system',content:sp},...shortTerm];
 
 let endpoint = (provider.endpoint || '').trim();
