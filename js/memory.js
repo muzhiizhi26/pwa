@@ -209,7 +209,11 @@ async function trimVectorStore(){
       if (scoreA !== scoreB) {
         return scoreA - scoreB;
       }
-      return (a.ts || 0) - (b.ts || 0);
+      // 遗忘加权：按"最近活跃时间"排序——被去重合并/强化过的记忆（lastMergedAt）视为最近活跃，
+      // 优先删除"低重要 + 久未访问（未强化）"的记忆
+      const activeA = a.lastMergedAt || a.ts || 0;
+      const activeB = b.lastMergedAt || b.ts || 0;
+      return activeA - activeB;
     });
 
     const overage = validRecords.length - lim;
@@ -242,6 +246,68 @@ async function trimVectorStore(){
     console.error('[Memory Filter] Trim error:', e);
   }
 }
+
+/* ===== C: 夜间记忆做梦巩固（对齐 Letta dream / VAPE 做梦）=====
+   夜间 22:00 后调用：把当天提取的事件记忆做 LLM 巩固——
+   相似记忆合并为一条、提炼要点、删除冗余。每天最多一次（防抖）。 */
+async function nightlyMemoryConsolidate(){
+  try{
+    if (localStorage.getItem('memory_consolidate_' + getLocalDateString(new Date())) === 'done') return; // 当天已巩固
+    if (typeof llmComplete !== 'function') return;
+
+    const now = Date.now();
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    const all = await VDB.all();
+    // 取当天提取的事件记忆（is_event 且 ts 在当天）
+    const todayEvents = all.filter(r => r && r.is_event && r.ts >= todayStart.getTime() && r.vector && Array.isArray(r.vector));
+    if (todayEvents.length < 3) return; // 太少不值得巩固
+
+    // 相似度分组：cosine > 0.85 视为同类
+    const groups = [];
+    const used = new Set();
+    for (let i = 0; i < todayEvents.length; i++) {
+      if (used.has(i)) continue;
+      const group = [todayEvents[i]];
+      used.add(i);
+      for (let j = i + 1; j < todayEvents.length; j++) {
+        if (used.has(j)) continue;
+        if (typeof cosine === 'function' && cosine(todayEvents[i].vector, todayEvents[j].vector) >= 0.85) {
+          group.push(todayEvents[j]);
+          used.add(j);
+        }
+      }
+      groups.push(group);
+    }
+    const mergeable = groups.filter(g => g.length >= 2);
+    if (!mergeable.length) return; // 没有可合并的同类记忆
+
+    let consolidated = 0, removed = 0;
+    for (const group of mergeable) {
+      const texts = group.map(r => (r.text || '').replace(/^【事件记忆】/, '')).join('；');
+      let mergedText = '';
+      try {
+        const out = await llmComplete([{ role: 'user', content: `请把以下几条相似的记忆合并成一条更简洁、信息完整的记忆（保留关键信息，去掉重复表述，30字内）：\n${texts}` }], { temperature: 0.3, callerId: 'memory-consolidate' });
+        if (out) mergedText = out.trim().replace(/^["'「]+|["'」]+$/g, '');
+      } catch(e) { console.warn('[Memory] Consolidate LLM failed:', e.message); }
+      if (!mergedText) continue; // LLM 失败则跳过该组
+      // 保留组内最重要一条，更新为合并文本；删除其余
+      group.sort((a, b) => (b.importance || 0) - (a.importance || 0));
+      const keeper = group[0];
+      const merged = { ...keeper, text: '【事件记忆】' + mergedText, ts: now, boost: Math.max(keeper.boost || 0, 2), lastMergedAt: now, consolidatedFrom: group.length };
+      await VDB.del(keeper.id);
+      await VDB.put(merged);
+      consolidated++;
+      const redundant = group.slice(1).map(r => r.id);
+      if (redundant.length) { await VDB.deleteBatch(redundant); removed += redundant.length; }
+    }
+    localStorage.setItem('memory_consolidate_' + getLocalDateString(new Date()), 'done');
+    console.log(`[Memory Consolidate] 做梦巩固完成：合并 ${consolidated} 组，去重 ${removed} 条冗余记忆`);
+    if (typeof showToast === 'function') showToast(`🧠 记忆已巩固：合并 ${consolidated} 组，去重 ${removed} 条`);
+  }catch(e){
+    console.warn('[Memory Consolidate] error:', e);
+  }
+}
+window.nightlyMemoryConsolidate = nightlyMemoryConsolidate;
 
 function localEmbed(text){const v=new Float32Array(EMBED_DIM);const c=(text||'').toLowerCase().replace(/\s+/g,'');const g=[];for(let i=0;i<c.length;i++){g.push(c[i]);if(i<c.length-1)g.push(c[i]+c[i+1]);}for(const x of g){let h=2166136261;for(let i=0;i<x.length;i++){h^=x.charCodeAt(i);h=Math.imul(h,16777619);}const idx=Math.abs(h)%EMBED_DIM;v[idx]+=(h&1)?1:-1;}let n=0;for(let i=0;i<EMBED_DIM;i++)n+=v[i]*v[i];n=Math.sqrt(n)||1;for(let i=0;i<EMBED_DIM;i++)v[i]/=n;return Array.from(v);}
 function strictSingleApiMode(){return localStorage.getItem('single_api_per_message')==='true';}

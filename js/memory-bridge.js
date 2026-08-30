@@ -352,6 +352,31 @@ async function processExtractedEvent(event, sourceAi) {
     propagation_path: propagationPath
   };
 
+  // A: 记忆去重合并（对齐 mem0）：存入前与已有记忆做相似度对比，
+  //    相似度 ≥0.85 → 合并（刷新时间+强化权重），避免同一偏好/事件重复存储
+  try {
+    const existing = await VDB.all();
+    if (existing && existing.length) {
+      let best = null, bestSim = 0;
+      for (const r of existing) {
+        if (!r || !r.vector || !Array.isArray(r.vector) || r.vector.length < 2) continue;
+        if (typeof cosine !== 'function') break;
+        const sim = cosine(eventRecord.vector, r.vector);
+        if (sim > bestSim) { bestSim = sim; best = r; }
+      }
+      if (best && bestSim >= 0.85) {
+        // 合并：刷新时间戳、强化 boost、importance 取较大值，保留原 id（不新增）
+        const merged = { ...best, ts: now, boost: Math.max(best.boost || 0, eventRecord.boost || 2), importance: Math.max(best.importance || 0, event.importance || 45), lastMergedAt: now };
+        await VDB.del(best.id);
+        await VDB.put(merged);
+        console.log(`[MemoryBridge] 记忆去重合并：相似度 ${bestSim.toFixed(2)}（${(best.text || '').slice(0, 20)}... + ${(eventRecord.text || '').slice(0, 20)}...）`);
+        return; // 已合并，不再新增（跳过后续事件处理）
+      }
+    }
+  } catch(e) {
+    console.warn('[MemoryBridge] Memory dedup check failed:', e);
+  }
+
   await VDB.put(eventRecord);
   await trimVectorStore();
 

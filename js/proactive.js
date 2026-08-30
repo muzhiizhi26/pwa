@@ -65,6 +65,10 @@ function scheduleProactive(){
     if (h >= 22 && typeof nightlyDiarySettle==='function') {
       try { nightlyDiarySettle(); } catch(e) { console.error('[Diary] Nightly settle error:', e); }
     }
+    // 夜间记忆做梦巩固：22:00 后与日记共用窗口，把当天事件记忆 LLM 合并/去冗余（内部防抖，每天一次）
+    if (h >= 22 && typeof nightlyMemoryConsolidate==='function') {
+      try { nightlyMemoryConsolidate(); } catch(e) { console.error('[Memory] Nightly consolidate error:', e); }
+    }
   },60000);
 }
 

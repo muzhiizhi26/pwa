@@ -1504,8 +1504,41 @@ async function generateCompanionImage(memberId, sceneDecoded, descriptionDecoded
   }
 }
 
+// 发图频次控制：每 AI 每天自动图上限 2 张 + 两次自动生图间隔 ≥ 30 分钟（用户手动点击生成不受限）
+function checkImageRateLimit(memberId, mode) {
+  try {
+    if (mode !== 'auto') return true; // 手动/其他模式不限
+    const todayKey = getLocalDateString(new Date());
+    const key = `img_auto_count_${memberId}`;
+    const dayKey = `img_auto_day_${memberId}`;
+    const lastKey = `img_auto_last_${memberId}`;
+    const today = localStorage.getItem(dayKey);
+    if (today !== todayKey) {
+      // 新的一天：重置计数
+      localStorage.setItem(dayKey, todayKey);
+      localStorage.setItem(key, '0');
+    }
+    const count = parseInt(localStorage.getItem(key) || '0', 10);
+    if (count >= 2) return false; // 每日上限 2 张
+    const last = parseInt(localStorage.getItem(lastKey) || '0', 10);
+    if (last && Date.now() - last < 30 * 60 * 1000) return false; // 间隔 ≥ 30 分钟
+    // 通过：记录本次
+    localStorage.setItem(key, String(count + 1));
+    localStorage.setItem(lastKey, String(Date.now()));
+    return true;
+  } catch (e) {
+    return true; // 出错时放行，避免误伤正常生图
+  }
+}
+window.checkImageRateLimit = checkImageRateLimit;
+
 // Auto generate mode
 async function autoGenerateVisualCompanion(memberId, scene, description, assistantMsgUid) {
+  // 发图频次控制：每 AI 每天自动图上限 2 张 + 两次自动生图间隔 ≥ 30 分钟（用户手动点击生成不受限）
+  if (!checkImageRateLimit(memberId, 'auto')) {
+    console.warn(`[ImageRateLimit] ${memberId} auto image throttled`);
+    return;
+  }
   // Append loading status
   const loadingDiv = addLoadingDOM();
   try {
