@@ -166,7 +166,7 @@ try{
     else if(gapMin<120)gapStr=`约${Math.round(gapMin)}分钟没说话，可加一句简短自然的过渡，不必刻意寒暄。`;
     else if(gapMin<360)gapStr=`已${(gapMin/60).toFixed(1)}小时没说话，不要直接接续旧话题细节，可先用一句轻松寒暄过渡。`;
     else if(gapMin<720)gapStr=`已${(gapMin/60).toFixed(0)}小时没说话，视为新时间段，自然重新开场，不要默认对方记得刚才的细节。`;
-    else{const days=Math.round(gapMin/1440);gapStr=days>1?`已${days}天没说话，完全视为新的一天，可自然提及"那天/之前"，像久别重逢般自然。`:'已跨天，可自然提及"昨天/今天"，像久别重逢般自然。';}
+    else{const days=Math.round(gapMin/1440);gapStr=days>1?`已${days}天没说话。请把之前的所有消息视为历史背景，而不是刚发生的对话：不要默认接续旧话题细节，自然重新开场，用一句问候开启新对话。`:'已跨天。请把之前的消息视为历史背景而非刚发生的对话：不要接续旧话题细节，自然重新开场，可以自然问候。';}
   }
 }catch(e){}
 
@@ -190,7 +190,7 @@ const seasonStr=season.hint?`${season.name}：${season.hint}。`:'';
 // 节日检测
 const holidayStr=isHoliday?'今日是特殊节日，可送上节日祝福。':'';
 
-return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n季节：${seasonStr}${wkStr}${holidayStr}${care}${gapStr}\n💡 请让回应自然贴合此刻的时间与季节情境，语气与之呼应，但不要生硬报时，也不要明说"距上次X小时/分钟"。`;}
+return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n季节：${seasonStr}${wkStr}${holidayStr}${care}${gapStr}\n💡 时间信息仅供你在后台感知对话节奏，绝对禁止在回复中提到任何时间、日期、星期、时段（如"现在/今天/昨天/晚上/X点/X小时前/X分钟后"等），也不要让回复看起来像在报时，像真人一样自然回应即可。`;}
 function webSearchInstruction(){if(!webSearchEnabled())return'';return '\n【联网提示】你可以联网检索最新信息。若问题涉及实时或最新内容，请使用你的联网/搜索能力获取并获取最新结果作答。';}
 
 /* 小工具 */
