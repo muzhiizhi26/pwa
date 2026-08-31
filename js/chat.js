@@ -435,7 +435,12 @@ async function sendAudioMessage(displayText, base64Data, mimeType, transcript=''
     if (typeof bumpMsgCounter === 'function') { try { bumpMsgCounter(); } catch (e) {} }
     if (typeof bumpPrivateChatCount === 'function') { try { bumpPrivateChatCount(currentPrivateAiId()); } catch (e) {} }
 
-    await requestAI(null, transcript || cleanText, audioObj);
+    // AI 收到的文本：有转写用转写；无转写时用中性短提示——
+    // 多模态模型（gemini/audio）会直接听音频（requestAI 内直传），提示不会误导它；
+    // 普通文本模型看到"语音消息"会自然询问，而非把"语音消息"当成用户说的话
+    const aiReceivedText = transcript ? transcript : '（用户发来一条语音消息）';
+
+    await requestAI(null, aiReceivedText, audioObj);
   } catch (err) {
     console.error('Error in sendAudioMessage:', err);
     try { if (typeof showToast === 'function') showToast('❌ 发送语音失败: ' + (err.message || err)); } catch(e){}

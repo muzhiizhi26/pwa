@@ -466,9 +466,8 @@ async function groupMemberReply(mem,userText){
              getGroupContextLimit();
   const sliceCount = (cl === Infinity || isNaN(cl)) ? groupHistory.length : cl;
   const recent=groupHistory.slice(-sliceCount).map(m=>{
-    const t=(typeof fmtMsgTime==='function')?fmtMsgTime(m.ts):'';
-    const prefix=t?t+' ':'';
-    return `${m.role==='user'?'用户':(memberById(m.memberId)?.name||m.name||'AI')} ${prefix}：${m.content}`.trim();
+    // 时间感知统一由 system prompt 提供（后台感知），群聊消息文本不再带 [HH:MM] 前缀
+    return `${m.role==='user'?'用户':(memberById(m.memberId)?.name||m.name||'AI')}：${m.content}`.trim();
   }).join('\n');
   
   // 计算用户静默期间 AI 连续发言数

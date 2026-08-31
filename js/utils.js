@@ -163,10 +163,10 @@ try{
   if(lu){
     const gapMin=Math.max(0,(Date.now()-lu.ts)/60000);
     if(gapMin<30)gapStr='刚聊完不久（30分钟内），正常接续话题即可。';
-    else if(gapMin<120)gapStr=`约${Math.round(gapMin)}分钟没说话，可加一句简短自然的过渡，不必刻意寒暄。`;
-    else if(gapMin<360)gapStr=`已${(gapMin/60).toFixed(1)}小时没说话，不要直接接续旧话题细节，可先用一句轻松寒暄过渡。`;
-    else if(gapMin<720)gapStr=`已${(gapMin/60).toFixed(0)}小时没说话，视为新时间段，自然重新开场，不要默认对方记得刚才的细节。`;
-    else{const days=Math.round(gapMin/1440);gapStr=days>1?`已${days}天没说话。请把之前的所有消息视为历史背景，而不是刚发生的对话：不要默认接续旧话题细节，自然重新开场，用一句问候开启新对话。`:'已跨天。请把之前的消息视为历史背景而非刚发生的对话：不要接续旧话题细节，自然重新开场，可以自然问候。';}
+    else if(gapMin<120)gapStr=`约${Math.round(gapMin)}分钟没说话，可自然地表达时间流逝（如"这么会儿没见""等你一会儿了"）作简短过渡，不必刻意寒暄。`;
+    else if(gapMin<360)gapStr=`已${(gapMin/60).toFixed(1)}小时没说话，可自然地提及时间流逝（如"你${(gapMin/60).toFixed(0)}小时没理我了"），不要直接接续旧话题细节，先用一句带时间感的寒暄过渡。`;
+    else if(gapMin<720)gapStr=`已${(gapMin/60).toFixed(0)}小时没说话，自然地表达等待感（如"我等你${(gapMin/60).toFixed(0)}小时了"），视为新时间段重新开场，不要默认对方记得刚才的细节。`;
+    else{const days=Math.round(gapMin/1440);gapStr=days>1?`已${days}天没说话，自然地表达久别感（如"都过了${days}天了""好久不见"）。请把之前的所有消息视为历史背景，而不是刚发生的对话：不要默认接续旧话题细节，自然重新开场，用一句问候开启新对话。`:'已跨天，自然地表达久别感（如"昨天聊到一半""等了你一晚上"）。请把之前的消息视为历史背景而非刚发生的对话：不要接续旧话题细节，自然重新开场，可以自然问候。';}
   }
 }catch(e){}
 
@@ -190,7 +190,7 @@ const seasonStr=season.hint?`${season.name}：${season.hint}。`:'';
 // 节日检测
 const holidayStr=isHoliday?'今日是特殊节日，可送上节日祝福。':'';
 
-return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n季节：${seasonStr}${wkStr}${holidayStr}${care}${gapStr}\n💡 时间信息仅供你在后台感知对话节奏，绝对禁止在回复中提到任何时间、日期、星期、时段（如"现在/今天/昨天/晚上/X点/X小时前/X分钟后"等），也不要让回复看起来像在报时，像真人一样自然回应即可。`;}
+return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n季节：${seasonStr}${wkStr}${holidayStr}${care}${gapStr}\n💡 请在聊天中自然地表达时间的流逝感：如"你三小时没理我了""上午工作忙吗""我等你好久了""都过了一整天了"这类口语化表达，让对话有真实的时间维度。但禁止生硬的精确时钟格式（如"22:24""3点17分"这种报时），用"上午/下午/晚上/刚才/等了你X小时"等自然说法即可。`;}
 function webSearchInstruction(){if(!webSearchEnabled())return'';return '\n【联网提示】你可以联网检索最新信息。若问题涉及实时或最新内容，请使用你的联网/搜索能力获取并获取最新结果作答。';}
 
 /* 小工具 */
