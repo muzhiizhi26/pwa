@@ -84,9 +84,22 @@ function stopCallTimer(){if(callTimerInt){clearInterval(callTimerInt);callTimerI
 function showCallEnd(dur){const t=document.getElementById('callEndToast');document.getElementById('callEndBox').innerHTML='📵 通话结束'+(dur?'<br>通话时长 '+dur:'');t.classList.remove('show');void t.offsetWidth;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000);}
 function setCallStatus(s,sub){
   document.getElementById('callStatus').textContent=s;
-  const subEl=document.getElementById('callSub');
-  subEl.textContent=sub||'';
-  subEl.scrollTop=subEl.scrollHeight;
+  // 方向B：对话内容（sub 非空）累积到 callSub 字幕日志（纯状态提示如"识别中..."不覆盖日志）
+  if(sub) appendCallSub(`${s} ${sub}`);
+}
+// 方向B：字幕累积——保留最近 8 条（你说/AI回复），超长可滚动查看
+function appendCallSub(line){
+  try {
+    const el=document.getElementById('callSub');
+    if(!el) return;
+    const max=8;
+    let lines=el.dataset.lines?JSON.parse(el.dataset.lines):[];
+    lines.push(String(line).trim());
+    if(lines.length>max)lines=lines.slice(-max);
+    el.dataset.lines=JSON.stringify(lines);
+    el.textContent=lines.join('\n');
+    el.scrollTop=el.scrollHeight;
+  }catch(e){}
 }
 function bargeInEnabled(){return localStorage.getItem('call_bargein')!=='false';}
 
@@ -182,7 +195,8 @@ async function acquireMicAndStartVAD() {
 
 async function reconnectCallNodes() {
   if (!callStream) return false;
-  callAudioCtx = audioCtx || (audioCtx = new (window.AudioContext || window.webkitAudioContext)());
+  // P1修复：通话使用独立 AudioContext，不复用 voice.js 全局 audioCtx（避免挂起/恢复与普通TTS互相干扰）
+  if (!callAudioCtx) callAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (callAudioCtx.state === 'suspended') callAudioCtx.resume();
 
   try { micSource = callAudioCtx.createMediaStreamSource(callStream); } catch(e) { return false; }
@@ -277,7 +291,7 @@ function endCall(){
   if(callRecorder&&callRecorder.state!=='inactive'){recStopReason='end';try{callRecorder.stop();}catch(e){}}
   if(ttsSource){try{ttsSource.stop();}catch(e){}ttsSource=null;}
   releaseMicAndStopVAD();
-  if(unlockedAudio)unlockedAudio.pause();
+  // P1修复：不再操作 voice.js 全局 unlockedAudio（通话 TTS 已用独立 callAudioCtx 播放并已停止）
   stopKeepAlive();releaseWakeLock();
   if(wasActive)showCallEnd(dur);callStartTime=0;
   window.groupCallOverride=null;
@@ -450,20 +464,28 @@ async function playTTSCall(text, voice){
   try{
     const gov=window.groupCallOverride||null;
     const voiceToUse=voice||(gov?gov.voice:localStorage.getItem('tts_voice_ai'));
-    const blob=await ttsSpeak(text,voiceToUse);
-    if(!blob)return;
     if(callAudioCtx.state==='suspended')await callAudioCtx.resume();
-    const arr=await blob.arrayBuffer();
-    const audioBuffer=await new Promise((res,rej)=>{callAudioCtx.decodeAudioData(arr,res,rej);});
-    return new Promise(res=>{
-      if(ttsSource){try{ttsSource.stop();}catch(e){}}
-      ttsSource=callAudioCtx.createBufferSource();
-      ttsSource.buffer=audioBuffer;
-      ttsSource.connect(callAudioCtx.destination);
-      ttsSource.onended=()=>{ttsSource=null;res();};
-      ttsSource.start(0);
-    });
-  }catch(e){showToast('朗读失败：'+e.message);}
+    // 方向A：分句 TTS——切句后逐句生成播放（首句先出，降首字延迟），barge-in 打断时停止后续
+    const sentences = (typeof splitForTTS === 'function') ? splitForTTS(text) : [text];
+    if(!sentences.length) return;
+    for(let i=0;i<sentences.length;i++){
+      // 通话结束或被用户打断（barge-in 已切 LISTENING）则停止后续句
+      if(!callActive || VoiceSession.state!=='SPEAKING') return;
+      const blob=await ttsSpeak(sentences[i],voiceToUse);
+      if(!blob) continue;
+      if(!callActive || VoiceSession.state!=='SPEAKING') return;
+      const arr=await blob.arrayBuffer();
+      const audioBuffer=await new Promise((res,rej)=>{callAudioCtx.decodeAudioData(arr,res,rej);});
+      await new Promise(res=>{
+        if(ttsSource){try{ttsSource.stop();}catch(e){}}
+        ttsSource=callAudioCtx.createBufferSource();
+        ttsSource.buffer=audioBuffer;
+        ttsSource.connect(callAudioCtx.destination);
+        ttsSource.onended=()=>{ttsSource=null;res();};
+        ttsSource.start(0);
+      });
+    }
+  }catch(e){console.warn('[playTTSCall] error:', e.message);}
 }
 
 async function callRequestAI(query){

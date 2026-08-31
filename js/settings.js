@@ -188,6 +188,16 @@ function renderGeneralSettings(){settingsMode='general';document.getElementById(
     <div class="switch-row"><div class="switch-info"><div class="switch-label">📖 阅读陪伴（注入当前章节给AI）</div><div class="switch-desc">开启后聊天时 AI 知道你在读哪一章，可讨论剧情</div></div><label class="switch"><input type="checkbox" ${localStorage.getItem('ebook_companion')!=='false'?'checked':''} onchange="setBool('ebook_companion',this.checked)"><span class="switch-slider"></span></label></div>
     <div class="switch-row"><div class="switch-info"><div class="switch-label">📔 AI 主动写日记</div><div class="switch-desc">默认关闭。开启后每晚 AI 会主动写一篇（当天有聊天时）</div></div><label class="switch"><input type="checkbox" ${localStorage.getItem('diary_auto')==='true'?'checked':''} onchange="setBool('diary_auto',this.checked)"><span class="switch-slider"></span></label></div>
     <div class="switch-row"><div class="switch-info"><div class="switch-label">🔄 每日自动备份</div><div class="switch-desc">默认关闭</div></div><label class="switch"><input type="checkbox" ${autoBackupEnabled()?'checked':''} onchange="setBool('auto_backup',this.checked)"><span class="switch-slider"></span></label></div>
+    <div class="switch-row"><div class="switch-info"><div class="switch-label">🔔 AI 主动消息推送（Bark）</div><div class="switch-desc">AI 主动消息推送到 iPhone 通知（可经华为运动健康App转发到手环），默认关闭</div></div><label class="switch"><input type="checkbox" ${localStorage.getItem('bark_enabled')==='true'?'checked':''} onchange="setBool('bark_enabled',this.checked)"><span class="switch-slider"></span></label></div>
+    <div class="config-row" style="display:flex;flex-direction:column;gap:8px;padding:12px 16px;background:#f9fafb;border-radius:10px;margin:8px 0;">
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);">🔑 Bark 推送配置</div>
+      <input type="text" class="form-input" id="barkKeyInput" value="${localStorage.getItem('bark_key') || ''}" placeholder="Bark Key（Bark App 里获取，如 8s5Uxyz1...）" oninput="localStorage.setItem('bark_key', this.value.trim())">
+      <input type="text" class="form-input" id="barkWorkerUrlInput" value="${localStorage.getItem('bark_worker_url') || ''}" placeholder="Cloudflare Worker URL（可选，如 https://xxx.workers.dev，填了优先走 Worker 中转）" oninput="localStorage.setItem('bark_worker_url', this.value.trim())">
+      <div class="action-buttons" style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-primary" onclick="enableLocalNotifications()">🔔 开启手机通知</button><button class="btn btn-info" onclick="testBarkPush()">📤 发送测试通知</button></div>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.6;">💡 <b>不装 Bark 也能用</b>：点「开启手机通知」授权后，AI 主动消息直接推送到手机通知栏（iOS 需先将本应用<b>添加到主屏幕</b>）。想同步到手环再配置 Bark。</div>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.6;">① 手机装 <b>Bark</b> App（App Store 免费）获取 Key；② 华为运动健康 App → 设备 → 消息通知 → 应用列表勾选 Bark（iOS 支持消息提醒）；③ 填 Key 后点「发送测试通知」验证到手环。</div>
+    </div>
+    ${renderProactiveStats()}
     <div class="switch-row"><div class="switch-info"><div class="switch-label">🧹 存储预警自动清理</div><div class="switch-desc">存储达 80% 时自动清除图片/语音大图（文字保留），默认开启</div></div><label class="switch"><input type="checkbox" ${localStorage.getItem('storage_auto_clean')!=='false'?'checked':''} onchange="setBool('storage_auto_clean',this.checked)"><span class="switch-slider"></span></label></div>
 
     <div class="slider-row"><div class="slider-head"><span class="slider-label">💬 上下文消息数量上限</span><span class="slider-value" id="ctxLimitVal">${contextLimitText}</span></div><input type="range" min="2" max="200" step="1" value="${contextLimitSliderValue}" oninput="setContextLimit(this.value)"><div class="form-hint">拉到最右 = 不限制。聊天记录本地保存不受此限制。</div></div>
@@ -230,6 +240,53 @@ function renderGeneralSettings(){settingsMode='general';document.getElementById(
 
 function setContextLimit(v){const n=parseInt(v);if(n>=200){localStorage.setItem('context_limit','unlimited');document.getElementById('ctxLimitVal').textContent='不限制';}else{localStorage.setItem('context_limit',String(n));document.getElementById('ctxLimitVal').textContent=n+' 条';}}
 
+async function enableLocalNotifications(){
+  try {
+    if (!('Notification' in window)) { showToast('⚠️ 当前环境不支持通知（iOS 需将本应用添加到主屏幕后使用）'); return; }
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      showToast('✅ 通知已开启，AI 主动消息会推送到手机');
+    } else {
+      showToast('❌ 通知未授权，请在系统设置中允许通知');
+    }
+  } catch(e) {
+    showToast('⚠️ 通知开启失败：' + e.message + '（iOS 需添加到主屏幕）');
+  }
+}
+/* 方向4：主动消息统计面板——今日条数 + 最近记录 */
+function renderProactiveStats(){
+  try {
+    const todayStr = new Date().toDateString();
+    const todayCount = parseInt(localStorage.getItem('proactive_count_' + todayStr) || '0');
+    const hist = JSON.parse(localStorage.getItem('proactive_history') || '[]');
+    const typeNames = { general:'通用', daily_review:'每日回忆', manual:'时机/自主', proactive:'主动' };
+    const rows = hist.slice().reverse().slice(0, 5).map(h => {
+      const t = new Date(h.time);
+      const hm = `${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
+      const tn = typeNames[h.type] || h.type;
+      return `<div style="font-size:12px;color:var(--text-muted);line-height:1.7;">${hm} [${tn}] ${h.text}</div>`;
+    }).join('') || '<div style="font-size:12px;color:var(--text-muted);">暂无主动消息记录</div>';
+    return `<div class="config-row" style="display:flex;flex-direction:column;gap:8px;padding:12px 16px;background:#f9fafb;border-radius:10px;margin:8px 0;">
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);">📊 主动消息统计</div>
+      <div style="font-size:12px;color:var(--text-secondary);">今日已发 <b>${todayCount}</b> 条（自适应冷却自动调节节奏）</div>
+      ${rows}
+    </div>`;
+  } catch(e) { return ''; }
+}
+async function testBarkPush(){
+  try {
+    const title = '🔔 AI 测试通知';
+    const body = '这是一条来自 AI 伴侣的测试消息，如果能在手机（或手环）上看到，说明 Bark 推送已配置成功！';
+    const res = await sendBarkNotification(title, body);
+    if (res && res.ok) {
+      showToast('✅ 测试通知已发送，请查看手机/手环');
+    } else {
+      showToast('❌ 推送失败：' + ((res && res.reason) || '未知错误'));
+    }
+  } catch(e) {
+    showToast('❌ 推送失败：' + e.message);
+  }
+}
 function renderPersonaSettings() {
   settingsMode = 'persona';
   window.personaActiveTab = window.personaActiveTab || 'prompts';

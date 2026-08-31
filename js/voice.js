@@ -15,6 +15,24 @@ async function fetchVoiceList(){
   const keyInput = document.getElementById('voiceKey')?.value;
   const key = (keyInput !== undefined ? keyInput.trim() : voiceKey());
   if(!key){alert('请先填入 API Key');return;}try{const r=await fetch(VOICE_LIST_URL,{headers:{'Authorization':`Bearer ${key}`}});if(!r.ok)throw new Error('获取失败 '+r.status);const d=await r.json();const list=(d.result||d.data||d.voices||[]).map(v=>v.uri||v.id||v.name||v).filter(Boolean);localStorage.setItem('voice_list',JSON.stringify(list));localStorage.setItem('voice_key',key);showToast(`✅ 获取 ${list.length} 个音色`);renderVoiceSettings();}catch(e){alert('获取音色失败：'+e.message);}}
+/* 方向A：分句 TTS——按标点切短句（合并过短句），供通话流式播放降首字延迟 */
+function splitForTTS(text){
+  const s = String(text || '').trim();
+  if (!s) return [];
+  const parts = s.split(/(?<=[。！？；!?;\n])/).map(p => p.trim()).filter(Boolean);
+  // 合并过短句（<6字）到前一句，避免碎句
+  const merged = [];
+  for (const p of parts) {
+    if (merged.length && (merged[merged.length-1].length < 6 || p.length < 6)) {
+      merged[merged.length-1] += p;
+    } else {
+      merged.push(p);
+    }
+  }
+  return merged.length ? merged : [s];
+}
+window.splitForTTS = splitForTTS;
+
 async function ttsSpeak(text,voice){const key=voiceKey();if(!key){showToast('请先在语音设置填入 API Key');return null;}const spoken=stripForSpeech(text);if(!spoken)return null;const body={model:localStorage.getItem('tts_model')||getTtsModels()[0],input:spoken,response_format:'mp3'};const v=voice||localStorage.getItem('tts_voice_ai');if(v)body.voice=v;const r=await fetch(getTtsUrl(),{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},body:JSON.stringify(body)});if(!r.ok)throw new Error('TTS '+r.status);return await r.blob();}
 async function playTTS(text,voice){if(!voiceEnabled()){showToast('🔇 语音已关闭');return;}try{const blob=await ttsSpeak(text,voice);if(!blob)return;if(!unlockedAudio){unlockedAudio=new Audio();unlockedAudio.setAttribute('playsinline','');}if(unlockedAudio.src && unlockedAudio.src.startsWith('blob:')) {
       const oldUrl = unlockedAudio.src;

@@ -249,6 +249,17 @@ async function sendMessage(){
       chatReplying = false;
       return;
     }
+    // 方向3：预约系统——检测自然语言预约（如"晚上8点提醒我喝水"）并存入，AI 随后自然确认
+    if (text && typeof addAppointment === 'function' && /(提醒我|叫我|喊我|记得提醒|到点提醒)/.test(text)) {
+      try {
+        const appt = addAppointment(text);
+        if (appt && appt.ok) {
+          const t = new Date(appt.time);
+          const whenStr = `${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}`;
+          if (typeof showToast === 'function') showToast(`✅ 已预约 ${whenStr} 提醒：${appt.text}`);
+        }
+      } catch(e) { console.warn('[Appointment] detect error:', e); }
+    }
     if(quotedText){text=`> ${quotedText}\n\n${text}`;clearQuote();}
     const img=pendingImage;pendingImage=null;
     let emotion='calm';

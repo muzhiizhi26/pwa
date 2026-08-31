@@ -193,6 +193,37 @@ const holidayStr=isHoliday?'今日是特殊节日，可送上节日祝福。':''
 return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n季节：${seasonStr}${wkStr}${holidayStr}${care}${gapStr}\n💡 请在聊天中自然地表达时间的流逝感：如"你三小时没理我了""上午工作忙吗""我等你好久了""都过了一整天了"这类口语化表达，让对话有真实的时间维度。但禁止生硬的精确时钟格式（如"22:24""3点17分"这种报时），用"上午/下午/晚上/刚才/等了你X小时"等自然说法即可。`;}
 function webSearchInstruction(){if(!webSearchEnabled())return'';return '\n【联网提示】你可以联网检索最新信息。若问题涉及实时或最新内容，请使用你的联网/搜索能力获取并获取最新结果作答。';}
 
+/* ===== Bark 推送（iOS 通知 → 华为手环转发链路）=====
+   PWA 直接调用 Bark API（GET 请求，无 IP 风控，无需中转 Worker）：
+   AI 主动消息 → Bark → APNs → iPhone 通知栏 → 华为运动健康App转发到手环
+   Key 与开关在设置面板配置（localStorage: bark_key / bark_enabled）*/
+function barkEnabled(){return localStorage.getItem('bark_enabled')==='true' && (!!localStorage.getItem('bark_key') || !!localStorage.getItem('bark_worker_url'));}
+async function sendBarkNotification(title, body){
+  // 优先走 Cloudflare Worker 中转（bark_worker_url 已配置时），否则直调 Bark API
+  const workerUrl = (localStorage.getItem('bark_worker_url') || '').trim();
+  const key = localStorage.getItem('bark_key') || '';
+  if(!workerUrl && !key){ console.warn('[Bark] 未配置 Bark Key 或 Worker URL'); return { ok:false, reason:'未配置Bark Key或Worker URL' }; }
+  try {
+    let url, resp;
+    if (workerUrl) {
+      // Worker 中转：GET ?key=&title=&body=（Worker 已做 CORS 允许）
+      const u = workerUrl.replace(/\/+$/, '');
+      url = `${u}/?key=${encodeURIComponent(key)}&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body||'')}`;
+      resp = await fetch(url, { method: 'GET' });
+    } else {
+      // 直调 Bark 官方接口（无 IP 风控）
+      url = `https://api.day.app/${encodeURIComponent(key)}/${encodeURIComponent(title)}/${encodeURIComponent(body||'')}`;
+      resp = await fetch(url, { method: 'GET' });
+    }
+    const d = await resp.json().catch(()=>({}));
+    return { ok: d.code === 200, reason: d.message || ('HTTP '+resp.status) };
+  } catch(e){
+    console.warn('[Bark] 推送失败:', e.message);
+    return { ok:false, reason: e.message };
+  }
+}
+window.sendBarkNotification = sendBarkNotification;
+
 /* 小工具 */
 function triggerHaptic(type = 'light') {
   if (!('vibrate' in navigator)) return;

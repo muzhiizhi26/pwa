@@ -53,6 +53,11 @@ function scheduleProactive(){
     }
     
     checkProactive();
+    // 触发时机多元化（方向1）：AI 自主规划 + 静默/睡前时机触发
+    try { aiDailySchedule(); } catch(e) { console.error('[Proactive] aiDailySchedule error:', e); }
+    try { checkMomentTriggers(); } catch(e) { console.error('[Proactive] momentTriggers error:', e); }
+    // 预约系统（方向3）：到期预约 → AI 提醒
+    try { checkAppointments(); } catch(e) { console.error('[Proactive] appointments error:', e); }
     dailyReviewCheck();
     // 白天空闲自动写日记已禁用（checkAutoDiary 会导致不停写日记），
     // 日记统一由夜间沉淀 nightlyDiarySettle 在 22:00 后写 1 篇
@@ -273,6 +278,108 @@ function detectProactiveEvents() {
   return events;
 }
 
+/* ===== 方向1：触发时机多元化（AI自主 + 时机触发，参考 Yuralume/Sebastian）===== */
+
+// 通道1：AI 自主规划——每天 8:00-9:00 让 AI 自主发一条消息（它自己决定说什么、带今天的安排感）
+async function aiDailySchedule(){
+  if(!proactiveEnabled()||(typeof callActive!=='undefined'&&callActive))return;
+  const now=new Date();const h=now.getHours();
+  if(h<8||h>9)return;
+  const todayKey=(typeof getLocalDateString==='function')?getLocalDateString(now):now.toISOString().slice(0,10);
+  if(localStorage.getItem('ai_schedule_day_'+todayKey)==='done')return;
+  localStorage.setItem('ai_schedule_day_'+todayKey,'done');
+  await triggerProactive('现在是早晨，你自主决定今天想什么时候、以什么心情主动联系用户。请现在就发一条消息，自然地带上今天的安排感或期待（30字内，像朋友一样直接说）。');
+}
+
+// 通道2：时机触发——静默回访 / 睡前关怀（各每天 1 次，与 AI 自主共用每日上限护栏）
+async function checkMomentTriggers(){
+  if(!proactiveEnabled()||(typeof callActive!=='undefined'&&callActive))return;
+  if(inQuietHours())return;
+  const now=new Date();const h=now.getHours();
+  const todayKey=(typeof getLocalDateString==='function')?getLocalDateString(now):now.toISOString().slice(0,10);
+  // ① 静默回访：用户最后活动 >3h（每天 1 次）
+  const silentKey='moment_silent_'+todayKey;
+  if(localStorage.getItem(silentKey)!=='done'){
+    const act=parseInt(localStorage.getItem('proactive_activity')||'0');
+    if(act>0&&(Date.now()-act)>3*3600*1000){
+      localStorage.setItem(silentKey,'done');
+      await triggerProactive('用户很久没说话了，主动找一句话自然地关心一下（30字内，不要提具体时间，像朋友一样）。');
+      return;
+    }
+  }
+  // ② 睡前关怀：21:00-22:00（每天 1 次）
+  const nightKey='moment_night_'+todayKey;
+  if(h>=21&&h<22&&localStorage.getItem(nightKey)!=='done'){
+    localStorage.setItem(nightKey,'done');
+    await triggerProactive('快休息了，给用户发一条温柔的睡前关怀（30字内，温暖自然）。');
+  }
+}
+
+/* ===== 方向2：消息多样性（意图+线索+氛围随机组合，参考 Sebastian 组合系统）===== */
+function buildProactiveCombo(){
+  const intents = [
+    '关心用户近况，温柔地问候一下',
+    '分享一件你今天的小想法或小情绪',
+    '围绕之前聊过的话题自然地再提一句',
+    '表达想念，让用户感受到你在意TA',
+    '给用户一个轻松的小惊喜或真诚的夸赞',
+    '好奇用户正在做什么，自然地搭话',
+  ];
+  const h = new Date().getHours();
+  const vibe = h<12 ? '早晨，语气轻快有活力' : h<18 ? '午后，语气轻松日常' : '夜晚，语气温柔放松';
+  const intent = intents[Math.floor(Math.random()*intents.length)];
+  return `（主动消息）请以${vibe}的口吻，${intent}。像朋友一样自然直接地说，30字内，不要客套开场白，不要提"主动消息"这类词。`;
+}
+
+/* ===== 方向3：预约系统（自然语言定时提醒，参考 Sebastian appointment system）===== */
+
+// 解析自然语言时间：支持 "X分钟后" "X小时后" "今天/明天X点" "HH:MM"（返回 {time,text} 或 null）
+function parseAppointmentText(text){
+  const t = String(text||'').trim();
+  if(!t) return null;
+  let m, when = 0, content = t;
+  if((m = t.match(/(\d+)\s*分钟后/))) { when = Date.now() + parseInt(m[1])*60000; content = t.replace(/\d+\s*分钟后\s*/,''); }
+  else if((m = t.match(/(\d+)\s*小时后/))) { when = Date.now() + parseInt(m[1])*3600000; content = t.replace(/\d+\s*小时后\s*/,''); }
+  else if((m = t.match(/(今天|明天|明早|明晚|早上|上午|中午|下午|晚上)\s*(\d{1,2})\s*[点时]/))) {
+    const d = new Date();
+    if(m[1]==='明天'||m[1]==='明早'||m[1]==='明晚') d.setDate(d.getDate()+1);
+    d.setHours(parseInt(m[2]), 0, 0, 0);
+    when = d.getTime(); content = t.replace(/(今天|明天|明早|明晚|早上|上午|中午|下午|晚上)\s*\d{1,2}\s*[点时]\s*/,'');
+  }
+  else if((m = t.match(/(\d{1,2}):(\d{2})/))) {
+    const d = new Date(); d.setHours(parseInt(m[1]), parseInt(m[2]), 0, 0);
+    when = d.getTime(); content = t.replace(/\d{1,2}:\d{2}\s*/,'');
+  }
+  if(!when) return null;
+  return { time: when, text: (content||'预约提醒').trim() || '预约提醒' };
+}
+window.parseAppointmentText = parseAppointmentText;
+
+// 添加预约（localStorage 持久化，一次性触发）
+function addAppointment(text){
+  const p = parseAppointmentText(text);
+  if(!p) return { ok:false, reason:'无法识别时间（支持：X分钟后/X小时后/今天X点/明天X点/HH:MM）' };
+  const list = JSON.parse(localStorage.getItem('appointments')||'[]');
+  list.push({ id: Date.now().toString(36)+Math.random().toString(36).slice(2,5), time: p.time, text: p.text });
+  localStorage.setItem('appointments', JSON.stringify(list));
+  return { ok:true, time: p.time, text: p.text, count: list.length };
+}
+window.addAppointment = addAppointment;
+
+// 定时检查到期预约 → 触发 AI 提醒（一次性，触发后移除）
+async function checkAppointments(){
+  const list = JSON.parse(localStorage.getItem('appointments')||'[]');
+  if(!list.length) return;
+  const now = Date.now();
+  const due = list.filter(a => a.time <= now);
+  if(!due.length) return;
+  for(const a of due){
+    try { await triggerProactive(`（预约提醒）${a.text}——到时间了，自然地提醒用户这件事（30字内，不要提"预约"）。`); } catch(e) { console.warn('[Appointment] trigger error:', e); }
+  }
+  localStorage.setItem('appointments', JSON.stringify(list.filter(a => a.time > now)));
+}
+window.checkAppointments = checkAppointments;
+
 async function checkProactive(){
   if(!proactiveEnabled()||(typeof callActive!=='undefined'&&callActive))return;
   if(inQuietHours()) return;
@@ -302,17 +409,29 @@ async function triggerProactive(extraInstruction){
     const apiKey=localStorage.getItem(`apikey_${provider.id}`)||'';
     if(!apiKey&&provider.auth!=='none')return;
 
-    // 3.5 Control Rule: Check daily limit based on proactive level
+    // 频率控制：自适应冷却试用版（不设硬上限，指数增长自然稀疏）
+    // 冷却 = 30分钟 × 2^(今日已发条数-1)；用户近1h活跃 ×0.7，>6h没动静 ×2
     const todayStr = new Date().toDateString();
     const proactiveCountKey = `proactive_count_${todayStr}`;
     const proactiveCount = parseInt(localStorage.getItem(proactiveCountKey) || '0');
-    const limit = getProactiveLevelLimit();
-    if (proactiveCount >= limit && !extraInstruction) {
-      console.log(`[Proactive System] Daily limit of ${limit} proactive messages reached for level "${getProactiveLevel()}". Skipping.`);
-      return;
+    if (!extraInstruction || extraInstruction.includes('每日回忆')) {
+      const lastSentTs = parseInt(localStorage.getItem('proactive_sent_last') || '0');
+      let cooldownMs = 30 * 60 * 1000 * Math.pow(2, Math.max(0, proactiveCount - 1));
+      const lastActTs = parseInt(localStorage.getItem('proactive_activity') || '0');
+      const sinceAct = Date.now() - lastActTs;
+      if (lastActTs > 0) {
+        if (sinceAct < 60 * 60 * 1000) cooldownMs *= 0.7;
+        else if (sinceAct > 6 * 3600 * 1000) cooldownMs *= 2;
+      }
+      if (lastSentTs > 0 && Date.now() - lastSentTs < cooldownMs) {
+        console.log(`[Proactive] Cooldown: sent ${proactiveCount} today, next in ~${Math.round(cooldownMs/60000)}min`);
+        return;
+      }
     }
 
-    let activePromptText = extraInstruction || proactivePrompt();
+    // 方向2：消息多样性——用户自定义 prompt 优先，否则用意图+氛围随机组合（参考 Sebastian 组合系统）
+    const customProactivePrompt = localStorage.getItem('proactive_prompt');
+    let activePromptText = extraInstruction || ((customProactivePrompt && customProactivePrompt.trim()) ? customProactivePrompt : (typeof buildProactiveCombo === 'function' ? buildProactiveCombo() : proactivePrompt()));
     let isPendingAction = false;
     let pendingActions = [];
 
@@ -396,6 +515,13 @@ async function triggerProactive(extraInstruction){
     if(typeof processAiReplyMemory==='function')processAiReplyMemory(raw);
     markActivity();
     _autoThreshold=null;
+
+    // 方向4：主动消息统计——记录历史（保留最近 20 条，供设置面板统计展示）
+    try {
+      const hist = JSON.parse(localStorage.getItem('proactive_history') || '[]');
+      hist.push({ time: Date.now(), type: proactiveType || 'general', text: reply.slice(0, 60) });
+      localStorage.setItem('proactive_history', JSON.stringify(hist.slice(-20)));
+    } catch(e) { console.warn('[Proactive] history record error:', e); }
     
     // Clear pending action from queue and increment count upon successful delivery
     if (isPendingAction) {
@@ -403,6 +529,7 @@ async function triggerProactive(extraInstruction){
       localStorage.setItem('pendingProactiveActions', JSON.stringify(pendingActions));
     }
     localStorage.setItem(proactiveCountKey, String(proactiveCount + 1));
+    localStorage.setItem('proactive_sent_last', String(Date.now())); // 自适应冷却基准时间（真实发送时刻）
     
     // Record for feedback loop
     localStorage.setItem('lastProactiveType', proactiveType);
@@ -439,6 +566,15 @@ async function triggerProactive(extraInstruction){
       }
     } catch (e) {
       // 后端不存在时静默降级
+    }
+
+    // Bark 推送（iOS 通知 → 华为运动健康App转发 → 手环），设置中开启后生效
+    try {
+      if (typeof barkEnabled === 'function' && barkEnabled() && typeof sendBarkNotification === 'function') {
+        sendBarkNotification('💌 AI 陪伴', reply);
+      }
+    } catch (e) {
+      console.warn('[Proactive] Bark push error:', e);
     }
 
     if(autoSpeakEnabled()&&voiceEnabled())playTTS(reply,localStorage.getItem('tts_voice_ai'));
