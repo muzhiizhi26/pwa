@@ -198,6 +198,7 @@ function renderGeneralSettings(){settingsMode='general';document.getElementById(
       <div style="font-size:12px;color:var(--text-muted);line-height:1.6;">① 手机装 <b>Bark</b> App（App Store 免费）获取 Key；② 华为运动健康 App → 设备 → 消息通知 → 应用列表勾选 Bark（iOS 支持消息提醒）；③ 填 Key 后点「发送测试通知」验证到手环。</div>
     </div>
     ${renderProactiveStats()}
+    ${renderCompanionHealth()}
     <div class="switch-row"><div class="switch-info"><div class="switch-label">🧹 存储预警自动清理</div><div class="switch-desc">存储达 80% 时自动清除图片/语音大图（文字保留），默认开启</div></div><label class="switch"><input type="checkbox" ${localStorage.getItem('storage_auto_clean')!=='false'?'checked':''} onchange="setBool('storage_auto_clean',this.checked)"><span class="switch-slider"></span></label></div>
 
     <div class="slider-row"><div class="slider-head"><span class="slider-label">💬 上下文消息数量上限</span><span class="slider-value" id="ctxLimitVal">${contextLimitText}</span></div><input type="range" min="2" max="200" step="1" value="${contextLimitSliderValue}" oninput="setContextLimit(this.value)"><div class="form-hint">拉到最右 = 不限制。聊天记录本地保存不受此限制。</div></div>
@@ -252,6 +253,43 @@ async function enableLocalNotifications(){
   } catch(e) {
     showToast('⚠️ 通知开启失败：' + e.message + '（iOS 需添加到主屏幕）');
   }
+}
+/* 方向⑤：Companion Health Monitor——伴侣健康仪表盘（记忆/关系/主动/回复/错误/消耗） */
+function renderCompanionHealth(){
+  try {
+    // 记忆数量（同步近似：localStorage 降级备份条数）
+    let memCount = 0;
+    try { const raw = localStorage.getItem('vdb_local_backup'); if (raw) memCount = JSON.parse(raw).length; } catch(e) {}
+    // 关系状态
+    let rel = { trust:'-', familiarity:'-', intimacy:'-' };
+    try { const m = getRelationshipMetrics('main'); if (m) rel = { trust: m.trust, familiarity: m.familiarity, intimacy: m.intimacy }; } catch(e) {}
+    // 主动消息统计
+    let proactiveTotal = 0, proactiveToday = 0;
+    try { proactiveTotal = (JSON.parse(localStorage.getItem('proactive_history')||'[]')).length; } catch(e) {}
+    try { const todayStr = new Date().toDateString(); proactiveToday = parseInt(localStorage.getItem('proactive_count_'+todayStr)||'0'); } catch(e) {}
+    // 平均回复长度 + 对话消息数（API 消耗近似）
+    let avgLen = 0, msgCount = 0;
+    try {
+      const h = JSON.parse(localStorage.getItem('chatHistory')||'[]');
+      msgCount = h.length;
+      const replies = h.filter(m=>m.role==='assistant' && m.content);
+      if (replies.length) avgLen = Math.round(replies.reduce((s,m)=>s+(m.content||'').length,0)/replies.length);
+    } catch(e) {}
+    // 错误次数
+    let errCount = 0;
+    try { if (window.TraceCenter && typeof window.TraceCenter.getErrors==='function') errCount = window.TraceCenter.getErrors(50).length; } catch(e) {}
+    return `<div class="config-row" style="display:flex;flex-direction:column;gap:8px;padding:12px 16px;background:#f9fafb;border-radius:10px;margin:8px 0;">
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);">🧠 伴侣健康仪表盘</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px;color:var(--text-secondary);line-height:1.9;">
+        <div>🧬 记忆条数：<b>${memCount}</b></div>
+        <div>🤝 关系：信任 <b>${rel.trust}%</b> · 熟悉 <b>${rel.familiarity}%</b> · 亲密 <b>${rel.intimacy}%</b></div>
+        <div>💌 主动消息：今日 <b>${proactiveToday}</b> · 累计 <b>${proactiveTotal}</b></div>
+        <div>📝 平均回复长度：<b>${avgLen}</b> 字</div>
+        <div>❌ 错误次数：<b>${errCount}</b></div>
+        <div>💬 对话消息：<b>${msgCount}</b> 条</div>
+      </div>
+    </div>`;
+  } catch(e) { return ''; }
 }
 /* 方向4：主动消息统计面板——今日条数 + 最近记录 */
 function renderProactiveStats(){

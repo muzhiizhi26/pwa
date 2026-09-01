@@ -1006,6 +1006,7 @@ async function composeSystemPrompt(query, recallItems, extra, memberId) {
     const snippet = result ? result.replace(/=====+[\s\S]*?=====+/g, '').trim().slice(0, 200) : '';
     addRuntimeLog('system', `系统指令 — ${aiName} (${sceneType})`, snippet ? `指令摘要: ${snippet}${result.length > 200 ? '...' : ''}` : '');
   }
+  // 人格差异由各 AI 自身的 persona/prompt 驱动（主/副 AI 各有独立设定），不再硬编码注入行为特征
   return result;
 }
 

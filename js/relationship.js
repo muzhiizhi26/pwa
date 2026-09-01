@@ -64,6 +64,15 @@ function getRelationshipMetrics(memberId) {
           total: 0
         };
       }
+      
+      // 补充核心指标字段（老数据可能缺失 → 否则 updateRelationshipMetrics 会因 undefined 直接 return，
+      // 导致 chatCount 不计数、熟悉度每5次对话的提升永不触发）
+      if (data.trust === undefined) data.trust = 25;
+      if (data.familiarity === undefined) data.familiarity = 15;
+      if (data.intimacy === undefined) data.intimacy = 10;
+      if (data.chatCount === undefined) data.chatCount = 0;
+      if (data.expCount === undefined) data.expCount = 0;
+      if (data.experiences === undefined) data.experiences = [];
       return data;
     }
   } catch (e) {

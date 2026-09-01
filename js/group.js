@@ -487,8 +487,27 @@ async function groupMemberReply(mem,userText){
 2. 【引回用户】：请在发言结尾，极其自然地去 @用户 （格式写为 @用户 ），温柔或关切地询问用户的状态、心情或意见。例如：“好啦别吵了，@用户 一直不说话呢，你今天过得好吗？” 或 “@用户 你怎么这么安静，是不是我们吵到你啦？”`;
   }
 
+  // ①社交动作注入：每轮加权随机【主导/附和/插话转移/温和反驳】（对齐 AgentGroup 社交技能模块）
+  let socialAction = '';
+  if (userText !== '（AI 之间自由接话）' || consecutiveAiCount < 2) {
+    const saRoll = Math.random() * 100;
+    if (saRoll < 50) socialAction = '';
+    else if (saRoll < 75) socialAction = '\n【本轮社交动作：附和上一位】先简短认同或补充上一位发言者的观点（1-2句），语气自然。';
+    else if (saRoll < 90) socialAction = '\n【本轮社交动作：插话转移话题】自然地插入一句新话题或生活小插曲（1句），不要生硬。';
+    else socialAction = '\n【本轮社交动作：温和反驳上一位】可以温和地提出不同看法（“我倒是觉得……不过你说得也有道理”），不攻击，1-2句。';
+  }
+
+  // ③反重复：记录本成员最近2条发言，提示不复述自己刚说过的（对齐 COUNCIL discussion_dynamics）
+  let antiRepeat = '';
+  try {
+    const myRecent = groupHistory.filter(m => m.memberId === mem.id && m.content).slice(-2);
+    if (myRecent.length) {
+      antiRepeat = '\n【你最近说过】' + myRecent.map(m => `“${String(m.content).slice(0,30)}”`).join('、') + '——请不要复述或重复自己刚说过的内容。';
+    }
+  } catch(e) {}
+
   const groupContextExtra = `【群聊交流场景】这是一个多人群聊，成员：用户、${roster}。你是「${mem.name}」。
-规则：请只以「${mem.name}」的身份和性格特征（人设：${mem.persona || '自然随和'}）发表一条极其简短口语化、接地气的回复（控制在40字以内）。你可以回应用户，也可以和别的AI成员（如小暖、阿灿等）插科打诨或幽默互动，共同烘托极为鲜活、有生活烟火气的多人群聊氛围。千万不要带有任何名字前缀（如 “${mem.name}：” 或 “回复：” 等），也不要复述别人的原话，不使用列表。` + (typeof buildGroupCulturePrompt === 'function' ? buildGroupCulturePrompt() : '') + redirectPrompt;
+规则：请只以「${mem.name}」的身份和性格特征（人设：${mem.persona || '自然随和'}）发表一条极其简短口语化、接地气的回复（控制在40字以内）。你可以回应用户，也可以和别的AI成员（如小暖、阿灿等）插科打诨或幽默互动，共同烘托极为鲜活、有生活烟火气的多人群聊氛围。千万不要带有任何名字前缀（如 “${mem.name}：” 或 “回复：” 等），也不要复述别人的原话，不使用列表。` + (typeof buildGroupCulturePrompt === 'function' ? buildGroupCulturePrompt() : '') + redirectPrompt + socialAction + antiRepeat;
 
   // 群聊时间感知：切换对话历史源（间隔计算基于群聊历史）
   if(typeof setCurrentDialogHistory==='function') setCurrentDialogHistory(getGroupHistory());
@@ -849,10 +868,19 @@ async function groupAutoChat(rounds){
   window.groupAutoInterrupted=false;
   for(let r=0;r<(rounds||groupAutoRounds());r++){
     if(window.groupAutoInterrupted) break;
-    // 每轮随机挑一个和上一句不同的AI发言
+    // ②发言约束：被@者优先 + 上一位不优先（同角色不连说，对齐 AutoGen speaker transitions）
     const last=groupHistory[groupHistory.length-1];
     let pool=aiMembers.filter(m=>!(last&&last.memberId===m.id));
-    if(!pool.length)pool=aiMembers;
+    const lastText = last ? (last.content||'') : '';
+    let atTarget = null;
+    if (lastText) {
+      atTarget = aiMembers.find(m => m.name && lastText.includes('@'+m.name));
+    }
+    if (atTarget && atTarget.id !== (last&&last.memberId)) {
+      pool = [atTarget]; // 被@的成员优先发言（真人聊天里点名的先接话）
+    } else {
+      if(!pool.length)pool=aiMembers;
+    }
     const mem=pool[Math.floor(Math.random()*pool.length)];
     try{
       await groupMemberReply(mem,'（AI 之间自由接话）');

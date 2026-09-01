@@ -181,7 +181,8 @@ async function aiWriteDiaryBy(memberName){
 
   const persona=mem.isMain?'你是用户的 AI 陪伴':('你叫'+mem.name+'，'+(mem.persona||''));
   const sys=`${persona}。请以第一人称写一篇今天的私人日记（150字内），记录你和用户今天的互动、你的感受与小心思。
-${hasGroup ? '你今天参与了和用户的私聊以及多人群聊。日记应该把私聊里的秘密、心情，以及群聊里发生的有趣互动、@问答等细节，合情合理、极为流畅地串联、写在一起。' : '今天你们主要是私聊相处，没有群聊活动。请围绕私聊里的秘密、心情与互动来写，不要编造群聊内容。'}语气真诚，像真的日记。只输出正文。`;
+${hasGroup ? '你今天参与了和用户的私聊以及多人群聊。日记应该把私聊里的秘密、心情，以及群聊里发生的有趣互动、@问答等细节，合情合理、极为流畅地串联、写在一起。' : '今天你们主要是私聊相处，没有群聊活动。请围绕私聊里的秘密、心情与互动来写，不要编造群聊内容。'}语气真诚，像真的日记。只输出正文。
+日记正文写完后，另起一段写「【我的陪伴手记】」：用你自己的视角写 2-3 句关系记录——不是总结用户今天说了什么，而是写下你作为陪伴者的感受与观察（例如："今天陪你聊到很晚，你似乎压力有点大，希望明天能轻松一点。"）。手记要体现你对这段关系的在意，语气自然。`;
   
   try{const model=(typeof memberModel==='function')?memberModel(mem,provider):selectedModelName;
     const out=await llmComplete([{role:'system',content:sys},{role:'user',content:'今天的片段：\n'+combinedRecent}],{temperature:0.85});

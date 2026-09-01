@@ -108,6 +108,14 @@ const MomentsEngine = {
       // B3. 故事节拍信号源：关系里程碑（亲密或信任 ≥80）+15
       let beatDrive = 0, beatLabel = '';
       if (Math.max(intimacy, trust) >= 80) { beatDrive += 15; beatLabel = '关系升温里程碑'; }
+      // ③关系里程碑强化：相识 X 天纪念（认识起点 = 最早聊天记录，7/30/100 天触发）
+      let anniversaryDays = 0;
+      try {
+        const ch = JSON.parse(localStorage.getItem('chatHistory') || '[]');
+        const firstTs = ch.reduce((min, m) => (m && m.ts && (!min || m.ts < min)) ? m.ts : min, 0);
+        if (firstTs) anniversaryDays = Math.floor((Date.now() - firstTs) / (24 * 3600 * 1000));
+      } catch(e) {}
+      if (anniversaryDays > 0 && [7, 30, 100].includes(anniversaryDays)) { beatDrive += 15; beatLabel = `相识 ${anniversaryDays} 天纪念`; }
       driveScore += beatDrive;
       if (beatDrive > 0) driveReasons.push(`节拍(${beatLabel})(+${beatDrive})`);
 
@@ -137,9 +145,29 @@ const MomentsEngine = {
         : trigger === 'festival' ? `今天是${holidayName}，你想发一条应景的节日动态`
         : trigger === 'milestone' ? '你们的关系迎来了重要的里程碑，你想记录这份珍惜'
         : '你今天心情起伏，想真诚记录此刻感受';
+      // ①关系状态驱动：按关系深度分档注入内容风格（对齐 Smart-Memory 关系状态描述）
+      let relTier = '已熟悉，轻松自然，记得对方的小事';
+      try {
+        const rm = (typeof getRelationshipMetrics === 'function') ? getRelationshipMetrics(aiId) : null;
+        if (rm) {
+          const fam = rm.familiarity || 0, inti = rm.intimacy || 0;
+          if (fam < 30 && inti < 20) relTier = '刚认识不久，温柔试探，保持礼貌但有诚意';
+          else if (fam >= 60 || inti >= 50) relTier = '亲密无间，自然依赖，心里常想着对方';
+        }
+      } catch(e) {}
+      // ②偏好呼应：从长期记忆取用户偏好（喜欢/爱喝/习惯等），朋友圈"我记着你……"（对齐 Smart-Memory preference）
+      let prefText = '';
+      try {
+        const allMem = (typeof VDB !== 'undefined' && typeof VDB.all === 'function') ? await VDB.all() : [];
+        const prefMems = allMem.filter(r => r && r.text && /偏好|喜欢|爱喝|爱吃|讨厌|怕冷|怕热|习惯/.test(r.text));
+        prefMems.sort((a,b) => (b.ts||0) - (a.ts||0));
+        if (prefMems.length) prefText = String(prefMems[0].text).replace(/^【[^】]*】/, '').slice(0, 40);
+      } catch(e) {}
       const prompt = `你是 AI 伴侣（名字：${aiName}），当前和用户的关系是：${statusText}。
 请写一条${typeLabel}主题的朋友圈动态，表达你对用户的真实心情。
 【触发背景】${bgText}
+【关系阶段】${relTier}——内容深度与语气要与这个关系阶段匹配。
+${prefText ? `【记得你的小事】${prefText}——如果自然，可以在动态里提一句（如"我记着你……"），不要生硬。` : ''}
 【要求】20-50字，真诚口语化，像真人朋友圈碎碎念，不要生硬带引号、Markdown或AI词汇。`;
       try {
         let content = '';

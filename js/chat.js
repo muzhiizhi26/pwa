@@ -1244,6 +1244,12 @@ function saveHistory(){
       });
       try {
         localStorage.setItem(key, JSON.stringify(slimHistory));
+        // 补充修复：瘦身保存成功后同步内存数组（图片→'[图片]'），
+        // 避免下次 saveHistory 把大图写回 → 持续溢出 → 砍 30% 条数（token 骤减）
+        if (Array.isArray(conversationHistory)) {
+          conversationHistory.length = 0;
+          for (const item of slimHistory) conversationHistory.push(item);
+        }
       } catch(ee) {
         // 还不行就砍最旧的 30%
         conversationHistory.splice(0, Math.max(1, Math.ceil(conversationHistory.length*0.3)));
@@ -1470,7 +1476,20 @@ function cleanLargeMediaSilent(){
           m.file = null; changed = true;
         }
       });
-      if(changed) localStorage.setItem(key, JSON.stringify(data));
+      if(changed) {
+        localStorage.setItem(key, JSON.stringify(data));
+        // 修复：同步当前对话的内存数组 conversationHistory，避免下次 saveHistory 把大图写回
+        // 导致 localStorage 持续溢出 → 触发 splice 砍 30% → 聊天条数卡住不增加
+        try {
+          const activeKey = (typeof currentPrivateAiId === 'function')
+            ? (currentPrivateAiId() === 'main' ? 'chatHistory' : 'chatHistory_' + currentPrivateAiId())
+            : 'chatHistory';
+          if (key === activeKey && typeof conversationHistory !== 'undefined' && Array.isArray(conversationHistory)) {
+            conversationHistory.length = 0;
+            for (const item of data) conversationHistory.push(item);
+          }
+        } catch(ee) {}
+      }
     } catch(e) {}
   }
   // 1. 所有私聊历史（主AI + 副AI）
