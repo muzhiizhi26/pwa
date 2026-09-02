@@ -75,6 +75,14 @@ async function doCompress(){document.getElementById('compressPanel').classList.r
 async function compressConversation(silent){
   const real=conversationHistory.filter(m=>!m.compressed);
   if(real.length<4){if(!silent)showToast('对话太短，无需压缩');return;}
+  // 压缩前：把完整历史存入 IndexedDB 永久保留（替换后 localStorage 只剩摘要，避免旧消息彻底丢失）
+  try {
+    if (typeof HistoryBackupDB !== 'undefined') {
+      const _id = (typeof currentPrivateAiId === 'function') ? currentPrivateAiId() : 'main';
+      const _key = _id === 'main' ? 'chatHistory' : 'chatHistory_' + _id;
+      HistoryBackupDB.set('chat_full_' + _key, JSON.parse(JSON.stringify(conversationHistory.map(m => (m.audio && m.audio.base64) ? { ...m, audio: { ...m.audio, base64: undefined } } : m))));
+    }
+  } catch(e) {}
   // 本地降级摘要：API 不可用时提取关键信息，保证对话条能清零、总结能产生
   function localSummary(){
     const msgs=conversationHistory.filter(m=>!m.image&&m.content);
@@ -109,6 +117,7 @@ function maybeAutoCompress(){
   if(limit===Infinity)return;
   const textMsgs = conversationHistory.filter(m=>!m.image&&m.content&&!m.compressed);
   if(textMsgs.length>=limit){
+    if(typeof showToast==='function') showToast('🗜️ 对话达到上下文上限，自动压缩为摘要（旧消息已并入摘要）');
     compressConversation(true);
   }
 }

@@ -1230,6 +1230,16 @@ function saveHistory(){
     }
     if(conversationHistory.length>10 && !window._savingHistoryRetry){
       window._savingHistoryRetry = true;
+      // 通知节流：存储持续满时每次保存都会进此分支，toast 最多 30 秒一次，避免刷屏
+      const _now = Date.now();
+      const _notifyStorage = (msg) => {
+        try {
+          if (typeof showToast === 'function' && (!window._storageCutNotifyTs || _now - window._storageCutNotifyTs >= 30000)) {
+            window._storageCutNotifyTs = _now;
+            showToast(msg);
+          }
+        } catch(e) {}
+      };
       // 优先释放空间：VDB 降级备份（向量数据占空间大，可重建）→ 再瘦身图片
       try {
         localStorage.removeItem('vdb_local_backup');
@@ -1250,9 +1260,23 @@ function saveHistory(){
           conversationHistory.length = 0;
           for (const item of slimHistory) conversationHistory.push(item);
         }
+        _notifyStorage('⚠️ 本地存储已满，对话中图片已替换为[图片]占位（文字完整保留）');
       } catch(ee) {
-        // 还不行就砍最旧的 30%
-        conversationHistory.splice(0, Math.max(1, Math.ceil(conversationHistory.length*0.3)));
+        // 最后手段①：先清全部大体积媒体（所有消息/朋友圈，仅媒体、文字保留）争取空间
+        let freed = 0;
+        try { if (typeof cleanLargeMediaSilent === 'function') freed = cleanLargeMediaSilent(); } catch(e3) {}
+        try {
+          if (Array.isArray(conversationHistory)) {
+            localStorage.setItem(key, JSON.stringify(conversationHistory));
+            window._savingHistoryRetry = false;
+            _notifyStorage(freed > 0 ? '⚠️ 本地存储已满，已自动清理对话/朋友圈中的大图语音（文字保留）' : '⚠️ 本地存储已满，已重试保存');
+            return;
+          }
+        } catch(e4) {}
+        // 最后手段②：砍最旧的 30% —— 明确提示用户（不再静默），并建议导出备份
+        const cut = Math.max(1, Math.ceil(conversationHistory.length*0.3));
+        conversationHistory.splice(0, cut);
+        _notifyStorage(`⚠️ 本地存储已满，自动删除了最旧的 ${cut} 条消息（建议在设置导出备份后清对话）`);
         saveHistory();
       }
       window._savingHistoryRetry = false;
