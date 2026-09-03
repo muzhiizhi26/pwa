@@ -82,22 +82,25 @@ function fmtDur(ms){const s=Math.floor(ms/1000);const m=Math.floor(s/60);return 
 function startCallTimer(){callStartTime=Date.now();document.getElementById('callTimer').textContent='00:00';callTimerInt=setInterval(()=>{document.getElementById('callTimer').textContent=fmtDur(Date.now()-callStartTime);},1000);}
 function stopCallTimer(){if(callTimerInt){clearInterval(callTimerInt);callTimerInt=null;}}
 function showCallEnd(dur){const t=document.getElementById('callEndToast');document.getElementById('callEndBox').innerHTML='📵 通话结束'+(dur?'<br>通话时长 '+dur:'');t.classList.remove('show');void t.offsetWidth;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000);}
-function setCallStatus(s,sub){
+function setCallStatus(s,sub,role){
   document.getElementById('callStatus').textContent=s;
   // 方向B：对话内容（sub 非空）累积到 callSub 字幕日志（纯状态提示如"识别中..."不覆盖日志）
-  if(sub) appendCallSub(`${s} ${sub}`);
+  if(sub) appendCallSub(role||'system',`${s} ${sub}`);
 }
-// 方向B：字幕累积——保留最近 8 条（你说/AI回复），超长可滚动查看
-function appendCallSub(line){
+// 方向B：字幕累积——保留最近 8 条，按角色（user/assistant/system）渲染为独立气泡
+function appendCallSub(role, text){
   try {
     const el=document.getElementById('callSub');
     if(!el) return;
     const max=8;
-    let lines=el.dataset.lines?JSON.parse(el.dataset.lines):[];
-    lines.push(String(line).trim());
-    if(lines.length>max)lines=lines.slice(-max);
-    el.dataset.lines=JSON.stringify(lines);
-    el.textContent=lines.join('\n');
+    let msgs=el.dataset.msgs?JSON.parse(el.dataset.msgs):[];
+    msgs.push({role:role||'system',text:String(text||'').trim()});
+    if(msgs.length>max)msgs=msgs.slice(-max);
+    el.dataset.msgs=JSON.stringify(msgs);
+    el.innerHTML=msgs.map(m=>{
+      const cls=m.role==='user'?'call-bubble call-bubble-user':m.role==='assistant'?'call-bubble call-bubble-ai':'call-bubble call-bubble-sys';
+      return `<div class="${cls}">${m.text}</div>`;
+    }).join('');
     el.scrollTop=el.scrollHeight;
   }catch(e){}
 }
@@ -352,7 +355,7 @@ async function onRecorderStop(){
   try{
     const text=await sttTranscribe(blob);
     if(!text.trim()){enterListening();return;}
-    setCallStatus('你说：',text);
+    setCallStatus('你说：',text,'user');
     const emo=localStorage.getItem('emotion_enabled')!=='false'?detectEmotion(text):'calm';
     if(localStorage.getItem('emotion_enabled')!=='false'){updateEmotionState(emo);renderEmotionPills();}
 
@@ -382,7 +385,7 @@ async function onRecorderStop(){
         }
         
         if(!callActive)return;
-        setCallStatus(`${mem.name} 回复：`,reply);
+        setCallStatus(`${mem.name} 回复：`,reply,'assistant');
         VoiceSession.transitionTo('SPEAKING', 'group tts play');
         // 群聊 TTS 期间开启高阈值 barge-in：用户贴麦说话可打断，AI自身扬声器漏音不会误判
         vad.bargeMs=0;vad.last=performance.now();
@@ -413,8 +416,8 @@ async function onRecorderStop(){
     if(typeof maybeUpdateLongTerm==='function')maybeUpdateLongTerm(text);
     const reply=await callRequestAI(text);
     if(!callActive)return;
-    setCallStatus('AI 回复：',reply);
-    // 进入说话态，开启打断监听
+    setCallStatus('AI 回复：',reply,'assistant');
+    // 进入说话态（必须先转 SPEAKING，再 prepareBargeInVAD——否则 Analyser 循环因 state 非 SPEAKING/LISTENING 而立即退出）
     VoiceSession.transitionTo('SPEAKING', 'tts play');
     vad.bargeMs=0;vad.last=performance.now();
     await prepareBargeInVAD();

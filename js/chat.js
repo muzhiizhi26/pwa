@@ -1276,8 +1276,10 @@ function saveHistory(){
         // 最后手段②：砍最旧的 30% —— 明确提示用户（不再静默），并建议导出备份
         const cut = Math.max(1, Math.ceil(conversationHistory.length*0.3));
         conversationHistory.splice(0, cut);
+        // 直接写一次（不递归 saveHistory → 避免循环砍导致 token 持续下降无提示）
+        try { localStorage.setItem(key, JSON.stringify(conversationHistory)); } catch(e5) {}
         _notifyStorage(`⚠️ 本地存储已满，自动删除了最旧的 ${cut} 条消息（建议在设置导出备份后清对话）`);
-        saveHistory();
+        return;
       }
       window._savingHistoryRetry = false;
     }
