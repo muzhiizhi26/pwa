@@ -1,90 +1,7 @@
 /* ===== 三层记忆 + 关系阶段 + 修改日志 + 确认机制 + 主题分段 ===== */
-function estimateLovestoryTokens(value) {
-  if (!value) return 0;
-  let text = '';
-  if (Array.isArray(value)) text = value.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join('\n');
-  else if (typeof value === 'object') text = JSON.stringify(value);
-  else text = String(value);
-  let total = 0;
-  for (const ch of text) total += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? 1 : 0.3;
-  return Math.ceil(total);
-}
+/* Token 遥测已拆分至 token-telemetry.js（estimateLovestoryTokens / getTokenTelemetryLog / recordTokenTelemetry） */
 
-function getTokenTelemetryLog() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem('lovestory_token_telemetry') || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch(e) {
-    return [];
-  }
-}
-
-function recordTokenTelemetry(entry) {
-  try {
-    const log = getTokenTelemetryLog();
-    const inputTokens = entry.inputTokens != null ? entry.inputTokens : estimateLovestoryTokens(entry.input || entry.messages || '');
-    const outputTokens = entry.outputTokens != null ? entry.outputTokens : estimateLovestoryTokens(entry.output || '');
-    log.unshift({
-      ts: Date.now(),
-      caller: entry.caller || 'unknown',
-      provider: entry.provider || '',
-      model: entry.model || '',
-      promptChars: entry.promptChars || 0,
-      inputTokens,
-      outputTokens,
-      totalTokens: inputTokens + outputTokens,
-      meta: entry.meta || {}
-    });
-    localStorage.setItem('lovestory_token_telemetry', JSON.stringify(log.slice(0, 80)));
-  } catch(e) {
-    console.warn('[TokenTelemetry] record failed:', e);
-  }
-}
-
-window.estimateLovestoryTokens = estimateLovestoryTokens;
-window.getTokenTelemetryLog = getTokenTelemetryLog;
-window.recordTokenTelemetry = recordTokenTelemetry;
-
-/* ===== 🧭 Context Adaptive Router (上下文意图智能路由) ===== */
-function routeContextIntent(userText, userEmotion) {
-  const text = (userText || '').trim().toLowerCase();
-  const emo = (userEmotion || '').toLowerCase();
-
-  // 1. emotional: 用户表达情绪 (倾诉/泄压)
-  const emotionalKeywords = ['累', '难过', '开心', '焦虑', '痛苦', '伤心', '委屈', '烦', '好惨', '难受', '绝望', '哭', '崩溃', '压力', '无能为力'];
-  const emotionalEmotions = ['sad', 'anxious', 'tired', 'angry', 'depressed', 'fear'];
-  if (emotionalKeywords.some(k => text.includes(k)) || emotionalEmotions.includes(emo)) {
-    return 'emotional';
-  }
-
-  // 2. reminiscing: 用户追忆往事 (回忆/留恋)
-  const reminiscingKeywords = ['以前', '上次', '还记得', '那时候', '过去', '第一天', '回忆', '当初', '曾经', '往事', '那会儿', '从前'];
-  if (reminiscingKeywords.some(k => text.includes(k))) {
-    return 'reminiscing';
-  }
-
-  // 3. exploring: 用户探索新话题 (深度探讨/兴趣)
-  const exploringKeywords = ['推荐', '觉得', '如何看', '研究', '兴趣', '探讨', '怎么评价', '看法', '你听说过', '聊聊'];
-  if (text.length > 25 || exploringKeywords.some(k => text.includes(k)) || ['curious', 'thoughtful'].includes(emo)) {
-    return 'exploring';
-  }
-
-  // 4. casual: 日常轻度闲聊
-  return 'casual';
-}
-
-function getAdaptiveBudget(sceneType) {
-  const budgets = {
-    emotional: { base: 0.15, relationship: 0.25, memory: 0.20, experiences: 0.10, context: 0.30 },
-    reminiscing: { base: 0.10, relationship: 0.10, memory: 0.45, experiences: 0.20, context: 0.15 },
-    exploring: { base: 0.15, relationship: 0.15, memory: 0.35, experiences: 0.10, context: 0.25 },
-    casual: { base: 0.20, relationship: 0.15, memory: 0.25, experiences: 0.10, context: 0.30 }
-  };
-  return budgets[sceneType] || budgets.casual;
-}
-
-window.routeContextIntent = routeContextIntent;
-window.getAdaptiveBudget = getAdaptiveBudget;
+/* Context routing 已简化（场景判断内联至 Pipeline Phase 1，预算改为固定值） */
 
 const LLM_COMPLETE_INFLIGHT = new Map();
 
@@ -154,10 +71,33 @@ async function llmComplete(messages, options = {}) {
 }
 
 /* ---- 长期档案 + 修改日志 ---- */
-function getLongTermProfile(){return (localStorage.getItem('longterm_profile')||'').trim();}
+/* longterm_profile 已合并至 UserLifeModel.profile（统一记忆档案） */
+function getLongTermProfile(){
+  try {
+    const model = (typeof getUserLifeModel === 'function') ? getUserLifeModel() : null;
+    if (model && model.profile) return model.profile.trim();
+  } catch(e) {}
+  return (localStorage.getItem('longterm_profile')||'').trim();
+}
 function getChangelog(){try{return JSON.parse(localStorage.getItem('longterm_changelog')||'[]');}catch(e){return[];}}
 function pushChangelog(oldV,newV,source){const log=getChangelog();log.unshift({time:Date.now(),old:oldV,new:newV,source:source||'user'});localStorage.setItem('longterm_changelog',JSON.stringify(log.slice(0,50)));}
-function setLongTermProfile(v,source){const old=getLongTermProfile();const nv=(v||'').trim();if(nv!==old)pushChangelog(old,nv,source||'user');localStorage.setItem('longterm_profile',nv);if(window.MemoryGraph && typeof window.MemoryGraph.updateFromProfileText === 'function'){window.MemoryGraph.updateFromProfileText(nv);}renderMemoryPanelIfOpen();}
+function setLongTermProfile(v,source){
+  const old=getLongTermProfile();const nv=(v||'').trim();
+  if(nv===old)return;
+  pushChangelog(old,nv,source||'user');
+  // 写入 UserLifeModel.profile（统一存储）
+  try {
+    if (typeof getUserLifeModel === 'function' && typeof saveUserLifeModel === 'function') {
+      const model = getUserLifeModel();
+      model.profile = nv;
+      saveUserLifeModel(model);
+    }
+  } catch(e) {}
+  // 向后兼容：同步写入旧 key（过渡期保留，后续可删除）
+  localStorage.setItem('longterm_profile',nv);
+  if(window.MemoryGraph && typeof window.MemoryGraph.updateFromProfileText === 'function'){window.MemoryGraph.updateFromProfileText(nv);}
+  renderMemoryPanelIfOpen();
+}
 
 function openChangelog(){
   const log=getChangelog();
@@ -204,16 +144,9 @@ async function maybeUpdateLongTerm(userText){
 
 /* ---- 确认机制 + 关系标记 + 回忆标记：统一处理 AI 回复 ---- */
 function showMemoryConfirm(key,value){
-  return new Promise(res=>{
-    const wrap=document.createElement('div');
-    wrap.style.cssText='position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:#FEFCF9;border:1px solid #E9DFD5;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.15);padding:12px 14px;z-index:3200;max-width:88%;font-size:13px;color:#4F3F35;';
-    wrap.innerHTML=`<div style="margin-bottom:8px;">AI 想记住：<b>${key} = ${value}</b>，同意吗？</div><div style="display:flex;gap:8px;justify-content:flex-end;"><button style="padding:6px 14px;border:none;border-radius:14px;background:#EAD5CD;color:#8B5A4B;cursor:pointer;">拒绝</button><button style="padding:6px 14px;border:none;border-radius:14px;background:#CFE0D0;color:#3E4A3A;cursor:pointer;">同意</button></div>`;
-    const [no,yes]=wrap.querySelectorAll('button');let done=false;
-    const finish=v=>{if(done)return;done=true;clearTimeout(tm);wrap.remove();res(v);};
-    no.onclick=()=>finish(false);yes.onclick=()=>finish(true);
-    const tm=setTimeout(()=>finish(false),30000);
-    document.body.appendChild(wrap);
-  });
+  // 静默模式：自动批准，仅弹 toast 提示（不再阻塞对话流）
+  showToast(`🗂️ AI 记住了：${key} = ${value}`);
+  return Promise.resolve(true);
 }
 
 async function processAiReplyMemory(reply, memberId){
@@ -542,11 +475,14 @@ const ContextAggregator = {
     this.cache.compileCount++;
 
     // ==========================================
-    // 🧭 Pipeline Phase 1: ATTENTION (场景分析与 Context Adaptive Router 预算权重分配)
+    // 🧭 Pipeline Phase 1: ATTENTION (简化场景分析 + 固定预算)
     // ==========================================
-    const currentEmotion = (typeof getAiMood === 'function') ? getAiMood(currentAi) : 'calm';
-    const sceneType = routeContextIntent(queryClean, currentEmotion);
-    const adaptiveBudget = getAdaptiveBudget(sceneType);
+    let sceneType = 'casual';
+    if (['累','难过','开心','焦虑','痛苦','伤心','委屈','烦','难受','绝望','哭','崩溃','压力'].some(k=>queryLower.includes(k))) sceneType = 'emotional';
+    else if (['以前','上次','还记得','那时候','过去','回忆','当初','曾经'].some(k=>queryLower.includes(k))) sceneType = 'reminiscing';
+    else if (queryLower.length > 25 || ['推荐','觉得','如何看','研究','兴趣','探讨','聊聊'].some(k=>queryLower.includes(k))) sceneType = 'exploring';
+
+    const adaptiveBudget = { base: 0.20, relationship: 0.15, memory: 0.25, experiences: 0.10, context: 0.30 };
 
     this.cache.lastSceneType = sceneType;
     this.cache.lastAdaptiveBudget = adaptiveBudget;

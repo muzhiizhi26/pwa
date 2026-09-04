@@ -1302,50 +1302,35 @@ async function loadHistory(){
     });
   };
 
-  if(s){
-    try{
-      const parsed = JSON.parse(s);
-      // localStorage 由 saveHistory 双写保证最新（同步写入优先于 IndexedDB 异步备份）
-      // 不再用"条数/时间戳比较"选择备份——旧备份或被污染时间戳会导致覆盖丢失新记录
-      conversationHistory = parsed;
-      renderList(conversationHistory);
-    }catch(e){
-      // localStorage 解析失败 → 从 IndexedDB 恢复
-      try {
-        if (typeof HistoryBackupDB !== 'undefined') {
-          const backup = await HistoryBackupDB.get(key);
-          if (backup && Array.isArray(backup) && backup.length > 0) {
-            conversationHistory = backup;
-            renderList(conversationHistory);
-            localStorage.setItem(key, JSON.stringify(conversationHistory));
-            showToast('🔄 已从 IndexedDB 恢复聊天历史记录');
-          } else {
-            conversationHistory = [];
-          }
-        } else {
-          conversationHistory = [];
-        }
-      } catch(ee) { conversationHistory = []; }
+  // 同时读取 localStorage 和 IndexedDB，取更完整的那份（IndexedDB 不受 5MB 限额，通常更完整）
+  let lsData = null;
+  if(s){ try{ lsData = JSON.parse(s); }catch(e){ lsData = null; } }
+
+  let idbData = null;
+  try {
+    if (typeof HistoryBackupDB !== 'undefined') {
+      const backup = await HistoryBackupDB.get(key);
+      if (backup && Array.isArray(backup) && backup.length > 0) idbData = backup;
     }
+  } catch(e) {}
+
+  // 优先取更完整的一份：IndexedDB 条数更多说明 localStorage 被溢出裁剪过
+  if(idbData && lsData && idbData.length > lsData.length){
+    conversationHistory = idbData;
+    renderList(conversationHistory);
+    // 同步回 localStorage（下次快速读取）
+    try{ localStorage.setItem(key, JSON.stringify(conversationHistory)); }catch(e){}
+    showToast('🔄 已从 IndexedDB 恢复完整聊天历史（'+idbData.length+' 条）');
+  } else if(lsData){
+    conversationHistory = lsData;
+    renderList(conversationHistory);
+  } else if(idbData){
+    conversationHistory = idbData;
+    renderList(conversationHistory);
+    try{ localStorage.setItem(key, JSON.stringify(conversationHistory)); }catch(e){}
+    showToast('🔄 已从 IndexedDB 恢复聊天历史记录');
   } else {
-    // If empty in localStorage, try restoring from IndexedDB
-    try {
-      if (typeof HistoryBackupDB !== 'undefined') {
-        const backup = await HistoryBackupDB.get(key);
-        if (backup && Array.isArray(backup) && backup.length > 0) {
-          conversationHistory = backup;
-          renderList(conversationHistory);
-          localStorage.setItem(key, JSON.stringify(conversationHistory));
-          showToast('🔄 已从 IndexedDB 恢复聊天历史记录');
-        } else {
-          conversationHistory = [];
-        }
-      } else {
-        conversationHistory = [];
-      }
-    } catch(e) {
-      conversationHistory = [];
-    }
+    conversationHistory = [];
   }
 
   if(migrated) saveHistory();

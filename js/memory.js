@@ -309,7 +309,25 @@ async function nightlyMemoryConsolidate(){
 }
 window.nightlyMemoryConsolidate = nightlyMemoryConsolidate;
 
-function localEmbed(text){const v=new Float32Array(EMBED_DIM);const c=(text||'').toLowerCase().replace(/\s+/g,'');const g=[];for(let i=0;i<c.length;i++){g.push(c[i]);if(i<c.length-1)g.push(c[i]+c[i+1]);}for(const x of g){let h=2166136261;for(let i=0;i<x.length;i++){h^=x.charCodeAt(i);h=Math.imul(h,16777619);}const idx=Math.abs(h)%EMBED_DIM;v[idx]+=(h&1)?1:-1;}let n=0;for(let i=0;i<EMBED_DIM;i++)n+=v[i]*v[i];n=Math.sqrt(n)||1;for(let i=0;i<EMBED_DIM;i++)v[i]/=n;return Array.from(v);}
+/* ===== 统一记忆维护调度器（合并 nightly + midterm 入口，避免分散调用） ===== */
+async function runMemoryMaintenance() {
+  try {
+    // 1. nightly 做梦巩固（VDB 去重，每天一次，内部防抖）
+    if (typeof nightlyMemoryConsolidate === 'function') {
+      await nightlyMemoryConsolidate();
+    }
+    // 2. midterm 对话摘要（每 6 小时，内部防抖）
+    if (typeof maybeUpdateMidterm === 'function') {
+      await maybeUpdateMidterm();
+    }
+  } catch(e) {
+    console.warn('[Memory] runMemoryMaintenance error:', e);
+  }
+}
+window.runMemoryMaintenance = runMemoryMaintenance;
+
+/* 纯文本哈希向量（轻量 fallback，无 n-gram，CPU 开销极低） */
+function localEmbed(text){const v=new Float32Array(EMBED_DIM);const c=(text||'').toLowerCase().replace(/\s+/g,'');for(let i=0;i<c.length;i++){let h=2166136261;for(let j=0;j<Math.min(c.length-i,3);j++){h^=c.charCodeAt(i+j);h=Math.imul(h,16777619);}const idx=Math.abs(h)%EMBED_DIM;v[idx]+=(h&1)?1:-1;}let n=0;for(let i=0;i<EMBED_DIM;i++)n+=v[i]*v[i];n=Math.sqrt(n)||1;for(let i=0;i<EMBED_DIM;i++)v[i]/=n;return Array.from(v);}
 function strictSingleApiMode(){return localStorage.getItem('single_api_per_message')==='true';}
 window.strictSingleApiMode = strictSingleApiMode;
 async function remoteEmbed(text){const url=(localStorage.getItem('embed_url')||'').trim();const key=(localStorage.getItem('embed_key')||'').trim();const model=(localStorage.getItem('embed_model')||'text-embedding-3-small').trim();if(!url)throw new Error('未配置嵌入API');let u=url.replace(/\/+$/,'');if(!u.includes('/embeddings'))u+='/embeddings';const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json',...(key?{'Authorization':`Bearer ${key}`}:{})},body:JSON.stringify({model,input:text})});if(!r.ok)throw new Error('嵌入API错误');const d=await r.json();return d.data[0].embedding;}

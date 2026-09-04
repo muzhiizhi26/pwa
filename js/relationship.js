@@ -310,7 +310,7 @@ function applyRelationshipMomentumAndDecay(memberId) {
         // 衰减基本额度：Intimacy -0.5, Trust -0.3, Familiarity -0.8
         const dInt = parseFloat((0.5 * daysPassed * decayFactor).toFixed(1));
         const dTru = parseFloat((0.3 * daysPassed * decayFactor).toFixed(1));
-        const dFam = parseFloat((0.8 * daysPassed * decayFactor).toFixed(1));
+        const dFam = parseFloat((0.4 * daysPassed * decayFactor).toFixed(1));
         
         if (dInt > 0 || dTru > 0 || dFam > 0) {
           metrics.intimacy = Math.max(0, parseFloat((metrics.intimacy - dInt).toFixed(1)));
