@@ -420,6 +420,12 @@ function updateRelationshipMetrics(memberId, type, delta, silent = false, reason
   const id = memberId || 'main';
   const metrics = getRelationshipMetrics(id);
   
+  // 防御性初始化：确保核心指标字段存在（防止旧数据 undefined 导致提前 return）
+  if (metrics.chatCount === undefined) metrics.chatCount = 0;
+  if (metrics.familiarity === undefined) metrics.familiarity = 15;
+  if (metrics.intimacy === undefined) metrics.intimacy = 10;
+  if (metrics.trust === undefined) metrics.trust = 25;
+  
   if (metrics[type] === undefined) return;
   
   // 1. 关系保护：每日成长上限与边际递减 (Marginal Utility Decay)
@@ -487,11 +493,12 @@ function updateRelationshipMetrics(memberId, type, delta, silent = false, reason
   
   // 如果是互动次数更新，自动提升熟悉度
   if (type === 'chatCount') {
-    // 每 5 次对话熟悉度自动增加 1-2
-    if (newVal % 5 === 0) {
-      const famDelta = Math.floor(Math.random() * 2) + 1;
+    // 每 3 次对话熟悉度自动增加 1（降低门槛，确保可感知增长）
+    if (newVal % 3 === 0) {
+      const famDelta = 1;
       updateRelationshipMetrics(id, 'familiarity', famDelta, true, '高频交谈积累');
     }
+    console.log(`[Relationship] chatCount → ${newVal} (famGain: ${newVal % 3 === 0 ? 'YES' : 'no'})`);
   }
   
   saveRelationshipMetrics(id, metrics);

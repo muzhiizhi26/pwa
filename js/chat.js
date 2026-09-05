@@ -1273,12 +1273,12 @@ function saveHistory(){
             return;
           }
         } catch(e4) {}
-        // 最后手段②：砍最旧的 30% —— 明确提示用户（不再静默），并建议导出备份
+        // 最后手段②：只截断 localStorage 写入（不砍内存数组——AI 上下文保持完整）
+        // IndexedDB 已在上方存入完整备份，loadHistory 优先读 IndexedDB 可恢复
         const cut = Math.max(1, Math.ceil(conversationHistory.length*0.3));
-        conversationHistory.splice(0, cut);
-        // 直接写一次（不递归 saveHistory → 避免循环砍导致 token 持续下降无提示）
-        try { localStorage.setItem(key, JSON.stringify(conversationHistory)); } catch(e5) {}
-        _notifyStorage(`⚠️ 本地存储已满，自动删除了最旧的 ${cut} 条消息（建议在设置导出备份后清对话）`);
+        const tail = conversationHistory.slice(cut);
+        try { localStorage.setItem(key, JSON.stringify(tail)); } catch(e5) {}
+        _notifyStorage(`⚠️ 本地存储已满，最旧的 ${cut} 条已从本地缓存移除（完整记录仍在 IndexedDB，刷新可恢复）`);
         return;
       }
       window._savingHistoryRetry = false;
