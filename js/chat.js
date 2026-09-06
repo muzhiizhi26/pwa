@@ -1354,7 +1354,7 @@ function updateBrandAvatarAndHeader(){
   
   const stageCfg = (typeof RELATION_STAGES_CONFIG !== 'undefined' && RELATION_STAGES_CONFIG[stageKey]) 
     ? RELATION_STAGES_CONFIG[stageKey] 
-    : { label: stageKey === 'friend' ? '朋友' : stageKey === 'crush' ? '暧昧' : stageKey === 'lover' ? '恋人' : stageKey === 'partner' ? '亲密伴侣' : '初识', color: '#90A4AE' };
+    : { label: stageKey === 'friend' ? '朋友' : stageKey === 'crush' ? '默契搭档' : stageKey === 'lover' ? '亲密伙伴' : stageKey === 'partner' ? '终身挚友' : '初识', color: '#90A4AE' };
   
   if (badgeEl) {
     badgeEl.textContent = stageCfg.label;

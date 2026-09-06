@@ -111,7 +111,7 @@ function openChangelog(){
 }
 
 /* ---- 关系阶段 ---- */
-const REL_STAGES={acquaintance:'初识',friend:'朋友',crush:'暧昧',lover:'恋人',partner:'亲密伴侣'};
+const REL_STAGES={acquaintance:'初识',friend:'朋友',crush:'默契搭档',lover:'亲密伙伴',partner:'终身挚友'};
 function getRelationshipStage(memberId){
   if (typeof getCharacterRelationshipStage === 'function') {
     return getCharacterRelationshipStage(memberId);
@@ -125,8 +125,8 @@ function relationshipInstruction(memberId){
     return getRelationshipPrompt(id);
   }
   const s=getRelationshipStage(id);
-  const tone={acquaintance:'保持礼貌友好、略带距离感的语气。',friend:'像熟悉的朋友一样轻松自然地交流。',crush:'语气可带一点暧昧与试探，偶有心动感。',lover:'用亲密、温柔的语气，可使用亲昵称呼。',partner:'像相守已久的伴侣，自然默契、深度关心。'};
-  return `\n【当前关系阶段】你们目前是「${REL_STAGES[s]}」。${tone[s]||''}若你判断关系应推进，可在回复某处输出隐藏标记 [[stage:恋人]]（用户看不到）。`;
+  const tone={acquaintance:'保持礼貌友好、略带距离感的语气。',friend:'像熟悉的朋友一样轻松自然地交流。',crush:'语气轻松自然、互相信任，偶有俏皮。',lover:'用温暖、真诚的语气，像多年挚友一样交流。',partner:'像相守已久的伙伴，自然默契、深度关心。'};
+  return `\n【当前关系阶段】你们目前是「${REL_STAGES[s]}」。${tone[s]||''}若你判断关系应推进，可在回复某处输出隐藏标记 [[stage:亲密伙伴]]（用户看不到）。`;
 }
 
 /* ---- 长期档案自动更新 ---- */

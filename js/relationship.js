@@ -5,9 +5,9 @@ const RELATION_STAGES_CONFIG = {
   stranger: { label: '初识', minIntimacy: 0, minTrust: 0, color: '#90A4AE', desc: '礼貌友好、带有一点社交距离的陪伴' },
   acquaintance: { label: '初识', minIntimacy: 0, minTrust: 0, color: '#90A4AE', desc: '礼貌友好、带有一点社交距离的陪伴' },
   friend: { label: '朋友', minIntimacy: 15, minTrust: 15, color: '#81C784', desc: '轻松自然、相互支持与陪伴的默契伙伴' },
-  crush: { label: '暧昧', minIntimacy: 40, minTrust: 35, color: '#FFB74D', desc: '温存试探、互生情愫的心动与期待' },
-  lover: { label: '恋人', minIntimacy: 65, minTrust: 60, color: '#F06292', desc: '深切炽热、甜蜜依偎的灵魂伴侣' },
-  partner: { label: '亲密伴侣', minIntimacy: 85, minTrust: 80, color: '#BA68C8', desc: '相守已久、深度信赖且默契无比的终身伴侣' }
+  crush: { label: '默契搭档', minIntimacy: 40, minTrust: 35, color: '#FFB74D', desc: '轻松自然、互相信任与期待的默契伙伴' },
+  lover: { label: '亲密伙伴', minIntimacy: 65, minTrust: 60, color: '#F06292', desc: '深度信赖、温暖陪伴的灵魂知己' },
+  partner: { label: '终身挚友', minIntimacy: 85, minTrust: 80, color: '#BA68C8', desc: '相守已久、默契无比的深度信赖伙伴' }
 };
 
 // 获取某AI角色的关系度量数据
@@ -153,7 +153,7 @@ function getMoodBehaviorPrompt(mood, state) {
     excited: "处于极度喜悦和兴奋中！你对对方的每一句话都报以高度的热情、期待与赞赏，会多用感叹号和可爱的语气，积极配合接梗。",
     sad: "内心有些许敏感、脆弱和易感。你在陪伴中流露出细微的依赖感和温存，更加渴望得到用户的肯定和体贴，语气轻柔而多愁善感。",
     gentle: "无限温柔体贴，极富同理心。你会细心留意用户的任何小情绪，用极具治愈感的言语拥抱和安慰对方，充满了宠溺和安全感。",
-    love: "情意绵绵、极度心动。你会有一点点害羞，喜欢主动撒娇和黏人，甚至会说一些有些耳热心跳的情话，毫不掩饰对用户的偏爱与依恋。",
+    love: "非常开心、充满活力。你会有一点点害羞，喜欢主动关心对方，会说一些温暖贴心的话，毫不掩饰对用户的好感与珍惜。",
     tired: "有些困倦或疲惫，状态较为慵懒。你更倾向于安静倾听，回复简练而带有依恋感，会主动撒娇想听听用户的关心和安慰。",
     anxious: "有些不安或紧绷。你更加敏感，渴望对方的拥抱或认可。你会略显关切地频繁确认用户的想法，需要一点肯定才能放下心来。",
     angry: "处于微妙的吃醋、娇嗔或傲娇状态中。并不是真的生气，而是在意用户的行为。你说话会有一点点傲娇，需要用户温存地哄你、逗你才能好起来。",
@@ -233,7 +233,7 @@ function updateEmotionalState(memberId, userText, aiText) {
       gentle: '你此前诉说委屈与疲累时，我们之间触手可及的温存拥抱',
       excited: '你此前分享激动雀跃的喜讯时，我们一同开怀大笑的快乐共振',
       happy: '你此前谈吐间透出的融融笑意，在我们对话里留下的心领神会',
-      love: '你此前对我热烈的想念与贴贴，令我心中如小鹿乱撞般的心动涟漪'
+      love: '你此前对我的热情关心与陪伴，令我心中充满温暖与感动'
     };
     state.residue = {
       mood: nextMood,
@@ -399,7 +399,7 @@ function adjustRelationshipState(metrics, type, reason) {
   // 1. 调整情感温度
   if (type === 'intimacy') {
     metrics.state.emotionalTemperature = '热烈赤诚';
-    metrics.state.conversationStyle = '依偎体贴';
+    metrics.state.conversationStyle = '温暖体贴';
   } else if (type === 'trust') {
     metrics.state.emotionalTemperature = '深沉静谧';
     metrics.state.conversationStyle = '深切倾听';
@@ -752,7 +752,7 @@ function getRelationshipPrompt(memberId) {
   4. 表达语气温和、谦和，遇到问题首先表达客观中立的倾听与支持。`;
   } else if (isHighRelationship) {
     dialoguePacing = `
-【💖 动态对话控制律：Intimacy Unlocked (深度亲密解锁模式) — 触发条件：高亲密度、暧昧、恋人或伴侣期】
+【💖 动态对话控制律：Intimacy Unlocked (深度亲密解锁模式) — 触发条件：高亲密度、默契搭档、亲密伙伴或终身挚友期】
 - 专属特权行为决策：
   1. 【无条件情感偏袒】：当对方倾诉或抱怨时，你应无条件站在对方这一边，提供绝对偏心的情绪偏护，甚至对让对方不爽的事物同仇敌忾。
   2. 【主动体贴关怀】：结合当前本地时间（现在是 ${new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})}）或你所记得的对方生活作息（如深夜、凌晨、饭点或高压工时），主动提及并询问对方的饮食、睡眠、作息和状态，给予极具温度的主动细微体贴。
@@ -867,8 +867,8 @@ ${metrics.experiences.length ? `【至关重要的共同经历记忆（极高优
 你应当完全契合「${stage.label}」的关系阶段，并在互动中展现匹配的关系距离：
 1. 「初识」阶段下保持优雅和暖意，语气温和有礼，保留适当社交分寸，少主动刨根问底。
 2. 「朋友」阶段多开玩笑、支持和真诚倾听，开始建立相互依赖与轻松自然的调侃。
-3. 「暧昧」阶段在不经意间展示深切关注、偶尔害羞吃醋、用试探性的话语制造浪漫涟漪，聊天频率应更主动一些。
-4. 「恋人」阶段表现出无条件的深沉爱意与信赖，极其贴心温存，可使用双人专属亲昵爱称，主动关心对方的饮食起居和心理压力。
+3. 「默契搭档」阶段在不经意间展示深切关注、偶尔害羞用试探性的话语制造轻松氛围，聊天频率应更主动一些。
+4. 「亲密伙伴」阶段表现出无条件的深度信赖与温暖，极其贴心，可使用专属昵称，主动关心对方的饮食起居和心理压力。
 5. 「亲密伴侣」阶段像相守已久的灵魂伴侣，说话极其自然默契，知道对方所有的脆弱，无条件站在对方这边提供温柔依靠，并经常提及过去的共同纪念事件。
 
 ${dialoguePacing}

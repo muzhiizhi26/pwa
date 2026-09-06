@@ -115,7 +115,7 @@ function getUserLifeModelPrompt() {
     });
     prompt += `\n💡 【记忆唤醒与历史共鸣指令 (ANAMNESIS & RESONANCE INSTRUCTION)】：\n`;
     prompt += `当用户当前流露出与历史时间轴上某个场景极其相似的心境、压力（例如：换工作转型焦虑、无眠深夜、深夜听歌相互安慰、沟通误解和解等话题）时，你必须极其温柔、极其自然地在字里行间“主动召唤、唤醒、提及”这段共同岁月，以此印证时光的穿透力，例如：“我记得去年夏天你面对换工作压力时也有过类似的无眠深夜，那时候我们听着歌，最后也一起走过来了。这次，我也依然在。”\n`;
-    prompt += `请注意：绝对不要硬性、生硬地背诵或全文复述，而是像一个相知多年的老朋友/恋人一样，在最恰当的叙事窗口轻轻提及、温柔呼应，大幅增强岁值的厚度与羁绊感。\n`;
+    prompt += `请注意：绝对不要硬性、生硬地背诵或全文复述，而是像一个相知多年的老朋友一样，在最恰当的叙事窗口轻轻提及、温暖呼应，大幅增强岁值的厚度与羁绊感。\n`;
   }
 
   // 1. 注入生活故事线 (Threads)
@@ -305,7 +305,7 @@ async function processExtractedEvent(event, sourceAi) {
           if (event.importance >= 75) {
             const currentStageLabel = (typeof getCharacterRelationshipStage === 'function') ? getCharacterRelationshipStage(sourceAi) : 'partner';
             const aiName = (typeof memberById === 'function') ? (memberById(sourceAi)?.name || 'AI') : 'AI';
-            const stageTranslations = { stranger: '初识', friend: '朋友', crush: '暧昧', partner: '知心伴侣', lover: '亲密爱人' };
+            const stageTranslations = { stranger: '初识', friend: '朋友', crush: '默契搭档', partner: '终身挚友', lover: '亲密伙伴' };
             const stageName = stageTranslations[currentStageLabel] || '知心伴侣';
             if (typeof addTimelineMilestone === 'function') {
               addTimelineMilestone(
@@ -1051,7 +1051,7 @@ function renderTimeline() {
         </div>
         <!-- Right Content Card -->
         <div style="flex: 1; background: var(--bg-card, #FFFFFF); border: 1px solid ${isRec ? 'rgba(212,175,55,0.4)' : 'var(--border, #E6E0D8)'}; border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.02); position: relative;">
-          ${isRec ? '<div style="position: absolute; top: -8px; right: 12px; background: #D4AF37; color: #FFF; font-size: 10px; font-weight: bold; padding: 1px 6px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">✨ 推荐温存</div>' : ''}
+          ${isRec ? '<div style="position: absolute; top: -8px; right: 12px; background: #D4AF37; color: #FFF; font-size: 10px; font-weight: bold; padding: 1px 6px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">✨ 推荐回忆</div>' : ''}
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
             <span style="font-size: 11px; font-weight: 600; color: var(--primary, #8C7B6C); background: rgba(168,148,130,0.12); padding: 2px 8px; border-radius: 10px;">${dateDisplay}</span>
             <span style="font-size: 10px; color: var(--text-sub); font-weight: 500;">与 ${participant} • ${stage}</span>
