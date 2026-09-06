@@ -771,7 +771,7 @@ function renderRelationTab() {
   const container = document.getElementById('relationTabContent');
   if (!container) return;
 
-  const id = 'main'; // 主AI
+  const id = (typeof currentPrivateAiId === 'function') ? currentPrivateAiId() : 'main'; // 支持副AI
   let metrics = { intimacy: 50, trust: 50, familiarity: 50, experiences: [], logs: [], emotionState: { mood: 'calm', energy: 60, warmth: 60, concern: 40 } };
   let stageKey = 'stranger';
   let stage = { label: '初识陌客', color: '#8F7A6B' };
@@ -817,6 +817,7 @@ function renderRelationTab() {
       </div>
     `;
   } else {
+    // 关系卡片：只显示最近3条经历 + 查看全部入口
     expsTimelineHtml = exps.slice(0, 3).map(exp => {
       const text = typeof exp === 'object' ? exp.text : exp;
       const tier = typeof exp === 'object' ? exp.tier : 'ordinary';
@@ -835,6 +836,9 @@ function renderRelationTab() {
         </div>
       `;
     }).join('');
+    if (exps.length > 3) {
+      expsTimelineHtml += `<div style="text-align:center;padding:6px 0;"><button onclick="document.querySelector('[onclick*=\\'timeline\\']')?.click()" style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer;">查看全部 ${exps.length} 条经历 →</button></div>`;
+    }
   }
 
   // 渲染关系日志 growth logs
@@ -843,7 +847,7 @@ function renderRelationTab() {
   if (logs.length === 0) {
     logsHtml = `<div style="font-size: 11px; color: var(--text-light); text-align: center; padding: 10px;">暂无情感心路日志记录。</div>`;
   } else {
-    logsHtml = logs.slice(0, 3).map(log => {
+    logsHtml = logs.slice(0, 10).map(log => {
       const typeIcons = { trust: '🤝 信任', intimacy: '💖 亲密', familiarity: '🌟 熟悉', conflict: '💔 磨难', repair_complete: '🤝 重修旧好', decay: '🥀 岁月' };
       const typeLabel = typeIcons[log.type] || '✨ 默契';
       const isPlus = log.delta > 0;

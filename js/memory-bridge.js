@@ -398,6 +398,7 @@ async function processExtractedEvent(event, sourceAi) {
       const key = 'diary_pending_' + todayKey;
       let pending = [];
       try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+      // 去重：同一 AI 当天只标记一次（防止频繁触发导致重复写日记）
       if (!pending.includes(aiName)) {
         pending.push(aiName);
         try { localStorage.setItem(key, JSON.stringify(pending)); } catch(e) {}

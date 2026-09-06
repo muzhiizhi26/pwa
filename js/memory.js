@@ -1,7 +1,7 @@
 /* ===== 向量库 + 嵌入 + RAG（含情绪标记/遗忘曲线/关联网络/回忆计数）===== */
 const VDB=(()=>{
 const LOCAL_FALLBACK_KEY='vdb_local_backup';
-const LOCAL_FALLBACK_MAX = 50; // 降级备份上限：50条，防止向量数据挤占 localStorage 导致聊天记录溢出丢失
+const LOCAL_FALLBACK_MAX = 100; // 降级备份上限：100条
 let _fallbackCache = null;
 let _fallbackCacheTs = 0;
 function fallbackRead(){
@@ -256,23 +256,23 @@ async function nightlyMemoryConsolidate(){
     if (typeof llmComplete !== 'function') return;
 
     const now = Date.now();
-    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    const threeDaysAgo = now - 3 * 24 * 3600 * 1000;
     const all = await VDB.all();
-    // 取当天提取的事件记忆（is_event 且 ts 在当天）
-    const todayEvents = all.filter(r => r && r.is_event && r.ts >= todayStart.getTime() && r.vector && Array.isArray(r.vector));
-    if (todayEvents.length < 3) return; // 太少不值得巩固
+    // 取近3天提取的事件记忆（is_event 且 ts 在近3天内）
+    const recentEvents = all.filter(r => r && r.is_event && r.ts >= threeDaysAgo && r.vector && Array.isArray(r.vector));
+    if (recentEvents.length < 3) return; // 太少不值得巩固
 
     // 相似度分组：cosine > 0.85 视为同类
     const groups = [];
     const used = new Set();
-    for (let i = 0; i < todayEvents.length; i++) {
+    for (let i = 0; i < recentEvents.length; i++) {
       if (used.has(i)) continue;
-      const group = [todayEvents[i]];
+      const group = [recentEvents[i]];
       used.add(i);
-      for (let j = i + 1; j < todayEvents.length; j++) {
+      for (let j = i + 1; j < recentEvents.length; j++) {
         if (used.has(j)) continue;
-        if (typeof cosine === 'function' && cosine(todayEvents[i].vector, todayEvents[j].vector) >= 0.85) {
-          group.push(todayEvents[j]);
+        if (typeof cosine === 'function' && cosine(recentEvents[i].vector, recentEvents[j].vector) >= 0.85) {
+          group.push(recentEvents[j]);
           used.add(j);
         }
       }
@@ -282,7 +282,8 @@ async function nightlyMemoryConsolidate(){
     if (!mergeable.length) return; // 没有可合并的同类记忆
 
     let consolidated = 0, removed = 0;
-    for (const group of mergeable) {
+    // LLM 调用预算：最多合并 3 组（防止大量相似记忆导致多次 LLM 调用消耗 token）
+    for (const group of mergeable.slice(0, 3)) {
       const texts = group.map(r => (r.text || '').replace(/^【事件记忆】/, '')).join('；');
       let mergedText = '';
       try {
@@ -319,6 +320,10 @@ async function runMemoryMaintenance() {
     // 2. midterm 对话摘要（每 6 小时，内部防抖）
     if (typeof maybeUpdateMidterm === 'function') {
       await maybeUpdateMidterm();
+    }
+    // 3. 记忆驱动力分析（情绪趋势/话题模式/关系事件 → 生成行动队列）
+    if (typeof MemoryDriver !== 'undefined' && typeof MemoryDriver.run === 'function') {
+      await MemoryDriver.run();
     }
   } catch(e) {
     console.warn('[Memory] runMemoryMaintenance error:', e);

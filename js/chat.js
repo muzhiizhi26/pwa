@@ -639,6 +639,21 @@ function renderTextMessage(role,content,uid,reasoning,recallItems,proactive,ts,a
     tb.innerText='💭 '+reasoning;
     bubbles.parentNode.insertBefore(tb,bubbles);
   }
+  // 私密独白作为思考链汽泡前置（AI消息 + 思考过程开启时显示）
+  if(role!=='user'&&showThinkingEnabled()){
+    try{
+      const aiId=(typeof currentPrivateAiId==='function')?currentPrivateAiId():'main';
+      const m=(typeof getRelationshipMetrics==='function')?getRelationshipMetrics(aiId):null;
+      const insight=m&&m.characterMemory&&m.characterMemory.insight;
+      if(insight){
+        const mb=document.createElement('div');
+        mb.className='thinking-block';
+        mb.style.opacity='0.75';
+        mb.innerText='💭 独白：'+insight;
+        bubbles.parentNode.insertBefore(mb,bubbles);
+      }
+    }catch(e){}
+  }
   const rawText = content ? String(content).replace(/^🎤\s*/, '') : '';
   const display=(role!=='user'&&typeof stripMusicTags==='function')?stripMusicTags(rawText):rawText;
   const lines=splitToBubbles(display);
@@ -1217,72 +1232,27 @@ function saveHistory(){
     return m;
   });
 
+  // IndexedDB 始终写入完整历史（主存储）
   try{
-    localStorage.setItem(key,JSON.stringify(cleanHistory));
     if (typeof HistoryBackupDB !== 'undefined') {
       HistoryBackupDB.set(key, cleanHistory);
     }
+  }catch(e){}
+
+  // localStorage 只写最近 N 条（快速缓存，永不溢出）
+  // P2 安全网：如果 localStorage 使用率超过 80%，缩减缓存条数
+  try{
+    let CACHE_LIMIT = 100;
+    try {
+      let used = 0;
+      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); used += (k.length + (localStorage.getItem(k)||'').length) * 2; }
+      if (used / (5 * 1024 * 1024) > 0.8) CACHE_LIMIT = 50; // 超80%缩减到50条
+    } catch(checkErr) {}
+    const cacheSlice = cleanHistory.length > CACHE_LIMIT ? cleanHistory.slice(-CACHE_LIMIT) : cleanHistory;
+    localStorage.setItem(key, JSON.stringify(cacheSlice));
   }catch(e){
-    console.warn('[SaveHistory] localStorage overflow:', e.name);
-    // 先保 IndexedDB 完整数据
-    if (typeof HistoryBackupDB !== 'undefined') {
-      try { HistoryBackupDB.set(key, cleanHistory); } catch(ee) {}
-    }
-    if(conversationHistory.length>10 && !window._savingHistoryRetry){
-      window._savingHistoryRetry = true;
-      // 通知节流：存储持续满时每次保存都会进此分支，toast 最多 30 秒一次，避免刷屏
-      const _now = Date.now();
-      const _notifyStorage = (msg) => {
-        try {
-          if (typeof showToast === 'function' && (!window._storageCutNotifyTs || _now - window._storageCutNotifyTs >= 30000)) {
-            window._storageCutNotifyTs = _now;
-            showToast(msg);
-          }
-        } catch(e) {}
-      };
-      // 优先释放空间：VDB 降级备份（向量数据占空间大，可重建）→ 再瘦身图片
-      try {
-        localStorage.removeItem('vdb_local_backup');
-        localStorage.setItem(key, JSON.stringify(cleanHistory));
-        window._savingHistoryRetry = false;
-        return;
-      } catch(e2) {}
-      // 尽可能多保留：移除图片数据再试，而不是直接砍条数
-      const slimHistory = cleanHistory.map(m => {
-        if (m.image) return { ...m, image: '[图片]' };
-        return m;
-      });
-      try {
-        localStorage.setItem(key, JSON.stringify(slimHistory));
-        // 补充修复：瘦身保存成功后同步内存数组（图片→'[图片]'），
-        // 避免下次 saveHistory 把大图写回 → 持续溢出 → 砍 30% 条数（token 骤减）
-        if (Array.isArray(conversationHistory)) {
-          conversationHistory.length = 0;
-          for (const item of slimHistory) conversationHistory.push(item);
-        }
-        _notifyStorage('⚠️ 本地存储已满，对话中图片已替换为[图片]占位（文字完整保留）');
-      } catch(ee) {
-        // 最后手段①：先清全部大体积媒体（所有消息/朋友圈，仅媒体、文字保留）争取空间
-        let freed = 0;
-        try { if (typeof cleanLargeMediaSilent === 'function') freed = cleanLargeMediaSilent(); } catch(e3) {}
-        try {
-          if (Array.isArray(conversationHistory)) {
-            localStorage.setItem(key, JSON.stringify(conversationHistory));
-            window._savingHistoryRetry = false;
-            _notifyStorage(freed > 0 ? '⚠️ 本地存储已满，已自动清理对话/朋友圈中的大图语音（文字保留）' : '⚠️ 本地存储已满，已重试保存');
-            return;
-          }
-        } catch(e4) {}
-        // 最后手段②：只截断 localStorage 写入（不砍内存数组——AI 上下文保持完整）
-        // IndexedDB 已在上方存入完整备份，loadHistory 优先读 IndexedDB 可恢复
-        const cut = Math.max(1, Math.ceil(conversationHistory.length*0.3));
-        const tail = conversationHistory.slice(cut);
-        try { localStorage.setItem(key, JSON.stringify(tail)); } catch(e5) {}
-        _notifyStorage(`⚠️ 本地存储已满，最旧的 ${cut} 条已从本地缓存移除（完整记录仍在 IndexedDB，刷新可恢复）`);
-        return;
-      }
-      window._savingHistoryRetry = false;
-    }
+    console.warn('[SaveHistory] localStorage cache write failed:', e.name);
+    // 缓存写入失败不影响——IndexedDB 已有完整数据，loadHistory 会从 IndexedDB 恢复
   }
 }
 async function loadHistory(){

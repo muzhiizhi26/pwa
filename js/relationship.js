@@ -2,6 +2,7 @@
 
 // 关系阶段常量定义
 const RELATION_STAGES_CONFIG = {
+  stranger: { label: '初识', minIntimacy: 0, minTrust: 0, color: '#90A4AE', desc: '礼貌友好、带有一点社交距离的陪伴' },
   acquaintance: { label: '初识', minIntimacy: 0, minTrust: 0, color: '#90A4AE', desc: '礼貌友好、带有一点社交距离的陪伴' },
   friend: { label: '朋友', minIntimacy: 15, minTrust: 15, color: '#81C784', desc: '轻松自然、相互支持与陪伴的默契伙伴' },
   crush: { label: '暧昧', minIntimacy: 40, minTrust: 35, color: '#FFB74D', desc: '温存试探、互生情愫的心动与期待' },
@@ -73,6 +74,13 @@ function getRelationshipMetrics(memberId) {
       if (data.chatCount === undefined) data.chatCount = 0;
       if (data.expCount === undefined) data.expCount = 0;
       if (data.experiences === undefined) data.experiences = [];
+      // 老数据格式迁移：纯字符串经历 → 统一为对象格式
+      if (Array.isArray(data.experiences)) {
+        data.experiences = data.experiences.map(exp => {
+          if (typeof exp === 'string') return { text: exp, tier: 'ordinary', timestamp: 0 };
+          return exp;
+        });
+      }
       return data;
     }
   } catch (e) {
@@ -299,8 +307,8 @@ function applyRelationshipMomentumAndDecay(memberId) {
       else if (stageKey === 'crush') shield += 0.25;
       else if (stageKey === 'friend') shield += 0.10;
       
-      // 关系引力 (Relationship Gravity)：越深的依恋与信任本身就会产生向心力，强力阻遏衰退
-      const gravityShield = ((metrics.intimacy || 0) * 0.4 + (metrics.trust || 0) * 0.3) / 100;
+      // 关系引力 (Relationship Gravity)：三维指标共同产生向心力，阻遏衰退
+      const gravityShield = ((metrics.intimacy || 0) * 0.4 + (metrics.trust || 0) * 0.3 + (metrics.familiarity || 0) * 0.2) / 100;
       shield += gravityShield;
       
       shield = Math.min(1.0, shield);
@@ -420,15 +428,17 @@ function updateRelationshipMetrics(memberId, type, delta, silent = false, reason
   const id = memberId || 'main';
   const metrics = getRelationshipMetrics(id);
   
-  // 防御性初始化：确保核心指标字段存在（防止旧数据 undefined 导致提前 return）
-  if (metrics.chatCount === undefined) metrics.chatCount = 0;
-  if (metrics.familiarity === undefined) metrics.familiarity = 15;
-  if (metrics.intimacy === undefined) metrics.intimacy = 10;
-  if (metrics.trust === undefined) metrics.trust = 25;
+  // 防御性初始化：确保核心指标字段存在且为数字（防止旧数据 undefined 或字符串导致计算异常）
+  if (metrics.chatCount === undefined || typeof metrics.chatCount !== 'number') metrics.chatCount = parseInt(metrics.chatCount) || 0;
+  if (metrics.familiarity === undefined || typeof metrics.familiarity !== 'number') metrics.familiarity = parseFloat(metrics.familiarity) || 15;
+  if (metrics.intimacy === undefined || typeof metrics.intimacy !== 'number') metrics.intimacy = parseFloat(metrics.intimacy) || 10;
+  if (metrics.trust === undefined || typeof metrics.trust !== 'number') metrics.trust = parseFloat(metrics.trust) || 25;
   
   if (metrics[type] === undefined) return;
   
   // 1. 关系保护：每日成长上限与边际递减 (Marginal Utility Decay)
+  // chatCount 不计入 dailyTracker（避免虚增导致信任/亲密递减回报被稀释）
+  const isTrackedType = (type === 'trust' || type === 'intimacy' || type === 'familiarity');
   const today = new Date().toISOString().split('T')[0];
   if (!metrics.dailyTracker) {
     metrics.dailyTracker = { date: today, total: 0 };
@@ -440,7 +450,7 @@ function updateRelationshipMetrics(memberId, type, delta, silent = false, reason
   
   // 如果是正向增长，应用边际效益递减与关系引力加权公式
   let finalDelta = delta;
-  if (delta > 0 && (type === 'trust' || type === 'intimacy' || type === 'familiarity')) {
+  if (delta > 0 && isTrackedType) {
     const todayGained = metrics.dailyTracker.total;
     // 递减因子：今天获得的越多，接下来的成长速度就越慢
     const decayFactor = Math.max(0.15, 1 / (1 + (todayGained / 12)));
@@ -539,6 +549,8 @@ function addRelationshipExperience(memberId, desc, tier = 'ordinary') {
   };
   
   metrics.experiences.unshift(newExp);
+  // 上限 50 条，超出裁剪最旧的
+  if (metrics.experiences.length > 50) metrics.experiences.length = 50;
   metrics.expCount = metrics.experiences.length;
   
   // 根据事件等级带来不同权重的亲密和信任加成
@@ -580,7 +592,7 @@ function addRelationshipExperience(memberId, desc, tier = 'ordinary') {
   }
 }
 
-// 检查并自动升级关系阶段
+// 检查并自动升级关系阶段（达到后不回落）
 function checkRelationshipPromotion(memberId, metrics) {
   const id = memberId || 'main';
   const currentStage = getCharacterRelationshipStage(id);
@@ -589,20 +601,22 @@ function checkRelationshipPromotion(memberId, metrics) {
   
   let targetStage = currentStage;
   
-  // 从初识到亲密伴侣层层判断
-  const stages = ['acquaintance', 'friend', 'crush', 'lover', 'partner'];
+  // 从初识到亲密伴侣层层判断（取最高达标阶段）
+  const stages = ['stranger', 'acquaintance', 'friend', 'crush', 'lover', 'partner'];
   for (let i = 0; i < stages.length; i++) {
     const stKey = stages[i];
     const cfg = RELATION_STAGES_CONFIG[stKey];
-    if (metrics.intimacy >= cfg.minIntimacy && metrics.trust >= cfg.minTrust) {
+    if (cfg && metrics.intimacy >= cfg.minIntimacy && metrics.trust >= cfg.minTrust) {
       targetStage = stKey;
     } else {
-      break; // 如果这关没过，后面就不用判断了
+      break;
     }
   }
   
-  // 如果阶段变了，播放升级纪念弹窗
-  if (targetStage !== currentStage && stages.indexOf(targetStage) > stages.indexOf(currentStage)) {
+  // 只处理晋升（达到后不回落）
+  const currentIdx = stages.indexOf(currentStage);
+  const targetIdx = stages.indexOf(targetStage);
+  if (targetStage !== currentStage && targetIdx > currentIdx) {
     saveCharacterRelationshipStage(id, targetStage);
     triggerStagePromotionCelebration(id, name, currentStage, targetStage);
   }

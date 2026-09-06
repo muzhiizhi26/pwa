@@ -435,6 +435,28 @@ async function triggerProactive(extraInstruction){
     let isPendingAction = false;
     let pendingActions = [];
 
+    // 注入记忆驱动力行动队列（Memory Driver 生成的高优先级行动）
+    try {
+      if (window._memoryDriverActions && window._memoryDriverActions.length > 0) {
+        const existing = JSON.parse(localStorage.getItem('pendingProactiveActions') || '[]');
+        const newActions = window._memoryDriverActions.map(a => ({
+          type: a.type,
+          content: a.prompt,
+          source: 'memory_driver',
+          ts: Date.now()
+        }));
+        // 合并（去重：同类型不重复）
+        newActions.forEach(na => {
+          if (!existing.some(ea => ea.type === na.type)) existing.push(na);
+        });
+        // 按优先级排序（high > medium > low）
+        const pri = { high: 0, medium: 1, low: 2 };
+        existing.sort((a, b) => (pri[a.priority] || 9) - (pri[b.priority] || 9));
+        localStorage.setItem('pendingProactiveActions', JSON.stringify(existing.slice(0, 5)));
+        window._memoryDriverActions = []; // 清空已注入的
+      }
+    } catch(e) {}
+
     if (!extraInstruction) {
       try {
         pendingActions = JSON.parse(localStorage.getItem('pendingProactiveActions') || '[]');

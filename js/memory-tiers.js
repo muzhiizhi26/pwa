@@ -232,7 +232,14 @@ async function regenerateMidterm(silent){
     const transcript=segs.map((s,i)=>`# 片段${i+1}（${fmt(s.startTs)}）\n`+s.lines.join('\n').slice(0,1500)).join('\n\n').slice(-8000);
     const sys='你是记忆摘要助手。下面是按时间分好的多个对话片段。请为每个片段输出一行，格式严格为：\n· M月D日：主题（一句话要点）\n只输出这些行，不要开场白，不复述寒暄，不编造。';
     const out=await llmComplete([{role:'system',content:sys},{role:'user',content:transcript}],{temperature:0.3});
-    if(out){localStorage.setItem('midterm_memory',out);localStorage.setItem('midterm_updated_at',String(Date.now()));renderMemoryPanelIfOpen();if(!silent)showToast('✅ 中期记忆已更新');}
+    if(out){
+      // 中期记忆上限 2000 字符，超出截断旧内容（保留最新）
+      const trimmed = out.length > 2000 ? out.slice(-2000) : out;
+      localStorage.setItem('midterm_memory',trimmed);
+      localStorage.setItem('midterm_updated_at',String(Date.now()));
+      renderMemoryPanelIfOpen();
+      if(!silent)showToast('✅ 中期记忆已更新');
+    }
   }catch(e){if(!silent)showToast('中期记忆更新失败：'+e.message);}
   finally{_midtermBusy=false;}
 }
@@ -478,7 +485,7 @@ const ContextAggregator = {
     // 🧭 Pipeline Phase 1: ATTENTION (简化场景分析 + 固定预算)
     // ==========================================
     let sceneType = 'casual';
-    if (['累','难过','开心','焦虑','痛苦','伤心','委屈','烦','难受','绝望','哭','崩溃','压力'].some(k=>queryLower.includes(k))) sceneType = 'emotional';
+    if (['累','疲惫','疲倦','难过','心碎','失落','开心','高兴','幸福','甜蜜','感动','兴奋','焦虑','紧张','不安','担心','痛苦','煎熬','折磨','伤心','委屈','不甘','烦','烦躁','烦闷','难受','绝望','哭','泪','崩溃','压力','喘不过气','期待'].some(k=>queryLower.includes(k))) sceneType = 'emotional';
     else if (['以前','上次','还记得','那时候','过去','回忆','当初','曾经'].some(k=>queryLower.includes(k))) sceneType = 'reminiscing';
     else if (queryLower.length > 25 || ['推荐','觉得','如何看','研究','兴趣','探讨','聊聊'].some(k=>queryLower.includes(k))) sceneType = 'exploring';
 
