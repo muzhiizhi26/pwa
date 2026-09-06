@@ -262,8 +262,12 @@ async function nightlyDiarySettle(){
 
 /* ===== AI 主动写日记（每天最多一次，随机某个AI，补写机制）===== */
 function diaryAutoEnabled(){return localStorage.getItem('diary_auto')==='true';}
+let _autoDiaryBusy = false;
 async function checkAutoDiary(){
   if(!diaryAutoEnabled())return;
+  if(_autoDiaryBusy) return; // 防并发：上一轮还没写完，跳过本次
+  _autoDiaryBusy = true;
+  try {
 
   const today = new Date();
   const todayKey = getLocalDateString(today);
@@ -271,16 +275,14 @@ async function checkAutoDiary(){
   // 获取所有 AI 成员（主AI + 所有副AI）
   const members=(typeof getGroupMembers==='function')?getGroupMembers():[{id:'main',name:'主AI',isMain:true}];
 
+  // 一次性读取全部日记（避免循环内重复读取 IndexedDB）
+  let allDiaries = [];
+  try { allDiaries = await DIARY_DB.all(); } catch(e) {}
+
   for (const mem of members) {
     // 1. 获取该 AI 已经写过的日记日期
-    let diaries = [];
-    try {
-      diaries = await DIARY_DB.all();
-    } catch (e) {
-      console.error('Failed to get diaries', e);
-    }
     const writtenDates = new Set(
-      diaries
+      allDiaries
         .filter(d => d.author === 'ai' && d.name === mem.name)
         .map(d => {
           const dateObj = new Date(d.ts);
@@ -341,5 +343,8 @@ async function checkAutoDiary(){
     } catch (e) {
       console.error('Auto diary write failed', e);
     }
+  }
+  } finally {
+    _autoDiaryBusy = false;
   }
 }

@@ -343,7 +343,10 @@ function parseAppointmentText(text){
   else if((m = t.match(/(今天|明天|明早|明晚|早上|上午|中午|下午|晚上)\s*(\d{1,2})\s*[点时]/))) {
     const d = new Date();
     if(m[1]==='明天'||m[1]==='明早'||m[1]==='明晚') d.setDate(d.getDate()+1);
-    d.setHours(parseInt(m[2]), 0, 0, 0);
+    let hour = parseInt(m[2]);
+    // 下午/晚上/明晚 需要 +12（12小时制→24小时制）
+    if(['下午','晚上','明晚'].includes(m[1]) && hour < 12) hour += 12;
+    d.setHours(hour, 0, 0, 0);
     when = d.getTime(); content = t.replace(/(今天|明天|明早|明晚|早上|上午|中午|下午|晚上)\s*\d{1,2}\s*[点时]\s*/,'');
   }
   else if((m = t.match(/(\d{1,2}):(\d{2})/))) {
@@ -409,14 +412,16 @@ async function triggerProactive(extraInstruction){
     const apiKey=localStorage.getItem(`apikey_${provider.id}`)||'';
     if(!apiKey&&provider.auth!=='none')return;
 
-    // 频率控制：自适应冷却试用版（不设硬上限，指数增长自然稀疏）
-    // 冷却 = 30分钟 × 2^(今日已发条数-1)；用户近1h活跃 ×0.7，>6h没动静 ×2
+    // 频率控制：自适应冷却 + 封顶上限（防止指数增长失控）
+    // 冷却 = 30分钟 × 2^(今日已发条数-1)，封顶 6 小时；用户近1h活跃 ×0.7，>6h没动静 ×2
     const todayStr = new Date().toDateString();
     const proactiveCountKey = `proactive_count_${todayStr}`;
     const proactiveCount = parseInt(localStorage.getItem(proactiveCountKey) || '0');
     if (!extraInstruction || extraInstruction.includes('每日回忆')) {
       const lastSentTs = parseInt(localStorage.getItem('proactive_sent_last') || '0');
       let cooldownMs = 30 * 60 * 1000 * Math.pow(2, Math.max(0, proactiveCount - 1));
+      // 封顶：冷却不超过 6 小时
+      cooldownMs = Math.min(cooldownMs, 6 * 3600 * 1000);
       const lastActTs = parseInt(localStorage.getItem('proactive_activity') || '0');
       const sinceAct = Date.now() - lastActTs;
       if (lastActTs > 0) {

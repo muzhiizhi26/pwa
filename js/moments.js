@@ -99,7 +99,7 @@ const MomentsEngine = {
       // B2. 节日/纪念日信号源 +20（元旦/劳动节/国庆/除夕/儿童节/圣诞/跨年）
       const monthNow = new Date().getMonth();
       const dateNow = new Date().getDate();
-      const holidayMap = { '0-1':'元旦', '0-24':'除夕', '4-1':'劳动节', '5-1':'儿童节', '9-1':'国庆节', '9-31':'万圣节', '11-25':'圣诞节', '11-31':'跨年' };
+      const holidayMap = { '0-1':'元旦', '0-24':'除夕', '1-14':'情人节', '2-8':'妇女节', '4-1':'劳动节', '4-29':'母亲节', '5-1':'儿童节', '6-14':'七夕', '8-15':'中秋节', '9-1':'国庆节', '9-31':'万圣节', '11-25':'圣诞节', '11-31':'跨年' };
       const holidayName = holidayMap[`${monthNow}-${dateNow}`];
       const festivalDrive = holidayName ? 20 : 0;
       driveScore += festivalDrive;
@@ -115,7 +115,7 @@ const MomentsEngine = {
         const firstTs = ch.reduce((min, m) => (m && m.ts && (!min || m.ts < min)) ? m.ts : min, 0);
         if (firstTs) anniversaryDays = Math.floor((Date.now() - firstTs) / (24 * 3600 * 1000));
       } catch(e) {}
-      if (anniversaryDays > 0 && [7, 30, 100].includes(anniversaryDays)) { beatDrive += 15; beatLabel = `相识 ${anniversaryDays} 天纪念`; }
+      if (anniversaryDays > 0 && [7, 30, 100, 200, 365, 1000].includes(anniversaryDays)) { beatDrive += 15; beatLabel = `相识 ${anniversaryDays} 天纪念`; }
       driveScore += beatDrive;
       if (beatDrive > 0) driveReasons.push(`节拍(${beatLabel})(+${beatDrive})`);
 
