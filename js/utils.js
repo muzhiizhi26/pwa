@@ -190,7 +190,7 @@ const seasonStr=season.hint?`${season.name}：${season.hint}。`:'';
 // 节日检测
 const holidayStr=isHoliday?'今日是特殊节日，可送上节日祝福。':'';
 
-return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n季节：${seasonStr}${wkStr}${holidayStr}${care}${gapStr}\n💡 请在聊天中自然地表达时间的流逝感：如"你三小时没理我了""上午工作忙吗""我等你好久了""都过了一整天了"这类口语化表达，让对话有真实的时间维度。但禁止生硬的精确时钟格式（如"22:24""3点17分"这种报时），用"上午/下午/晚上/刚才/等了你X小时"等自然说法即可。`;}
+return `\n【时间感知】当前 ${dateStr}（${period}·${season.name}）\n季节：${seasonStr}${wkStr}${holidayStr}${care}${gapStr}\n⚠️ 时间表达铁律：你绝对不能在回复中主动提及任何具体时间、日期、星期、时段（如"现在是下午3点""今天是周一""已经晚上了"）。时间信息仅供你内部感知节奏和语气调整用。你可以说"好久没聊了""等你一会儿了"这类模糊的间隔感表达，但绝不能报时、报日期、报星期。`;}
 function webSearchInstruction(){if(!webSearchEnabled())return'';return '\n【联网提示】你可以联网检索最新信息。若问题涉及实时或最新内容，请使用你的联网/搜索能力获取并获取最新结果作答。';}
 
 /* ===== Bark 推送（iOS 通知 → 华为手环转发链路）=====
