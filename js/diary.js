@@ -85,21 +85,76 @@ function buildDiaryTabs(){const box=document.querySelector('.diary-tabs');if(!bo
 async function renderDiaryList(){
   const box=document.getElementById('diaryList');if(!box)return;
   let list=await DIARY_DB.all();list.sort((a,b)=>b.ts-a.ts);
+
+  // 日历视图：标记有日记的日期
+  const diaryDates = new Set(list.map(d => getLocalDateString(new Date(d.ts))));
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayStr = getLocalDateString(now);
+  let calHtml = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"><span style="font-size:13px;font-weight:600;">${year}年${month+1}月</span></div>`;
+  calHtml += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:10px;margin-bottom:12px;">';
+  '日一二三四五六'.split('').forEach(d => { calHtml += `<div style="color:var(--text-sub);padding:4px;">${d}</div>`; });
+  for(let i=0;i<firstDay;i++) calHtml += '<div></div>';
+  for(let d=1;d<=daysInMonth;d++){
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const hasDiary = diaryDates.has(dateStr);
+    const isToday = dateStr === todayStr;
+    const bg = hasDiary ? 'background:var(--accent);color:var(--on-accent);border-radius:50%;font-weight:600;' : (isToday ? 'border:1px solid var(--accent);border-radius:50%;' : '');
+    calHtml += `<div style="padding:4px;${bg}cursor:${hasDiary?'pointer':'default'};" ${hasDiary ? `onclick="document.querySelector('[data-date=\\'${dateStr}\\']')?.scrollIntoView({behavior:'smooth'})"` : ''}>${d}</div>`;
+  }
+  calHtml += '</div>';
+
   if(diaryFilter==='user')list=list.filter(d=>d.author==='user');
   else if(diaryFilter.startsWith('ai:')){const nm=diaryFilter.slice(3);list=list.filter(d=>d.author==='ai'&&(d.name===nm||(!d.name&&nm==='AI')));}
-  if(!list.length){box.innerHTML='<div class="form-hint" style="text-align:center;padding:30px;">还没有日记。点下方写一篇，或让某个 AI 写。</div>';return;}
-  box.innerHTML=list.map(d=>`
+  if(!list.length){box.innerHTML=calHtml+'<div class="form-hint" style="text-align:center;padding:30px;">还没有日记。点下方写一篇，或让某个 AI 写。</div>';return;}
+  box.innerHTML=list.map(d=>{
+    // 结构化元数据（兼容旧格式）
+    const metaHtml = d.mood ? `
+      <div class="diary-meta" style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;padding:8px 10px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:11px;color:var(--text-sub);">
+        <span>💭 ${d.mood}</span>
+        ${d.energy ? `<span>⚡ ${d.energy}/100</span>` : ''}
+        ${d.tags ? `<span>${d.tags.split(/[,，#]/).filter(Boolean).map(t=>'<span style="background:var(--accent);color:var(--on-accent);padding:1px 6px;border-radius:8px;">#'+t.trim()+'</span>').join(' ')}</span>` : ''}
+        ${d.msgCount ? `<span>💬 ${d.msgCount}条</span>` : ''}
+      </div>` : '';
+    const notesHtml = d.notes ? `<div class="diary-notes" style="margin-top:8px;padding:8px 10px;border-left:3px solid var(--accent);font-size:11px;color:var(--text-sub);font-style:italic;">💡 ${escapeForSearch(d.notes)}</div>` : '';
+    return `
     <div class="diary-card">
       <div class="diary-head"><span class="diary-author ${d.author}">${d.author==='ai'?'🤖 '+(d.name||'AI'):'🙂 我'}</span><span class="diary-date">${new Date(d.ts).toLocaleString('zh-CN')}</span></div>
+      ${metaHtml}
       <div class="diary-body">${escapeForSearch(d.content)}</div>
+      ${notesHtml}
       <div class="diary-actions"><button onclick="deleteDiary('${d.id}')">🗑️ 删除</button></div>
-    </div>`).join('');
+    </div>`}).join('');
 }
-async function saveDiaryEntry(author,name,content){
+/* 解析结构化日记输出 */
+function parseStructuredDiary(text, aiName, msgCount) {
+  const extract = (key) => {
+    const m = text.match(new RegExp(`【${key}】\\s*([^\\n【]+)`));
+    return m ? m[1].trim() : '';
+  };
+  const mood = extract('心情') || '平静';
+  const energy = parseInt(extract('能量')) || 70;
+  const tags = extract('标签') || '';
+  const content = extract('正文') || text.replace(/【[^】]+】[^\n]*/g, '').trim();
+  const notes = extract('手记') || '';
+  return { mood, energy: Math.min(100, Math.max(1, energy)), tags, content, notes, msgCount };
+}
+
+async function saveDiaryEntry(author,name,content,parsed){
   if(!content||!content.trim())return;
-  await DIARY_DB.put({id:'d_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),author,name:name||'',content:content.trim(),ts:Date.now()});
+  const entry = {id:'d_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),author,name:name||'',content:content.trim(),ts:Date.now()};
+  // 附加结构化元数据
+  if(parsed){
+    entry.mood = parsed.mood;
+    entry.energy = parsed.energy;
+    entry.tags = parsed.tags;
+    entry.notes = parsed.notes;
+    entry.msgCount = parsed.msgCount;
+  }
+  await DIARY_DB.put(entry);
   if(document.getElementById('diaryPanel').classList.contains('show')){buildDiaryTabs();renderDiaryList();}
-  // 日记→朋友圈联动已取消（朋友圈不再自动发布，采用夜间沉淀模式）
 }
 async function deleteDiary(id){if(!confirm('删除这篇日记？'))return;await DIARY_DB.del(id);renderDiaryList();}
 async function writeUserDiary(){
@@ -179,15 +234,28 @@ async function aiWriteDiaryBy(memberName){
   const hasGroup = groupRecent.length > 0;
   const combinedRecent = `【与用户的私聊片段】\n${privateRecent || '（今天暂无私聊）'}${hasGroup ? `\n\n【今天参与的群聊片段】\n${groupRecent}` : ''}`;
 
+  // 3. 互动统计
+  const todayKey = (typeof getLocalDateString === 'function') ? getLocalDateString(new Date()) : new Date().toISOString().slice(0, 10);
+  const dayMsgs = pHistory.filter(m => m.ts && m.content && (typeof getLocalDateString === 'function') ? getLocalDateString(new Date(m.ts)) === todayKey : new Date(m.ts).toISOString().slice(0, 10) === todayKey);
+  const msgCount = dayMsgs.length;
+
   const persona=mem.isMain?'你是用户的 AI 陪伴':('你叫'+mem.name+'，'+(mem.persona||''));
-  const sys=`${persona}。请以第一人称写一篇今天的私人日记（150字内），记录你和用户今天的互动、你的感受与小心思。
-${hasGroup ? '你今天参与了和用户的私聊以及多人群聊。日记应该把私聊里的秘密、心情，以及群聊里发生的有趣互动、@问答等细节，合情合理、极为流畅地串联、写在一起。' : '今天你们主要是私聊相处，没有群聊活动。请围绕私聊里的秘密、心情与互动来写，不要编造群聊内容。'}语气真诚，像真的日记。只输出正文。
-日记正文写完后，另起一段写「【我的陪伴手记】」：用你自己的视角写 2-3 句关系记录——不是总结用户今天说了什么，而是写下你作为陪伴者的感受与观察（例如："今天陪你聊到很晚，你似乎压力有点大，希望明天能轻松一点。"）。手记要体现你对这段关系的在意，语气自然。`;
-  
+  const sys=`${persona}。请以第一人称写一篇今天的私人日记，记录你和用户今天的互动、你的感受与小心心思。
+${hasGroup ? '你今天参与了和用户的私聊以及多人群聊。日记应该把私聊里的秘密、心情，以及群聊里发生的有趣互动、@问答等细节，合情合理、极为流畅地串联、写在一起。' : '今天你们主要是私聊相处，没有群聊活动。请围绕私聊里的秘密、心情与互动来写，不要编造群聊内容。'}
+
+请严格按以下格式输出（每行一个字段，不要遗漏）：
+【心情】用一个词描述今天的心情（如：愉快/平静/感动/低落/兴奋）
+【能量】1-100的数字，代表你今天的精神状态
+【标签】用2-4个关键词概括今天的话题（用#分隔，如：#工作 #压力 #陪伴）
+【正文】150字以内的日记正文，语气真诚，像真的日记
+【手记】2-3句你作为陪伴者的感受与观察（例如："今天陪你聊到很晚，你似乎压力有点大，希望明天能轻松一点。"）`;
+
   try{const model=(typeof memberModel==='function')?memberModel(mem,provider):selectedModelName;
-    const out=await llmComplete([{role:'system',content:sys},{role:'user',content:'今天的片段：\n'+combinedRecent}],{temperature:0.85});
+    const out=await llmComplete([{role:'system',content:sys},{role:'user',content:'今天的片段：\n'+combinedRecent+'\n\n今日互动：'+msgCount+'条消息'}],{temperature:0.85});
     if(out){
-      await saveDiaryEntry('ai',mem.name,out);
+      // 解析结构化输出
+      const parsed = parseStructuredDiary(out, mem.name, msgCount);
+      await saveDiaryEntry('ai', mem.name, parsed.content, parsed);
       showToast('📔 '+mem.name+' 写完了');
       if(!document.getElementById('diaryPanel').classList.contains('show'))openDiary();
       return true;
@@ -226,20 +294,18 @@ async function nightlyDiarySettle(){
     try { pending = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
     if (!pending.length) return; // 今天没有标记，不写
 
-    // 获取当天各 AI 已写过的日记（当日去重）
+    // 获取当天各 AI 已写过的日记（当日去重 — 双重检查：IndexedDB + localStorage 标记）
     let writtenNames = new Set();
     try {
       const diaries = await DIARY_DB.all();
-      writtenNames = new Set(
-        diaries
-          .filter(d => d.author === 'ai')
-          .map(d => {
-            const md = getLocalDateString(new Date(d.ts));
-            return md === todayKey ? d.name : null;
-          })
-          .filter(Boolean)
-      );
+      diaries
+        .filter(d => d.author === 'ai' && getLocalDateString(new Date(d.ts)) === todayKey)
+        .forEach(d => { if (d.name) writtenNames.add(d.name); });
     } catch(e) {}
+    // localStorage 二级去重（防止 IndexedDB 异步写入未落盘时的竞态）
+    pending.forEach(name => {
+      if (localStorage.getItem('diary_written_' + todayKey + '_' + name)) writtenNames.add(name);
+    });
 
     // 每个标记的 AI 写 1 篇（当天已写过则跳过）
     for (const aiName of pending) {
@@ -247,7 +313,9 @@ async function nightlyDiarySettle(){
       try {
         if (typeof aiWriteDiaryBy === 'function') {
           await aiWriteDiaryBy(aiName);
-          writtenNames.add(aiName); // 写成功后计入去重，防止后续轮次重复
+          writtenNames.add(aiName);
+          // 立即标记 localStorage，防止同一次运行或下次运行重复写入
+          try { localStorage.setItem('diary_written_' + todayKey + '_' + aiName, '1'); } catch(e) {}
         }
       } catch(e) {
         console.warn('[Diary] Nightly settle failed for ' + aiName + ':', e);
@@ -346,5 +414,35 @@ async function checkAutoDiary(){
   }
   } finally {
     _autoDiaryBusy = false;
+  }
+}
+
+/* ===== 周记/月报自动生成 ===== */
+async function generateDiarySummary(period) {
+  const all = await DIARY_DB.all();
+  const now = Date.now();
+  const ms = period === 'week' ? 7 * 24 * 3600 * 1000 : 30 * 24 * 3600 * 1000;
+  const label = period === 'week' ? '周记' : '月报';
+  const entries = all.filter(d => d.author === 'ai' && (now - d.ts) < ms).sort((a, b) => a.ts - b.ts);
+  if (entries.length < 2) { showToast(`${label}数据不足（至少需要2篇日记）`); return; }
+
+  const summary = entries.map(d => {
+    const date = getLocalDateString(new Date(d.ts));
+    const mood = d.mood || '';
+    const tags = d.tags || '';
+    return `${date} ${mood} ${tags}：${(d.content || '').slice(0, 60)}`;
+  }).join('\n');
+
+  const sys = `你是记忆摘要助手。请根据以下AI日记，生成一篇简洁的${label}（100字内）。要求：概括这段时间的情绪趋势、主要话题、关系变化，语气温暖真诚。`;
+  try {
+    showToast(`📝 正在生成${label}...`);
+    const out = await llmComplete([{ role: 'system', content: sys }, { role: 'user', content: summary }], { temperature: 0.5 });
+    if (out) {
+      await saveDiaryEntry('ai', `${label}摘要`, out.trim(), { mood: '', energy: 0, tags: `#${label}`, notes: '', msgCount: entries.length });
+      showToast(`📔 ${label}已生成`);
+      if (!document.getElementById('diaryPanel').classList.contains('show')) openDiary();
+    }
+  } catch (e) {
+    showToast(`${label}生成失败：` + e.message);
   }
 }

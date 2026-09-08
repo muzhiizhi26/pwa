@@ -510,6 +510,14 @@ function updateRelationshipMetrics(memberId, type, delta, silent = false, reason
     }
     console.log(`[Relationship] chatCount → ${newVal} (famGain: ${newVal % 3 === 0 ? 'YES' : 'no'})`);
   }
+  // 亲密/信任增长时，熟悉度也同步小幅增长（防止chatCount链路断裂导致熟悉度永远卡住）
+  if ((type === 'intimacy' || type === 'trust') && finalDelta > 0) {
+    const famBonus = parseFloat((finalDelta * 0.15).toFixed(1));
+    if (famBonus > 0) {
+      const curFam = metrics.familiarity || 0;
+      metrics.familiarity = parseFloat(Math.min(100, curFam + famBonus).toFixed(1));
+    }
+  }
   
   saveRelationshipMetrics(id, metrics);
   
