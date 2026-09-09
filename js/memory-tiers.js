@@ -153,8 +153,9 @@ async function processAiReplyMemory(reply, memberId){
   if(!reply)return;
   const id = memberId || (typeof currentPrivateAiId === 'function' ? currentPrivateAiId() : 'main');
 
+  let insight = '';
   if (typeof parseAiRelationshipTags === 'function') {
-    parseAiRelationshipTags(id, reply);
+    insight = parseAiRelationshipTags(id, reply) || '';
   }
 
   const sm=reply.match(/\[\[stage:([^\]]+)\]\]/);
@@ -199,6 +200,8 @@ async function processAiReplyMemory(reply, memberId){
     }
     triggerMemoryEventBus(lastUserText, reply, id);
   }
+
+  return insight;
 }
 
 function cleanAiMarks(content){

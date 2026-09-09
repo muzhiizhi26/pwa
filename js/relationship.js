@@ -274,7 +274,9 @@ function updateEmotionalState(memberId, userText, aiText) {
 }
 
 // 关系衰减与长期感情惯性 (Relationship Momentum & Decay with Milestone Shields)
+// ⛔ 已按用户要求禁用衰减：关系指标（亲密/信任/熟悉度）只增不减，函数保留为空操作以防调用点报错
 function applyRelationshipMomentumAndDecay(memberId) {
+  return; // 衰减已禁用（不做衰减）
   const id = memberId || 'main';
   
   // 使用一个简单的锁标志，避免 getRelationshipMetrics 中产生循环调用
@@ -502,13 +504,18 @@ function updateRelationshipMetrics(memberId, type, delta, silent = false, reason
   }
   
   // 如果是互动次数更新，自动提升熟悉度
+  // ⚠️ 必须直接在当前 metrics 对象上累加：若递归调用本函数，会在 localStorage 写入新值后
+  // 被外层末尾的 saveRelationshipMetrics(旧快照) 整体覆盖，导致熟悉度永远卡在初始值
   if (type === 'chatCount') {
     // 每 3 次对话熟悉度自动增加 1（降低门槛，确保可感知增长）
     if (newVal % 3 === 0) {
-      const famDelta = 1;
-      updateRelationshipMetrics(id, 'familiarity', famDelta, true, '高频交谈积累');
+      const curFam = metrics.familiarity || 0;
+      metrics.familiarity = parseFloat(Math.min(100, curFam + 1).toFixed(1));
+      if (!metrics.logs) metrics.logs = [];
+      metrics.logs.unshift({ timestamp: Date.now(), type: 'familiarity', delta: 1, reason: '高频交谈积累' });
+      if (metrics.logs.length > 40) metrics.logs.pop();
+      console.log(`[Relationship] chatCount=${newVal} → familiarity ${curFam} → ${metrics.familiarity}`);
     }
-    console.log(`[Relationship] chatCount → ${newVal} (famGain: ${newVal % 3 === 0 ? 'YES' : 'no'})`);
   }
   // 亲密/信任增长时，熟悉度也同步小幅增长（防止chatCount链路断裂导致熟悉度永远卡住）
   if ((type === 'intimacy' || type === 'trust') && finalDelta > 0) {
@@ -648,6 +655,7 @@ function parseAiRelationshipTags(memberId, reply) {
   // 1. 解析 [[rel:trust+3:原因]] 或者 [[rel:intimacy+2]]
   const relRegex = /\[\[rel:([^\]]+)\]\]/g;
   let match;
+  let foundInsight = '';
   while ((match = relRegex.exec(reply)) !== null) {
     const tagContent = match[1];
     
@@ -656,6 +664,7 @@ function parseAiRelationshipTags(memberId, reply) {
       const insightText = tagContent.slice(8).trim();
       if (insightText) {
         updateAiCharacterMemory(id, insightText);
+        foundInsight = insightText;
       }
     } else if (tagContent.startsWith('exp+')) {
       // 如果是共同经历标记，例如 [[rel:exp+1:共同在雨夜畅谈]] 或者带有 tier 的 [[rel:exp+1:breakthrough:关于确定恋爱关系的探讨]]
@@ -686,8 +695,8 @@ function parseAiRelationshipTags(memberId, reply) {
       });
     }
   }
-  
-  return reply;
+
+  return foundInsight;
 }
 
 // 更新AI角色主观手记/脑海独白
@@ -2339,7 +2348,9 @@ function determineResponseIntent(userText, userEmotion, recentTopics, timeOfDay)
   return null;
 }
 
+// ⛔ 已按用户要求禁用衰减：全局关系状态（互动频率/情绪温度/亲密）只增不减，函数保留为空操作以防调用点报错
 function applyRelationshipDecay() {
+  return; // 衰减已禁用（不做衰减）
   const state = getRelationshipState();
   const now = Date.now();
   

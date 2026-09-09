@@ -257,6 +257,7 @@ function groupBubble(m){
   const mem=mine?null:(memberById(m.memberId)||{name:m.name,avatar:m.avatar});
   const av=mine?userAvatarHTML():groupAvatarHTML(mem);
   const quoteHtml=m.quote?`<div class="gp-quote">${escapeForSearch(m.quote.slice(0,60))}</div>`:'';
+  const insightHtml=(!mine&&m.insight)?`<div class="thinking-block insight-chain" style="opacity:0.75;">💭 独白：${escapeForSearch(m.insight)}</div>`:'';
   const speak=`<span class="inline-speak" onclick="event.stopPropagation();gMsgSpeak('${m.uid}')">🔊</span>`;
   const customStyle = (!mine && m.memberId) ? getGroupMemberBubbleStyle(m.memberId) : '';
   const styleAttr = customStyle ? `style="${customStyle}"` : '';
@@ -277,7 +278,7 @@ function groupBubble(m){
     }).join('');
   }
 
-  div.innerHTML=`${av}<div class="msg-content"><div class="bubbles">${!mine?`<div class="gp-name" onclick="event.stopPropagation();showGroupMemberActions('${mem&&mem.id?mem.id:''}','${(mem&&mem.name)||'AI'}')" style="cursor:pointer;text-decoration:underline;" title="点击私聊/通话">${(mem&&mem.name)||'AI'}</div>`:''}${bubbleHtml}</div><div class="msg-time">${nowTime(m.ts)}</div><div class="msg-actions" id="ga-${m.uid}"><button onclick="gMsgQuote('${m.uid}')">💬</button><button onclick="gMsgCopy('${m.uid}')">📋</button><button onclick="gMsgEdit('${m.uid}')">✏️</button><button onclick="gMsgDelete('${m.uid}')">🗑️</button></div></div>`;
+  div.innerHTML=`${av}<div class="msg-content"><div class="bubbles">${!mine?`<div class="gp-name" onclick="event.stopPropagation();showGroupMemberActions('${mem&&mem.id?mem.id:''}','${(mem&&mem.name)||'AI'}')" style="cursor:pointer;text-decoration:underline;" title="点击私聊/通话">${(mem&&mem.name)||'AI'}</div>`:''}${insightHtml}${bubbleHtml}</div><div class="msg-time">${nowTime(m.ts)}</div><div class="msg-actions" id="ga-${m.uid}"><button onclick="gMsgQuote('${m.uid}')">💬</button><button onclick="gMsgCopy('${m.uid}')">📋</button><button onclick="gMsgEdit('${m.uid}')">✏️</button><button onclick="gMsgDelete('${m.uid}')">🗑️</button></div></div>`;
   bindGroupLongPress(div,m.uid);
   return div;
 }
@@ -300,6 +301,18 @@ function gToggleActions(uid){
   }
 }
 function bindGroupLongPress(div,uid){let t=null;div.addEventListener('touchstart',()=>{t=setTimeout(()=>gToggleActions(uid),500);},{passive:true});div.addEventListener('touchend',()=>clearTimeout(t));div.addEventListener('touchmove',()=>clearTimeout(t));}
+/* 在群聊消息气泡上方插入独白思考链 */
+function showGroupInsightChain(uid,insight){
+  if(!insight)return;
+  const div=document.querySelector(`.message[data-uid="${uid}"]`);if(!div)return;
+  const bubbles=div.querySelector('.bubbles');if(!bubbles)return;
+  if(div.querySelector('.insight-chain'))return; // 防重复插入
+  const mb=document.createElement('div');
+  mb.className='thinking-block insight-chain';
+  mb.style.opacity='0.75';
+  mb.innerText='💭 独白：'+insight;
+  bubbles.parentNode.insertBefore(mb,bubbles);
+}
 function pushGroup(m){getGroupHistory();groupHistory.push(m);saveGroupHistory(groupHistory);const box=document.getElementById('groupMessages');if(box){box.appendChild(groupBubble(m));box.scrollTop=box.scrollHeight;}}
 
 /* ---- 引用 / 复制 / 删除 / 修改 / 朗读 ---- */
@@ -399,7 +412,14 @@ async function groupMemberReplyWithImage(mem,img){
   if (typeof evolveInterAgentRelationship === 'function') evolveInterAgentRelationship(mem.id);
   if(mem.isMain)updateAiEmotion(reply);
   if(autoSpeakEnabled()&&voiceEnabled())playTTS(reply,mem.voice||localStorage.getItem('tts_voice_ai'));
-  if(typeof processAiReplyMemory==='function')processAiReplyMemory(reply, mem.id);
+  if(typeof processAiReplyMemory==='function'){
+    const _ins=processAiReplyMemory(reply, mem.id);
+    if(_ins){
+      const _m=gGetMsg(uid);if(_m)_m.insight=_ins;
+      saveGroupHistory(groupHistory);
+      showGroupInsightChain(uid,_ins);
+    }
+  }
   if(typeof bumpPrivateChatCount==='function')bumpPrivateChatCount(mem.id);
 }
 
@@ -557,7 +577,14 @@ async function groupMemberReply(mem,userText){
   if (typeof evolveInterAgentRelationship === 'function') evolveInterAgentRelationship(mem.id);
   if(mem.isMain)updateAiEmotion(reply);
   if(autoSpeakEnabled()&&voiceEnabled())playTTS(reply,mem.voice||localStorage.getItem('tts_voice_ai'));
-  if(typeof processAiReplyMemory==='function')processAiReplyMemory(reply, mem.id);
+  {
+    const _ins=(typeof processAiReplyMemory==='function')?processAiReplyMemory(reply, mem.id):'';
+    if(_ins){
+      const _m=gGetMsg(uid);if(_m)_m.insight=_ins;
+      saveGroupHistory(groupHistory);
+      if(typeof showGroupInsightChain==='function')showGroupInsightChain(uid,_ins);
+    }
+  }
   if(typeof bumpPrivateChatCount==='function')bumpPrivateChatCount(mem.id);
 }
 function clearGroupChat(){

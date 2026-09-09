@@ -639,17 +639,15 @@ function renderTextMessage(role,content,uid,reasoning,recallItems,proactive,ts,a
     tb.innerText='💭 '+reasoning;
     bubbles.parentNode.insertBefore(tb,bubbles);
   }
-  // 私密独白作为思考链汽泡前置（AI消息 + 思考过程开启时显示）
-  if(role!=='user'&&showThinkingEnabled()){
+  // 私密独白作为思考链汽泡前置（显示本条消息自带的独白，不依赖羁绊页）
+  if(role!=='user'){
     try{
-      const aiId=(typeof currentPrivateAiId==='function')?currentPrivateAiId():'main';
-      const m=(typeof getRelationshipMetrics==='function')?getRelationshipMetrics(aiId):null;
-      const insight=m&&m.characterMemory&&m.characterMemory.insight;
-      if(insight){
+      const mObj=(typeof getMsg==='function')?getMsg(uid):null;
+      if(mObj&&mObj.insight){
         const mb=document.createElement('div');
-        mb.className='thinking-block';
+        mb.className='thinking-block insight-chain';
         mb.style.opacity='0.75';
-        mb.innerText='💭 独白：'+insight;
+        mb.innerText='💭 独白：'+mObj.insight;
         bubbles.parentNode.insertBefore(mb,bubbles);
       }
     }catch(e){}
@@ -984,7 +982,14 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
         if (typeof adjustAiPersonality === 'function' && (reply.includes('[[proactive]]') || reply.includes('proactive') || clean.includes('主动'))) {
           adjustAiPersonality(currentAi, 'responded_proactive');
         }
-        if(typeof processAiReplyMemory==='function')processAiReplyMemory(reply, currentAi);
+        {
+          const _ins=(typeof processAiReplyMemory==='function')?processAiReplyMemory(reply, currentAi):'';
+          if(_ins){
+            const _m=getMsg(uid);if(_m)_m.insight=_ins;
+            saveHistory();
+            if(typeof showInsightChain==='function')showInsightChain(uid,_ins);
+          }
+        }
         markActivity();
         if(autoSpeakEnabled()&&voiceEnabled())playTTS(clean,getActiveTtsVoice());
         if(!isStrictSingleApiChatMode()&&typeof triggerVisualEvaluation==='function') triggerVisualEvaluation(q, clean, currentAi, uid);
@@ -1155,7 +1160,14 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
       if (typeof adjustAiPersonality === 'function' && (full.includes('[[proactive]]') || full.includes('proactive') || display.includes('主动'))) {
         adjustAiPersonality(currentAi, 'responded_proactive');
       }
-      if(typeof processAiReplyMemory==='function')processAiReplyMemory(full, currentAi);
+      {
+        const _ins=(typeof processAiReplyMemory==='function')?processAiReplyMemory(full, currentAi):'';
+        if(_ins){
+          const _m=getMsg(uid);if(_m)_m.insight=_ins;
+          saveHistory();
+          if(typeof showInsightChain==='function')showInsightChain(uid,_ins);
+        }
+      }
       markActivity();
       if(autoSpeakEnabled()&&voiceEnabled()&&full)playTTS(full,getActiveTtsVoice());
       if(!isStrictSingleApiChatMode()&&typeof triggerVisualEvaluation==='function') triggerVisualEvaluation(q, display, currentAi, uid);
@@ -1163,6 +1175,18 @@ if(window.recordTokenTelemetry)recordTokenTelemetry({caller:'requestAI-input',pr
   }
 
 /* ===== 消息操作 ===== */
+/* 在指定消息气泡上方插入独白思考链（用户无需点开羁绊即可见） */
+function showInsightChain(uid,insight){
+  if(!insight)return;
+  const div=getMsgDiv(uid);if(!div)return;
+  const bubbles=div.querySelector('.bubbles');if(!bubbles)return;
+  if(div.querySelector('.insight-chain'))return; // 防重复插入
+  const mb=document.createElement('div');
+  mb.className='thinking-block insight-chain';
+  mb.style.opacity='0.75';
+  mb.innerText='💭 独白：'+insight;
+  bubbles.parentNode.insertBefore(mb,bubbles);
+}
 function getMsg(uid){return conversationHistory.find(m=>m.uid===uid);}
 function getMsgDiv(uid){return document.querySelector(`.message[data-uid="${uid}"]`);}
 function msgCopy(uid){const m=getMsg(uid);if(m)navigator.clipboard.writeText(m.content).then(()=>showToast('✅ 已复制'));}
